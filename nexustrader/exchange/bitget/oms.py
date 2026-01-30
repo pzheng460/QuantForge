@@ -715,8 +715,17 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
                 "category": category,
                 "symbol": market.id,
                 "qty": str(amount),
+                "side": BitgetEnumParser.to_bitget_order_side(side).value,
                 "clientOid": oid,
             }
+            # For futures trading, posSide is required for UTA v3 API
+            # posSide: "long" for long position, "short" for short position
+            if not market.spot:
+                if side.is_buy:
+                    params["posSide"] = "short" if reduce_only else "long"
+                else:
+                    params["posSide"] = "long" if reduce_only else "short"
+
             if type.is_limit:
                 params["price"] = str(price)
                 params["timeInForce"] = BitgetEnumParser.to_bitget_time_in_force(
