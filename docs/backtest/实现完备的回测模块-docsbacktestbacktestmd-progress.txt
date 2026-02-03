@@ -1,0 +1,61 @@
+# Implementation Progress: 实现完备的回测模块
+
+## Overall Status: NOT STARTED
+
+## Phase 1: Data Layer
+Status: [PENDING]
+- [ ] 创建 nexustrader/backtest/ 目录结构
+- [ ] 实现 DataProvider 基类
+- [ ] 实现 CCXTDataProvider
+- [ ] 实现 FileDataProvider
+- [ ] 实现 FundingRateProvider
+- [ ] 编写完整测试套件
+Verification: uv run pytest test/backtest/test_data*.py -v && uvx ruff check nexustrader/backtest/data/
+
+## Phase 2: Backtest Engine
+Status: [PENDING]
+- [ ] 实现 CostModel 交易成本模型
+- [ ] 实现 VectorizedBacktest 向量化引擎
+- [ ] 实现 EventDrivenBacktest 事件驱动引擎
+- [ ] 实现 BacktestResult 数据类
+- [ ] 编写完整测试套件
+Verification: uv run pytest test/backtest/test_*backtest*.py -v && uvx ruff check nexustrader/backtest/engine/
+
+## Phase 3: Metrics & Report
+Status: [PENDING]
+- [ ] 实现 PerformanceAnalyzer 性能指标计算
+- [ ] 实现 RegimeClassifier 市场状态分类
+- [ ] 实现 ReportGenerator HTML 报告生成
+- [ ] 编写完整测试套件
+Verification: uv run pytest test/backtest/test_metrics.py test_regime.py test_report.py -v && uvx ruff check nexustrader/backtest/analysis/
+
+## Phase 4: Optimization Tools
+Status: [PENDING]
+- [ ] 实现 GridSearchOptimizer 网格搜索
+- [ ] 实现 OptunaOptimizer 贝叶斯优化
+- [ ] 实现 WalkForwardAnalyzer 滚动分析
+- [ ] 创建 examples/backtest_example.py 示例脚本
+- [ ] 编写完整测试套件
+Verification: uv run pytest test/backtest/test_*opt*.py test_walk*.py -v && uv run python examples/backtest_example.py --help
+
+## User Stories Status
+- [ ] US-1: 数据源抽象层
+- [ ] US-2: 资金费率获取
+- [ ] US-3: 向量化回测引擎
+- [ ] US-4: 事件驱动回测引擎
+- [ ] US-5: 性能指标计算
+- [ ] US-6: 交互式报告生成
+- [ ] US-7: 网格搜索优化
+- [ ] US-8: Optuna 贝叶斯优化
+- [ ] US-9: Walk-Forward 分析
+- [ ] US-10: 市场状态分类
+- [ ] US-11: 回测结果存储
+- [ ] US-12: 策略回测脚本模板
+
+## Notes
+- 每个模块实现前必须先编写测试脚本
+- MVP 仅支持 Bitget，预留其他交易所接口
+- 向量化回测用于快速优化，事件驱动用于最终验证
+
+---
+Last Updated: 2026-02-02

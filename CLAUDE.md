@@ -201,6 +201,56 @@ Start with: `docker-compose up -d`
 ### Import Guidelines
 - Always use absolute path imports
 
+## Universal Quant Stratification Standard (UQSS)
+
+All strategy development in this project follows the UQSS tiering system. This standard is based on "Alpha Profile" rather than specific indicator values, making it reusable across different strategy types (mean-reversion, trend-following, arbitrage, ML-based).
+
+### UQSS Levels (L1-L5)
+
+| Level | Codename | Chinese | Holding Period | Description |
+|-------|----------|---------|----------------|-------------|
+| **L1** | Macro/Structural | 宏观/结构型 | Weeks-Months | Captures major cycle deviations. Filters all short-term noise, responds only to significant market structure changes. |
+| **L2** | Swing | 波段型 | 2-10 Days | Standard multi-day trends/reversions. The comfort zone for most technical analysis. **RECOMMENDED** |
+| **L3** | Intraday | 日内型 | 4-24 Hours | Captures intraday sentiment swings. Exploits open/close effects and funding cycles. |
+| **L4** | Scalp/Burst | 剥头皮/爆发型 | Minutes-Hours | Captures microstructure imbalances. Requires low latency and low fees. |
+| **L5** | Event/Sniper | 事件/狙击型 | Variable | Condition-triggered (crashes, wicks, funding arb). Not time-series based. |
+
+### Strategy-Specific Mappings
+
+When implementing a new strategy, map the UQSS levels to strategy-specific parameters:
+
+**Hurst-Kalman (Mean Reversion)**:
+- L1: `hurst_window=200`, `zscore_entry=3.5` - Weekly structure
+- L2: `hurst_window=100`, `zscore_entry=3.0` - Multi-day swings
+- L3: `hurst_window=48`, `zscore_entry=2.5` - Intraday
+- L4: `hurst_window=24`, `zscore_entry=2.0` - Scalping
+- L5: `zscore_entry=4.5+` - Extreme wicks/crashes
+
+**SuperTrend (Trend Following)** (Example):
+- L1: `ATR=100`, `Factor=5` - 4-year cycles
+- L2: `ATR=20`, `Factor=3` - Multi-week trends
+- L3: `ATR=10`, `Factor=2` - Intraday momentum
+- L4: `ATR=5`, `Factor=1.5` - Minute-level
+- L5: ATH breakout triggers
+
+### Implementation
+
+```python
+from nexustrader.strategy_config import StrategyLevel, UniversalConfig
+
+# Define strategy config using UQSS
+config = UniversalConfig(
+    level=StrategyLevel.L2_SWING,
+    name="My Strategy Swing",
+    description="Multi-day swing trading",
+    timeframe="4h",
+    risk_per_trade=0.02,
+    params={"indicator_param": value}
+)
+```
+
+See `nexustrader/strategy_config/config_schema.py` for the full UQSS implementation.
+
 ## Claude Code Memories
 
 ### CLI Usage Warnings

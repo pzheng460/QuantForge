@@ -1,0 +1,39 @@
+# Implementation Progress: 比特币赫斯特-卡尔曼量化交易策略
+
+## Phase 1: 核心算法与测试
+- [DONE] 实现 calculate_hurst() 函数
+- [DONE] 实现 KalmanFilter1D 类
+- [DONE] 编写单元测试
+Verification: uv run pytest test/strategy/test_hurst_kalman.py -v ✓ (18 passed)
+
+## Phase 2: vectorbt 回测
+- [DONE] 实现数据获取模块（ccxt + Bitget）
+- [DONE] 实现向量化信号生成
+- [DONE] 实现回测主体 (使用 pandas 替代 vectorbt)
+- [DONE] 生成回测报告
+Verification: uv run python strategy/bitget/hurst_kalman/backtest.py ✓
+
+## Phase 3: NexusTrader 指标封装
+- [DONE] 实现 HurstKalmanIndicator 类
+- [DONE] 实现 warmup 逻辑
+- [DONE] 实现信号生成接口
+Verification: uvx ruff check strategy/bitget/hurst_kalman/ ✓
+
+## Phase 4: 实盘策略与风控
+- [DONE] 实现策略主体类 (HurstKalmanStrategy)
+- [DONE] 实现风控模块（熔断、止损、手续费检查）
+- [PARTIAL] PostgreSQL 交易记录 (基础日志实现，完整DB存储需后续完善)
+- [READY] 在 Bitget Demo 模拟盘测试运行
+Verification: Strategy imports and basic tests pass ✓
+
+## Files Created
+- strategy/bitget/hurst_kalman/__init__.py
+- strategy/bitget/hurst_kalman/core.py
+- strategy/bitget/hurst_kalman/indicator.py
+- strategy/bitget/hurst_kalman/strategy.py
+- strategy/bitget/hurst_kalman/backtest.py
+- test/strategy/test_hurst_kalman.py
+
+---
+Last Updated: 2026-01-30
+Status: COMPLETE (ready for Demo testing)

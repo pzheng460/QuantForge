@@ -1,0 +1,128 @@
+{
+  "title": "比特币赫斯特-卡尔曼量化交易策略",
+  "slug": "hurst-kalman-strategy",
+  "created": "2026-01-30",
+  "status": "approved",
+  "overview": "在 NexusTrader 框架下为 Bitget 交易所实现比特币赫斯特-卡尔曼量化交易策略",
+  "scope": {
+    "in_scope": [
+      "核心算法实现（Hurst R/S 分析、Kalman 滤波器）",
+      "NexusTrader 实盘策略（Bitget Demo 模拟盘）",
+      "vectorbt 历史回测脚本",
+      "单元测试（核心算法）",
+      "多交易对支持",
+      "风控机制（熔断、止损、手续费过滤）",
+      "PostgreSQL 交易记录存储"
+    ],
+    "out_of_scope": [
+      "Web UI 监控面板",
+      "多交易所支持",
+      "参数自动优化器"
+    ]
+  },
+  "user_stories": [
+    {
+      "id": "US-1",
+      "title": "核心算法库实现",
+      "acceptance_criteria": [
+        "calculate_hurst() 返回 0-1 之间的 H 值",
+        "KalmanFilter1D 类支持 update() 方法",
+        "对于合成数据，Hurst 计算误差 < 0.1",
+        "单元测试通过"
+      ]
+    },
+    {
+      "id": "US-2",
+      "title": "vectorbt 回测脚本",
+      "acceptance_criteria": [
+        "从 Bitget API 获取历史数据",
+        "使用 vectorbt 实现向量化回测",
+        "输出回测报告"
+      ]
+    },
+    {
+      "id": "US-3",
+      "title": "NexusTrader 指标类实现",
+      "acceptance_criteria": [
+        "HurstKalmanIndicator 继承 Indicator 基类",
+        "支持 warmup_period=150",
+        "提供 get_signal() 接口"
+      ]
+    },
+    {
+      "id": "US-4",
+      "title": "实盘策略主体",
+      "acceptance_criteria": [
+        "策略继承 Strategy 基类",
+        "通过 subscribe_klines 订阅 15m K线",
+        "支持多交易对配置",
+        "日志输出当前状态"
+      ]
+    },
+    {
+      "id": "US-5",
+      "title": "风控模块实现",
+      "acceptance_criteria": [
+        "3% 单日亏损熔断",
+        "2% 硬止损",
+        "Z-Score > 4.0 止损",
+        "手续费过滤"
+      ]
+    },
+    {
+      "id": "US-6",
+      "title": "交易记录持久化",
+      "acceptance_criteria": [
+        "订单记录到 PostgreSQL",
+        "每日统计可查询"
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "id": 1,
+      "name": "核心算法与测试",
+      "tasks": ["实现 calculate_hurst()", "实现 KalmanFilter1D", "编写单元测试"],
+      "verification": "uv run pytest test/strategy/test_hurst_kalman.py -v"
+    },
+    {
+      "id": 2,
+      "name": "vectorbt 回测",
+      "tasks": ["数据获取模块", "向量化信号生成", "回测主体", "回测报告"],
+      "verification": "uv run python strategy/bitget/hurst_kalman/backtest.py"
+    },
+    {
+      "id": 3,
+      "name": "NexusTrader 指标封装",
+      "tasks": ["HurstKalmanIndicator 类", "warmup 逻辑", "信号生成接口"],
+      "verification": "uvx ruff check strategy/bitget/hurst_kalman/"
+    },
+    {
+      "id": 4,
+      "name": "实盘策略与风控",
+      "tasks": ["策略主体类", "风控模块", "PostgreSQL 记录", "Demo 测试"],
+      "verification": "uv run python strategy/bitget/hurst_kalman/strategy.py"
+    }
+  ],
+  "config": {
+    "symbols": ["BTCUSDT-PERP.BITGET"],
+    "timeframe": "15m",
+    "hurst_window": 100,
+    "kalman_R": 0.1,
+    "kalman_Q": 1e-5,
+    "zscore_window": 50,
+    "mean_reversion_threshold": 0.45,
+    "trend_threshold": 0.55,
+    "zscore_entry": 2.0,
+    "zscore_stop": 4.0,
+    "position_size_pct": 0.10,
+    "stop_loss_pct": 0.02,
+    "daily_loss_limit": 0.03,
+    "min_expected_profit": 0.001
+  },
+  "verification_commands": {
+    "test": "uv run pytest test/strategy/test_hurst_kalman.py",
+    "lint": "uvx ruff check",
+    "format": "uvx ruff format --check"
+  }
+}

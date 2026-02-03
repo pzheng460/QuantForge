@@ -1,0 +1,91 @@
+{
+  "feature": "实现完备的回测模块",
+  "slug": "实现完备的回测模块-docsbacktestbacktestmd",
+  "created": "2026-02-02",
+  "status": "spec_complete",
+  "summary": "为 NexusTrader 框架实现完备的回测模块，采用混合架构（向量化+事件驱动），支持多数据源、完整交易成本模拟、高级性能指标、交互式报告、参数优化和防过拟合验证工具。",
+  "phases": [
+    {
+      "name": "Data Layer",
+      "status": "pending",
+      "tasks": [
+        "创建 nexustrader/backtest/ 目录结构",
+        "实现 DataProvider 基类",
+        "实现 CCXTDataProvider",
+        "实现 FileDataProvider",
+        "实现 FundingRateProvider",
+        "编写完整测试套件"
+      ],
+      "verification": "uv run pytest test/backtest/test_data*.py -v && uvx ruff check nexustrader/backtest/data/"
+    },
+    {
+      "name": "Backtest Engine",
+      "status": "pending",
+      "tasks": [
+        "实现 CostModel 交易成本模型",
+        "实现 VectorizedBacktest 向量化引擎",
+        "实现 EventDrivenBacktest 事件驱动引擎",
+        "实现 BacktestResult 数据类",
+        "编写完整测试套件"
+      ],
+      "verification": "uv run pytest test/backtest/test_*backtest*.py -v && uvx ruff check nexustrader/backtest/engine/"
+    },
+    {
+      "name": "Metrics & Report",
+      "status": "pending",
+      "tasks": [
+        "实现 PerformanceAnalyzer 性能指标计算",
+        "实现 RegimeClassifier 市场状态分类",
+        "实现 ReportGenerator HTML 报告生成",
+        "编写完整测试套件"
+      ],
+      "verification": "uv run pytest test/backtest/test_metrics.py test_regime.py test_report.py -v && uvx ruff check nexustrader/backtest/analysis/"
+    },
+    {
+      "name": "Optimization Tools",
+      "status": "pending",
+      "tasks": [
+        "实现 GridSearchOptimizer 网格搜索",
+        "实现 OptunaOptimizer 贝叶斯优化",
+        "实现 WalkForwardAnalyzer 滚动分析",
+        "创建 examples/backtest_example.py 示例脚本",
+        "编写完整测试套件"
+      ],
+      "verification": "uv run pytest test/backtest/test_*opt*.py test_walk*.py -v && uv run python examples/backtest_example.py --help"
+    }
+  ],
+  "user_stories": [
+    {"id": "US-1", "title": "数据源抽象层", "status": "pending"},
+    {"id": "US-2", "title": "资金费率获取", "status": "pending"},
+    {"id": "US-3", "title": "向量化回测引擎", "status": "pending"},
+    {"id": "US-4", "title": "事件驱动回测引擎", "status": "pending"},
+    {"id": "US-5", "title": "性能指标计算", "status": "pending"},
+    {"id": "US-6", "title": "交互式报告生成", "status": "pending"},
+    {"id": "US-7", "title": "网格搜索优化", "status": "pending"},
+    {"id": "US-8", "title": "Optuna 贝叶斯优化", "status": "pending"},
+    {"id": "US-9", "title": "Walk-Forward 分析", "status": "pending"},
+    {"id": "US-10", "title": "市场状态分类", "status": "pending"},
+    {"id": "US-11", "title": "回测结果存储", "status": "pending"},
+    {"id": "US-12", "title": "策略回测脚本模板", "status": "pending"}
+  ],
+  "key_decisions": {
+    "architecture": "混合模式（向量化+事件驱动）",
+    "location": "nexustrader/backtest/",
+    "strategy_integration": "复用现有 Strategy 基类",
+    "data_sources": ["CCXT", "CSV/Parquet", "PostgreSQL"],
+    "funding_rate": "通过 API 获取实际历史资金费率",
+    "cost_model": "完整模拟（费率+滑点+资金费率+限价单成交概率）",
+    "metrics": "高级指标（含 BTC 相关性、分状态统计）",
+    "visualization": "交互式 HTML 报告",
+    "optimization": "网格搜索 + Optuna",
+    "validation": "Walk-Forward + Regime Bucketing",
+    "exchange": "MVP 仅 Bitget，预留其他接口",
+    "storage": "JSON 文件",
+    "testing": "每个模块实现前必须先编写测试脚本"
+  },
+  "out_of_scope": [
+    "模拟交易所订单簿（流动性耗尽、深度影响）",
+    "Paper Trading 实时模拟",
+    "多交易对同时回测（架构预留，但 MVP 不实现）"
+  ]
+}

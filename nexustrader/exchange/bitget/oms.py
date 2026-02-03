@@ -718,13 +718,9 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
                 "side": BitgetEnumParser.to_bitget_order_side(side).value,
                 "clientOid": oid,
             }
-            # For futures trading, posSide is required for UTA v3 API
-            # posSide: "long" for long position, "short" for short position
-            if not market.spot:
-                if side.is_buy:
-                    params["posSide"] = "short" if reduce_only else "long"
-                else:
-                    params["posSide"] = "long" if reduce_only else "short"
+            # Note: posSide is NOT sent for one-way mode (the only supported mode)
+            # posSide is only required for hedge/dual position mode
+            # See: _position_mode_check() and _init_position() which enforce one-way mode
 
             if type.is_limit:
                 params["price"] = str(price)
