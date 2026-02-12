@@ -98,49 +98,119 @@ Phase 5: 实盘交易
 回测脚本位于: `strategy/bitget/hurst_kalman/backtest.py`
 
 ```bash
-# 基础回测 (默认 level 2 配置, 6个月数据)
+# 基础回测 (默认 level 2 配置, 1年数据)
 uv run python strategy/bitget/hurst_kalman/backtest.py
+
+# 三阶段完整测试 (推荐用于生产验证)
+uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y
 
 # 查看已保存的回测结果
 uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
 ```
+
+### 时间周期选项
+
+| 周期 | 天数 | 说明 |
+|------|------|------|
+| `3m` | 90天 | 3个月 - 最短验证周期 |
+| `6m` | 180天 | 6个月 - 中等验证周期 |
+| `1y` | 365天 | **1年 (默认)** - 推荐验证周期 |
+| `2y` | 730天 | 2年 - 完整市场周期验证 |
 
 ### 完整命令参数
 
 | 参数 | 简写 | 说明 |
 |------|------|------|
 | `--level N` | `-l N` | 配置级别 1-5 (默认 2) |
-| `--period P` | `-p P` | 回测周期: 3m, 6m, 1y, 2y (默认 6m) |
+| `--period P` | `-p P` | 回测周期: 3m, 6m, 1y, 2y (默认 1y) |
 | `--all-levels` | `-a` | 测试所有 5 个配置级别 |
-| `--optimize` | `-o` | 运行网格搜索参数优化 |
-| `--walk-forward` | `-w` | 运行 Walk-Forward 验证 |
-| `--regime` | `-r` | 运行市场状态分析 |
-| `--full` | `-f` | 完整流程 (优化+验证+分析+报告) |
+| `--optimize` | `-o` | 仅运行网格搜索参数优化 |
+| `--walk-forward` | `-w` | 仅运行 Walk-Forward 验证 |
+| `--regime` | `-r` | 仅运行市场状态分析 |
+| `--full` | `-f` | **三阶段完整测试** (优化+滚动验证+样本外测试) |
 | `--report` | | 生成 HTML 交互式报告 |
 | `--show-results` | `-s` | 显示已保存的回测结果 |
 | `--export-config` | `-e` | 导出最佳配置供模拟盘使用 |
 
+### 完整回测验证模式 (--full)
+
+完整验证模式是生产级策略验证的推荐方式，包含以下步骤：
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    完整回测验证模式 (Comprehensive Validation)                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+步骤 1: UQSS 级别全测试
+━━━━━━━━━━━━━━━━━━━━━━━━
+  • 测试所有 5 个 UQSS 级别 (L1-L5)
+  • 找出最优级别和参数组合
+  • 生成级别对比图表
+
+步骤 2: 三阶段验证
+━━━━━━━━━━━━━━━━━━━━━━━━
+  阶段 1: 样本内优化 (80% 数据)
+    - 网格搜索最优参数
+    - 通过标准: Sharpe >= 1.0
+
+  阶段 2: 滚动验证 (Walk-Forward)
+    - 训练窗口 30 天，测试窗口 7 天
+    - 通过标准: 鲁棒性 >= 0.5, 正收益窗口 >= 50%
+
+  阶段 3: 样本外测试 (20% 数据)
+    - 最终验证 + 市场状态分析
+    - 通过标准: 性能衰减 <= 50%, Sharpe >= 0.5
+
+步骤 3: 完整市场状态分析
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+  • 详细 4 状态分析: 上涨/下跌/震荡/高波动
+  • 简化 3 状态分析 (US-10 规格): 牛市(>20%)/熊市(<-20%)/震荡
+  • 各状态下策略表现统计
+
+输出报告
+━━━━━━━━━━━━━━━━━━━━━━━━
+  • comprehensive_report.html - 完整交互式报告
+  • 包含所有级别对比、三阶段结果、市场状态分析
+  • 提供明确的下一步建议
+```
+
 ### 使用示例
 
 ```bash
-# 1. 测试特定级别和周期
+# 1. 完整验证模式 (推荐用于生产验证)
+uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y
+
+# 2. 完整验证 + 导出最佳配置
+uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y --export-config
+
+# 3. 完整验证 + 额外的标准报告
+uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y --report
+
+# 4. 使用 2 年数据进行完整验证
+uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 2y
+
+# 5. 测试特定级别和周期
 uv run python strategy/bitget/hurst_kalman/backtest.py --level 3 --period 1y
 
-# 2. 测试所有级别 (1-5)
+# 6. 测试所有级别 (1-5)
 uv run python strategy/bitget/hurst_kalman/backtest.py --all-levels --period 6m
 
-# 3. 参数优化
+# 7. 仅参数优化
 uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --period 6m
 
-# 4. 优化并导出配置供模拟盘使用
-uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --export-config
-
-# 5. 完整回测流程 (优化 + Walk-Forward + 市场状态分析 + HTML报告)
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --report
-
-# 6. 查看历史回测结果
+# 8. 查看历史回测结果
 uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
 ```
+
+### 报告输出
+
+完整验证模式会生成 `comprehensive_report.html`，包含：
+
+1. **执行摘要**: 整体评估、BTC 基准对比、最佳级别
+2. **UQSS 级别对比**: 所有级别的收益率、夏普比率、回撤对比图表
+3. **三阶段验证结果**: 每个阶段的详细指标和通过/未通过状态
+4. **市场状态分析**: 状态分布饼图、各状态收益表格
+5. **建议与下一步行动**: 基于结果的具体改进建议
 
 ---
 

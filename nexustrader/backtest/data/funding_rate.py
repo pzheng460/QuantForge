@@ -39,6 +39,7 @@ class FundingRateProvider:
             exchange_class = getattr(ccxt, self.exchange_name)
             self._exchange = exchange_class({
                 "enableRateLimit": True,
+                "timeout": 30000,  # 30 second timeout
             })
         return self._exchange
 

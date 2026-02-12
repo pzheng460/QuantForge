@@ -22,8 +22,9 @@ from nexustrader.backtest.engine.event_driven import (
 
 # Analysis tools
 from nexustrader.backtest.analysis.performance import PerformanceAnalyzer
-from nexustrader.backtest.analysis.regime import MarketRegime, RegimeClassifier
+from nexustrader.backtest.analysis.regime import MarketRegime, RegimeClassifier, SimpleRegime
 from nexustrader.backtest.analysis.report import ReportGenerator
+from nexustrader.backtest.analysis.comprehensive_report import ComprehensiveReportGenerator
 
 # Optimization tools
 from nexustrader.backtest.optimization.grid_search import (
@@ -57,7 +58,9 @@ __all__ = [
     "PerformanceAnalyzer",
     "MarketRegime",
     "RegimeClassifier",
+    "SimpleRegime",
     "ReportGenerator",
+    "ComprehensiveReportGenerator",
     # Optimization
     "GridSearchOptimizer",
     "OptimizationResult",

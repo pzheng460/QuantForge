@@ -24,6 +24,14 @@ class MarketRegime(Enum):
     HIGH_VOLATILITY = "high_volatility"
 
 
+class SimpleRegime(Enum):
+    """Simple 3-state regime classification (US-10 spec)."""
+
+    BULL = "bull"  # 上涨 > 20%
+    BEAR = "bear"  # 下跌 > 20%
+    RANGING = "ranging"  # 其他
+
+
 class RegimeClassifier:
     """
     Classify market regimes based on price data.
@@ -173,6 +181,146 @@ class RegimeClassifier:
         summary = {}
 
         for regime in MarketRegime:
+            count = counts.get(regime.value, 0)
+            summary[f"{regime.value}_pct"] = count / total * 100
+
+        return summary
+
+    def classify_simple(
+        self,
+        data: pd.DataFrame,
+        bull_threshold: float = 0.20,
+        bear_threshold: float = 0.20,
+        lookback: int = None,
+    ) -> pd.Series:
+        """
+        Simple 3-state regime classification (US-10 spec) - Production version.
+
+        Uses expanding window from recent pivot points to classify market state,
+        detecting when price has moved significantly from local highs or lows.
+
+        Classification logic:
+        - Bull: Price has risen > bull_threshold (20%) from recent low
+        - Bear: Price has fallen > bear_threshold (20%) from recent high
+        - Ranging: otherwise
+
+        This approach:
+        1. Tracks expanding high/low from data start (cumulative extremes)
+        2. Uses multiple rolling windows to detect regimes at different scales
+        3. Robust to both fast and gradual market moves
+
+        Args:
+            data: OHLCV DataFrame with DatetimeIndex
+            bull_threshold: Threshold for bull market (default 0.20 = 20%)
+            bear_threshold: Threshold for bear market (default 0.20 = 20%)
+            lookback: Rolling window for return calculation. If None, auto-calculated
+
+        Returns:
+            Series of SimpleRegime labels
+        """
+        n = len(data)
+        regimes = pd.Series(index=data.index, dtype=str)
+        close = data["close"]
+
+        # Auto-calculate lookback if not provided
+        if lookback is None:
+            if n >= 2:
+                time_diff = (data.index[-1] - data.index[0]).total_seconds()
+                if time_diff > 0:
+                    total_days = time_diff / 86400
+                    bars_per_day = n / total_days
+                    if total_days >= 30:
+                        lookback = int(bars_per_day * 30)
+                    else:
+                        lookback = max(10, int(n * 0.3))
+                else:
+                    lookback = max(10, n // 3)
+                lookback = max(10, min(lookback, int(n * 0.8)))
+            else:
+                lookback = max(1, n - 1)
+
+        # Use EXPANDING window for cumulative high/low from start
+        # This tracks the historical high and low seen so far
+        expanding_max = close.expanding(min_periods=1).max()
+        expanding_min = close.expanding(min_periods=1).min()
+
+        # Also calculate rolling returns at multiple periods
+        lookback_periods = [
+            lookback,
+            max(5, lookback // 2),
+            max(3, lookback // 4),
+        ]
+        rolling_returns = {lb: close.pct_change(lb) for lb in lookback_periods}
+
+        # Classify each bar
+        for i in range(n):
+            current_price = close.iloc[i]
+            cum_high = expanding_max.iloc[i]
+            cum_low = expanding_min.iloc[i]
+
+            # Calculate distance from cumulative high/low
+            # This measures how far price has moved from historical extremes
+            if cum_low > 0:
+                dist_from_low = (current_price - cum_low) / cum_low
+            else:
+                dist_from_low = 0.0
+
+            if cum_high > 0:
+                dist_from_high = (current_price - cum_high) / cum_high
+            else:
+                dist_from_high = 0.0
+
+            # Also check rolling returns for additional confirmation
+            max_rolling_ret = 0.0
+            min_rolling_ret = 0.0
+            for lb in lookback_periods:
+                if i >= lb:
+                    ret = rolling_returns[lb].iloc[i]
+                    if not pd.isna(ret):
+                        max_rolling_ret = max(max_rolling_ret, ret)
+                        min_rolling_ret = min(min_rolling_ret, ret)
+
+            # Classification:
+            # Bull: Price is significantly above the historical low
+            # Bear: Price is significantly below the historical high
+            is_bull = dist_from_low > bull_threshold or max_rolling_ret > bull_threshold
+            is_bear = dist_from_high < -bear_threshold or min_rolling_ret < -bear_threshold
+
+            if is_bull and not is_bear:
+                regimes.iloc[i] = SimpleRegime.BULL.value
+            elif is_bear and not is_bull:
+                regimes.iloc[i] = SimpleRegime.BEAR.value
+            elif is_bull and is_bear:
+                # Both conditions - decide by which is stronger
+                bull_strength = max(dist_from_low, max_rolling_ret)
+                bear_strength = max(abs(dist_from_high), abs(min_rolling_ret))
+                if bull_strength > bear_strength:
+                    regimes.iloc[i] = SimpleRegime.BULL.value
+                else:
+                    regimes.iloc[i] = SimpleRegime.BEAR.value
+            else:
+                regimes.iloc[i] = SimpleRegime.RANGING.value
+
+        return regimes
+
+    def get_simple_regime_summary(self, regimes: pd.Series) -> Dict[str, float]:
+        """
+        Get summary statistics for simple regime distribution.
+
+        Args:
+            regimes: Series of SimpleRegime labels
+
+        Returns:
+            Dictionary with regime percentages
+        """
+        total = len(regimes)
+        if total == 0:
+            return {}
+
+        counts = regimes.value_counts()
+        summary = {}
+
+        for regime in SimpleRegime:
             count = counts.get(regime.value, 0)
             summary[f"{regime.value}_pct"] = count / total * 100
 

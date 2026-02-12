@@ -34,3 +34,6 @@ settings.toml
 jupyter/
 .tmp
 yaml-config/
+*.log
+*.json
+*.html

@@ -1,19 +1,22 @@
 """
 Tests for RegimeClassifier.
 
-US-5: 市场状态分类
+US-10: 市场状态分类
 - RegimeClassifier 根据价格走势分类市场状态
-- 支持趋势/震荡/高波动等状态识别
-- 按状态分组统计回测表现
+- 识别三种状态：牛市（上涨 > 20%）、熊市（下跌 > 20%）、震荡（其他）
+- 分别统计各状态下的策略表现
+- 输出分状态的性能报告
 """
-
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.analysis.regime import RegimeClassifier, MarketRegime
+from nexustrader.backtest.analysis.regime import (
+    RegimeClassifier,
+    MarketRegime,
+    SimpleRegime,
+)
 
 
 class TestMarketRegimeEnum:
@@ -279,3 +282,100 @@ class TestRegimeClassifierEdgeCases:
 
         # Should classify as ranging (no trend, no volatility)
         assert isinstance(regimes, pd.Series)
+
+
+class TestSimpleRegimeEnum:
+    """Test SimpleRegime enum (US-10 spec)."""
+
+    def test_simple_regime_values(self):
+        """SimpleRegime enum has expected values."""
+        assert SimpleRegime.BULL.value == "bull"
+        assert SimpleRegime.BEAR.value == "bear"
+        assert SimpleRegime.RANGING.value == "ranging"
+
+
+class TestSimpleClassification:
+    """Test simple 3-state classification (US-10 spec)."""
+
+    def test_detect_bull_market(self):
+        """Detect bull market when price rises > 20%."""
+        dates = pd.date_range("2024-01-01", periods=100, freq="15min")
+        # 25% price increase
+        close = np.linspace(50000, 62500, 100)
+        data = pd.DataFrame({
+            "open": close - 10,
+            "high": close + 20,
+            "low": close - 20,
+            "close": close,
+            "volume": np.full(100, 500.0),
+        }, index=dates)
+
+        classifier = RegimeClassifier()
+        regimes = classifier.classify_simple(data)
+
+        # Should detect bull market after 20% rise
+        bull_count = (regimes == SimpleRegime.BULL.value).sum()
+        assert bull_count > 0
+
+    def test_detect_bear_market(self):
+        """Detect bear market when price drops > 20%."""
+        dates = pd.date_range("2024-01-01", periods=100, freq="15min")
+        # 25% price decrease
+        close = np.linspace(50000, 37500, 100)
+        data = pd.DataFrame({
+            "open": close + 10,
+            "high": close + 20,
+            "low": close - 20,
+            "close": close,
+            "volume": np.full(100, 500.0),
+        }, index=dates)
+
+        classifier = RegimeClassifier()
+        regimes = classifier.classify_simple(data)
+
+        # Should detect bear market after 20% drop
+        bear_count = (regimes == SimpleRegime.BEAR.value).sum()
+        assert bear_count > 0
+
+    def test_detect_ranging_market(self):
+        """Detect ranging market when price stays within 20% bounds."""
+        dates = pd.date_range("2024-01-01", periods=100, freq="15min")
+        # 10% oscillation (within 20% bounds)
+        close = 50000 + np.sin(np.linspace(0, 4 * np.pi, 100)) * 5000
+        data = pd.DataFrame({
+            "open": close - 10,
+            "high": close + 20,
+            "low": close - 20,
+            "close": close,
+            "volume": np.full(100, 500.0),
+        }, index=dates)
+
+        classifier = RegimeClassifier()
+        regimes = classifier.classify_simple(data)
+
+        # Should be mostly ranging
+        ranging_count = (regimes == SimpleRegime.RANGING.value).sum()
+        assert ranging_count > 50  # Majority should be ranging
+
+    def test_simple_regime_summary(self):
+        """Get summary statistics for simple regime."""
+        dates = pd.date_range("2024-01-01", periods=100, freq="15min")
+        close = np.linspace(50000, 60000, 100)  # 20% increase
+        data = pd.DataFrame({
+            "open": close - 10,
+            "high": close + 20,
+            "low": close - 20,
+            "close": close,
+            "volume": np.full(100, 500.0),
+        }, index=dates)
+
+        classifier = RegimeClassifier()
+        regimes = classifier.classify_simple(data)
+        summary = classifier.get_simple_regime_summary(regimes)
+
+        assert "bull_pct" in summary
+        assert "bear_pct" in summary
+        assert "ranging_pct" in summary
+        # All percentages should sum to 100
+        total = summary["bull_pct"] + summary["bear_pct"] + summary["ranging_pct"]
+        assert abs(total - 100.0) < 0.01
