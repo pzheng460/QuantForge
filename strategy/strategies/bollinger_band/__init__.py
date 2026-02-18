@@ -1,0 +1,1 @@
+"""Bollinger Band strategy definition."""

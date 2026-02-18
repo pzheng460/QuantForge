@@ -28,7 +28,7 @@ class BacktestConfig:
     taker_fee: float = 0.0005
     slippage_pct: float = 0.0005
     use_funding_rate: bool = True
-    exchange: str = "bitget"
+    exchange: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
@@ -72,7 +72,7 @@ class BacktestConfig:
             taker_fee=data.get("taker_fee", 0.0005),
             slippage_pct=data.get("slippage_pct", 0.0005),
             use_funding_rate=data.get("use_funding_rate", True),
-            exchange=data.get("exchange", "bitget"),
+            exchange=data.get("exchange", ""),
         )
 
 

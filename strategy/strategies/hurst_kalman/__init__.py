@@ -1,0 +1,1 @@
+"""Hurst-Kalman strategy definition."""

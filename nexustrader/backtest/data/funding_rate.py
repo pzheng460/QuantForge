@@ -18,7 +18,7 @@ class FundingRateProvider:
 
     def __init__(
         self,
-        exchange: str = "bitget",
+        exchange: str,
         enable_cache: bool = True,
     ):
         """

@@ -55,7 +55,7 @@ class HurstKalmanIndicator(Indicator):
     def __init__(
         self,
         config: Optional[HurstKalmanConfig] = None,
-        warmup_period: int = 150,
+        warmup_period: Optional[int] = None,
         kline_interval: KlineInterval = KlineInterval.MINUTE_15,
     ):
         """
@@ -63,10 +63,12 @@ class HurstKalmanIndicator(Indicator):
 
         Args:
             config: Strategy configuration (uses defaults if None)
-            warmup_period: Number of klines for warmup
+            warmup_period: Number of klines for warmup (auto-calculated if None)
             kline_interval: Kline interval for warmup data
         """
         self._config = config or HurstKalmanConfig()
+        if warmup_period is None:
+            warmup_period = self._config.hurst_window + self._config.zscore_window
 
         super().__init__(
             params={
@@ -266,13 +268,16 @@ class HurstKalmanIndicator(Indicator):
         """Get current trading signal (method form for compatibility)."""
         return self._signal
 
-    def should_stop_loss(self, entry_price: float, current_price: float) -> bool:
+    def should_stop_loss(
+        self, entry_price: float, current_price: float, is_long: bool
+    ) -> bool:
         """
         Check if stop loss should be triggered.
 
         Args:
             entry_price: Position entry price
             current_price: Current market price
+            is_long: True if long position, False if short
 
         Returns:
             True if stop loss should be triggered
@@ -280,13 +285,17 @@ class HurstKalmanIndicator(Indicator):
         if entry_price <= 0:
             return False
 
-        pnl_pct = (current_price - entry_price) / entry_price
+        # Calculate PnL based on position direction
+        if is_long:
+            pnl_pct = (current_price - entry_price) / entry_price
+        else:
+            pnl_pct = (entry_price - current_price) / entry_price
 
-        # 2% hard stop loss
-        if abs(pnl_pct) > self._config.stop_loss_pct:
+        # Only trigger on losses exceeding threshold
+        if pnl_pct < -self._config.stop_loss_pct:
             return True
 
-        # Z-Score > 4.0 (model failure)
+        # Z-Score model failure (abs is correct here — model anomaly detection)
         if abs(self._zscore) > self._config.zscore_stop:
             return True
 

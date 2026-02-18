@@ -201,55 +201,55 @@ Start with: `docker-compose up -d`
 ### Import Guidelines
 - Always use absolute path imports
 
-## Universal Quant Stratification Standard (UQSS)
+## Unified Backtest Framework
 
-All strategy development in this project follows the UQSS tiering system. This standard is based on "Alpha Profile" rather than specific indicator values, making it reusable across different strategy types (mean-reversion, trend-following, arbitrage, ML-based).
+The backtest system is exchange-agnostic and supports all strategies through a unified CLI.
 
-### UQSS Levels (L1-L5)
+### Quick Start
 
-| Level | Codename | Chinese | Holding Period | Description |
-|-------|----------|---------|----------------|-------------|
-| **L1** | Macro/Structural | 宏观/结构型 | Weeks-Months | Captures major cycle deviations. Filters all short-term noise, responds only to significant market structure changes. |
-| **L2** | Swing | 波段型 | 2-10 Days | Standard multi-day trends/reversions. The comfort zone for most technical analysis. **RECOMMENDED** |
-| **L3** | Intraday | 日内型 | 4-24 Hours | Captures intraday sentiment swings. Exploits open/close effects and funding cycles. |
-| **L4** | Scalp/Burst | 剥头皮/爆发型 | Minutes-Hours | Captures microstructure imbalances. Requires low latency and low fees. |
-| **L5** | Event/Sniper | 事件/狙击型 | Variable | Condition-triggered (crashes, wicks, funding arb). Not time-series based. |
+```bash
+# Unified CLI (recommended):
+uv run python -m strategy.backtest -S hurst_kalman -X bitget -p 1y --full
+uv run python -m strategy.backtest -S ema_crossover -X binance --heatmap
+uv run python -m strategy.backtest -S bollinger_band -X okx --optimize
 
-### Strategy-Specific Mappings
-
-When implementing a new strategy, map the UQSS levels to strategy-specific parameters:
-
-**Hurst-Kalman (Mean Reversion)**:
-- L1: `hurst_window=200`, `zscore_entry=3.5` - Weekly structure
-- L2: `hurst_window=100`, `zscore_entry=3.0` - Multi-day swings
-- L3: `hurst_window=48`, `zscore_entry=2.5` - Intraday
-- L4: `hurst_window=24`, `zscore_entry=2.0` - Scalping
-- L5: `zscore_entry=4.5+` - Extreme wicks/crashes
-
-**SuperTrend (Trend Following)** (Example):
-- L1: `ATR=100`, `Factor=5` - 4-year cycles
-- L2: `ATR=20`, `Factor=3` - Multi-week trends
-- L3: `ATR=10`, `Factor=2` - Intraday momentum
-- L4: `ATR=5`, `Factor=1.5` - Minute-level
-- L5: ATH breakout triggers
-
-### Implementation
-
-```python
-from nexustrader.strategy_config import StrategyLevel, UniversalConfig
-
-# Define strategy config using UQSS
-config = UniversalConfig(
-    level=StrategyLevel.L2_SWING,
-    name="My Strategy Swing",
-    description="Multi-day swing trading",
-    timeframe="4h",
-    risk_per_trade=0.02,
-    params={"indicator_param": value}
-)
+# Backward-compatible (old entry points still work):
+uv run python strategy/bitget/hurst_kalman/backtest.py --full
+uv run python strategy/bitget/ema_crossover/backtest.py --heatmap
 ```
 
-See `nexustrader/strategy_config/config_schema.py` for the full UQSS implementation.
+### CLI Arguments
+
+| Flag | Description |
+|------|-------------|
+| `-S, --strategy` | Strategy name: `hurst_kalman`, `ema_crossover`, `bollinger_band` |
+| `-X, --exchange` | Exchange: `bitget`, `binance`, `okx`, `bybit`, `hyperliquid` |
+| `--symbol` | Trading pair (default: exchange-specific BTC/USDT perpetual) |
+| `-p, --period` | Data period: `3m`, `6m`, `1y`, `2y` |
+| `-m, --mesa` | Mesa config index (0 = best) |
+| `--heatmap` | Run heatmap parameter scan |
+| `-o, --optimize` | Grid search optimization |
+| `-w, --walk-forward` | Walk-forward validation |
+| `-r, --regime` | Market regime analysis |
+| `-f, --full` | Three-stage complete validation |
+| `-s, --show-results` | Show saved results |
+| `-e, --export-config` | Export config for paper trading |
+
+### Architecture
+
+- `strategy/backtest/` — Unified framework (runner, CLI, registry, exchange profiles, heatmap)
+- `strategy/strategies/` — Exchange-agnostic strategy definitions (core algorithms, signal generators, registrations)
+- `strategy/bitget/` — Live trading code (exchange-specific, unchanged)
+
+### Supported Exchanges
+
+| Exchange | CCXT ID | Maker Fee | Taker Fee |
+|----------|---------|-----------|-----------|
+| Bitget | `bitget` | 0.02% | 0.05% |
+| Binance | `binance` | 0.02% | 0.04% |
+| OKX | `okx` | 0.02% | 0.05% |
+| Bybit | `bybit` | 0.02% | 0.05% |
+| Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
 
 ## Claude Code Memories
 

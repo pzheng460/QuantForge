@@ -1,17 +1,16 @@
 """
-Hurst-Kalman Trading Strategy for Bitget (V2 - Optimized).
+Bollinger Band Mean Reversion Trading Strategy for Bitget.
 
 This strategy uses:
-- Hurst exponent for market state identification (mean-reverting vs trending)
-- Kalman filter for true value estimation
-- Z-Score for signal generation
-- Trade filtering (min holding, cooldown, signal confirmation)
+- Bollinger Bands for overbought/oversold detection
+- Mean reversion to SMA for exit signals
+- Price-based stop loss for risk management
 
 Usage:
-    uv run python -m strategy.bitget.hurst_kalman.strategy
+    uv run python -m strategy.bitget.bollinger_band.strategy
 
 Log output:
-    strategy/bitget/hurst_kalman/strategy_output.log
+    strategy/bitget/bollinger_band/strategy_output.log
 """
 
 import sys
@@ -47,14 +46,14 @@ class LogTee:
 LOG_FILE = Path(__file__).parent / "strategy_output.log"
 sys.stdout = LogTee(str(LOG_FILE))
 
-from nexustrader.config import (
+from nexustrader.config import (  # noqa: E402
     BasicConfig,
     Config,
     LogConfig,
     PrivateConnectorConfig,
     PublicConnectorConfig,
 )
-from nexustrader.constants import (
+from nexustrader.constants import (  # noqa: E402
     DataType,
     ExchangeType,
     KlineInterval,
@@ -62,22 +61,21 @@ from nexustrader.constants import (
     OrderType,
     settings,
 )
-from nexustrader.engine import Engine
-from nexustrader.exchange import BitgetAccountType
-from nexustrader.schema import Kline, Order
-from nexustrader.strategy import Strategy
+from nexustrader.engine import Engine  # noqa: E402
+from nexustrader.exchange import BitgetAccountType  # noqa: E402
+from nexustrader.schema import Kline, Order  # noqa: E402
+from nexustrader.strategy import Strategy  # noqa: E402
 
-from strategy.bitget.hurst_kalman.configs import (
-    TradeFilterConfig,
+from strategy.bitget.bollinger_band.configs import (  # noqa: E402
+    BBTradeFilterConfig,
     get_config,
 )
-from strategy.bitget.hurst_kalman.core import HurstKalmanConfig
-from strategy.bitget.hurst_kalman.indicator import (
-    HurstKalmanIndicator,
-    MarketState,
+from strategy.bitget.bollinger_band.core import BBConfig  # noqa: E402
+from strategy.bitget.bollinger_band.indicator import (  # noqa: E402
+    BollingerBandIndicator,
     Signal,
 )
-from strategy.bitget.hurst_kalman.performance import PerformanceTracker
+from strategy.bitget.common.performance import PerformanceTracker  # noqa: E402
 
 
 # API credentials from settings
@@ -95,7 +93,7 @@ class PositionState:
     entry_price: float = 0.0
     amount: Decimal = Decimal("0")
     entry_time: Optional[datetime] = None
-    entry_bar: int = 0  # Bar number when position was opened
+    entry_bar: int = 0
 
 
 @dataclass
@@ -109,15 +107,15 @@ class DailyStats:
     is_circuit_breaker_active: bool = False
 
 
-class HurstKalmanStrategy(Strategy):
+class BollingerBandStrategy(Strategy):
     """
-    Hurst-Kalman quantitative trading strategy (V2 - Optimized).
+    Bollinger Band mean reversion quantitative trading strategy.
 
-    Key improvements over V1:
-    1. Minimum holding period to reduce overtrading
-    2. Cooldown after closing positions
-    3. Signal confirmation for entry
-    4. Only trades in mean-reversion regime (most robust)
+    Uses Bollinger Bands for mean-reversion signals:
+    - Price below lower band (oversold): BUY
+    - Price above upper band (overbought): SELL
+    - Price returns to SMA: CLOSE
+    - Price-based stop loss for risk management
     """
 
     # Seconds to wait after warmup completes before allowing trades.
@@ -126,19 +124,18 @@ class HurstKalmanStrategy(Strategy):
     def __init__(
         self,
         symbols: Optional[List[str]] = None,
-        config: Optional[HurstKalmanConfig] = None,
-        filter_config: Optional[TradeFilterConfig] = None,
+        config: Optional[BBConfig] = None,
+        filter_config: Optional[BBTradeFilterConfig] = None,
     ):
         super().__init__()
 
-        self._config = config or HurstKalmanConfig()
-        self._filter = filter_config or TradeFilterConfig()
+        self._config = config or BBConfig()
+        self._filter = filter_config or BBTradeFilterConfig()
 
-        # Use provided symbols or default from config
         self._symbols = symbols or self._config.symbols
 
         # Indicators per symbol
-        self._indicators: Dict[str, HurstKalmanIndicator] = {}
+        self._indicators: Dict[str, BollingerBandIndicator] = {}
 
         # Position tracking per symbol
         self._positions: Dict[str, PositionState] = {}
@@ -181,19 +178,18 @@ class HurstKalmanStrategy(Strategy):
     def on_start(self) -> None:
         """Initialize subscriptions and indicators on strategy start."""
         self.log.info("=" * 60)
-        self.log.info("Starting Hurst-Kalman Strategy V2 (Optimized)")
+        self.log.info("Starting Bollinger Band Mean Reversion Strategy")
         self.log.info("=" * 60)
         self.log.info(f"Symbols: {self._symbols}")
-        self.log.info(f"Strategy Config:")
-        self.log.info(f"  zscore_entry: {self._config.zscore_entry}")
-        self.log.info(
-            f"  mean_reversion_threshold: {self._config.mean_reversion_threshold}"
-        )
-        self.log.info(f"  kalman_R: {self._config.kalman_R}")
-        self.log.info(f"  kalman_Q: {self._config.kalman_Q}")
+        self.log.info("Strategy Config:")
+        self.log.info(f"  bb_period: {self._config.bb_period}")
+        self.log.info(f"  bb_multiplier: {self._config.bb_multiplier}")
+        self.log.info(f"  exit_threshold: {self._config.exit_threshold}")
+        self.log.info(f"  trend_bias: {self._config.trend_bias or 'none (both sides)'}")
+        self.log.info(f"  trend_sma_multiplier: {self._config.trend_sma_multiplier}")
         self.log.info(f"  position_size: {self._config.position_size_pct * 100}%")
         self.log.info(f"  stop_loss: {self._config.stop_loss_pct * 100}%")
-        self.log.info(f"Filter Config:")
+        self.log.info("Filter Config:")
         self.log.info(
             f"  min_holding_bars: {self._filter.min_holding_bars} ({self._filter.min_holding_bars * 15} min)"
         )
@@ -201,7 +197,6 @@ class HurstKalmanStrategy(Strategy):
             f"  cooldown_bars: {self._filter.cooldown_bars} ({self._filter.cooldown_bars * 15} min)"
         )
         self.log.info(f"  signal_confirmation: {self._filter.signal_confirmation}")
-        self.log.info(f"  only_mean_reversion: {self._filter.only_mean_reversion}")
         self.log.info("=" * 60)
 
         # Initialize daily stats
@@ -213,32 +208,20 @@ class HurstKalmanStrategy(Strategy):
         self.log.info("=" * 60)
 
         for symbol in self._symbols:
-            # Create indicator for this symbol
-            indicator = HurstKalmanIndicator(
+            indicator = BollingerBandIndicator(
                 config=self._config,
                 kline_interval=KlineInterval.MINUTE_15,
             )
             self._indicators[symbol] = indicator
 
-            # Initialize position state
             self._positions[symbol] = PositionState(symbol=symbol)
-
-            # Initialize bar counter
             self._bar_count[symbol] = 0
-
-            # Initialize cooldown
             self._cooldown_until[symbol] = 0
-
-            # Initialize signal history
             self._signal_history[symbol] = []
 
-            # Subscribe to klines
             self.subscribe_kline(symbol, KlineInterval.MINUTE_15)
-
-            # Subscribe to bookl1 (required for market orders)
             self.subscribe_bookl1(symbol)
 
-            # Register indicator
             self.register_indicator(
                 symbols=symbol,
                 indicator=indicator,
@@ -255,9 +238,7 @@ class HurstKalmanStrategy(Strategy):
             balance = self._get_account_balance()
             self._daily_stats = DailyStats(
                 date=today,
-                starting_balance=balance
-                if balance > 0
-                else 10000.0,  # Default for demo
+                starting_balance=balance if balance > 0 else 10000.0,
             )
             self.log.info(f"Reset daily stats for {today}")
 
@@ -269,7 +250,7 @@ class HurstKalmanStrategy(Strategy):
                 return float(account_balance.balances["USDT"].total)
         except Exception as e:
             self.log.warning(f"Failed to get balance: {e}")
-        return 0.0  # Return 0 if not available
+        return 0.0
 
     def _init_performance_tracker(self) -> bool:
         """Initialize performance tracker when balance is available."""
@@ -287,7 +268,7 @@ class HurstKalmanStrategy(Strategy):
         )
         self._performance_initialized = True
         self.log.info("=" * 60)
-        self.log.info(f"Performance Tracker initialized!")
+        self.log.info("Performance Tracker initialized!")
         self.log.info(f"  Initial Balance: {balance:,.2f} USDT")
         self.log.info(f"  Config: Mesa #{self._mesa_index} ({self._config_name})")
         self.log.info("=" * 60)
@@ -320,11 +301,7 @@ class HurstKalmanStrategy(Strategy):
         """Calculate position size based on account balance."""
         balance = self._get_account_balance()
         position_value = balance * self._config.position_size_pct
-
-        # Convert to BTC amount
         amount = position_value / price
-
-        # Round to appropriate precision
         return self.amount_to_precision(symbol, Decimal(str(amount)))
 
     def _is_signal_confirmed(self, symbol: str, signal: Signal) -> bool:
@@ -334,7 +311,6 @@ class HurstKalmanStrategy(Strategy):
         if len(history) < self._filter.signal_confirmation:
             return False
 
-        # Check last N signals are the same
         for i in range(1, self._filter.signal_confirmation + 1):
             if history[-i] != signal:
                 return False
@@ -375,24 +351,18 @@ class HurstKalmanStrategy(Strategy):
         symbol = kline.symbol
         price = float(kline.close)
 
-        # Increment bar counter
         self._bar_count[symbol] = self._bar_count.get(symbol, 0) + 1
         current_bar = self._bar_count[symbol]
 
-        # Check for daily reset
         self._reset_daily_stats()
-
-        # Initialize performance tracker if not done yet
         self._init_performance_tracker()
 
-        # Get indicator for this symbol
         indicator = self._indicators.get(symbol)
         if not indicator:
             return
 
         indicator.handle_kline(kline)
 
-        # Skip if indicator not warmed up
         if not indicator.is_warmed_up:
             if current_bar % 10 == 0:
                 self.log.info(f"{symbol} | Warming up... bar {current_bar}")
@@ -413,22 +383,18 @@ class HurstKalmanStrategy(Strategy):
             self._live_trading_ready[symbol] = True
             self.log.info(f"{symbol} | LIVE TRADING ACTIVATED at bar {current_bar}")
 
-        # Get current signal and update history
         signal = indicator.get_signal()
         if symbol not in self._signal_history:
             self._signal_history[symbol] = []
         self._signal_history[symbol].append(signal)
-        # Keep only last 10 signals
         if len(self._signal_history[symbol]) > 10:
             self._signal_history[symbol] = self._signal_history[symbol][-10:]
 
-        # Get position info
         position = self._positions.get(symbol)
         bars_held = (
             current_bar - position.entry_bar if position and position.side else 0
         )
 
-        # Log current state
         cooldown_remaining = max(0, self._cooldown_until.get(symbol, 0) - current_bar)
         pos_str = (
             f"{position.side.value}@{position.entry_price:.0f}"
@@ -436,10 +402,14 @@ class HurstKalmanStrategy(Strategy):
             else "FLAT"
         )
 
+        sma_str = f"{indicator.sma:.1f}" if indicator.sma else "N/A"
+        pctb_str = f"{indicator.pct_b:.2f}" if indicator.pct_b is not None else "N/A"
+        bias_str = self._config.trend_bias or "both"
+
         self.log.info(
-            f"{symbol} | Bar={current_bar} | H={indicator.hurst:.3f} | "
-            f"Z={indicator.zscore:+.2f} | State={indicator.market_state.value} | "
-            f"Signal={signal.value} | Pos={pos_str} | Hold={bars_held} | CD={cooldown_remaining}"
+            f"{symbol} | Bar={current_bar} | SMA={sma_str} | %B={pctb_str} | "
+            f"Bias={bias_str} | Signal={signal.value} | Pos={pos_str} | "
+            f"Hold={bars_held} | CD={cooldown_remaining}"
         )
 
         # Periodic performance stats logging
@@ -448,7 +418,6 @@ class HurstKalmanStrategy(Strategy):
             and current_bar - self._last_stats_bar >= self._stats_log_interval
         ):
             self._last_stats_bar = current_bar
-            # Update balance
             current_balance = self._get_account_balance()
             if current_balance > 0:
                 self._performance.update_balance(current_balance)
@@ -481,14 +450,13 @@ class HurstKalmanStrategy(Strategy):
             return
 
         # Process trading signal
-        self._process_signal(symbol, signal, price, indicator, current_bar)
+        self._process_signal(symbol, signal, price, current_bar)
 
     def _process_signal(
         self,
         symbol: str,
         signal: Signal,
         price: float,
-        indicator: HurstKalmanIndicator,
         current_bar: int,
     ) -> None:
         """Process trading signal and execute orders."""
@@ -496,42 +464,30 @@ class HurstKalmanStrategy(Strategy):
         if not position:
             return
 
-        # Only trade in mean-reversion mode if configured
-        if self._filter.only_mean_reversion:
-            if indicator.market_state != MarketState.MEAN_REVERTING:
-                # Close any existing position when leaving mean-reversion
-                if position.side is not None and self._can_close_position(symbol):
-                    self._close_position(symbol, "Left mean-reversion regime")
-                return
-
-        # Close signal
-        if signal == Signal.CLOSE:
-            if position.side is not None and self._can_close_position(symbol):
-                self._close_position(symbol, "Z-Score near zero")
-            return
-
         # Check signal confirmation for entries
         if signal in [Signal.BUY, Signal.SELL]:
             if not self._is_signal_confirmed(symbol, signal):
                 return
 
-        # Buy signal
+        # Mean reversion close signal
+        if signal == Signal.CLOSE:
+            if position.side is not None and self._can_close_position(symbol):
+                self._close_position(symbol, "Mean reversion to SMA")
+            return
+
+        # Buy signal (oversold - price below lower band)
         if signal == Signal.BUY:
-            # Close short if exists
             if position.side == OrderSide.SELL and self._can_close_position(symbol):
                 self._close_position(symbol, "Reversing to long")
 
-            # Open long if no position
             if position.side is None:
                 self._open_position(symbol, OrderSide.BUY, price, current_bar)
 
-        # Sell signal
+        # Sell signal (overbought - price above upper band)
         elif signal == Signal.SELL:
-            # Close long if exists
             if position.side == OrderSide.BUY and self._can_close_position(symbol):
                 self._close_position(symbol, "Reversing to short")
 
-            # Open short if no position
             if position.side is None:
                 self._open_position(symbol, OrderSide.SELL, price, current_bar)
 
@@ -553,7 +509,6 @@ class HurstKalmanStrategy(Strategy):
             f">>> OPENING {side.value} position: {symbol} @ {price:.2f}, size={amount}"
         )
 
-        # Create market order
         self.create_order(
             symbol=symbol,
             side=side,
@@ -561,7 +516,6 @@ class HurstKalmanStrategy(Strategy):
             amount=amount,
         )
 
-        # Update position state
         position = self._positions[symbol]
         position.side = side
         position.entry_price = price
@@ -569,7 +523,6 @@ class HurstKalmanStrategy(Strategy):
         position.entry_time = datetime.now(timezone.utc)
         position.entry_bar = current_bar
 
-        # Track in performance
         if self._performance:
             side_str = "long" if side == OrderSide.BUY else "short"
             self._performance.open_position(symbol, side_str, price, float(amount))
@@ -580,35 +533,29 @@ class HurstKalmanStrategy(Strategy):
         if not position or position.side is None:
             return
 
-        # Check min holding unless forced (stop loss)
         if not force and not self._can_close_position(symbol):
             return
 
         self.log.info(f"<<< CLOSING position: {symbol}, reason={reason}")
 
-        # Get current price for performance tracking
-        exit_price = position.entry_price  # Default to entry price
+        exit_price = position.entry_price
         bookl1 = self.cache.bookl1(symbol)
         if bookl1:
             exit_price = float(
                 bookl1.bid if position.side == OrderSide.BUY else bookl1.ask
             )
 
-        # Record trade in performance tracker
         if self._performance:
             trade = self._performance.close_position(exit_price, reason)
             if trade:
                 self.log.info(
                     f"Trade recorded: P&L = {trade.pnl:+.2f} USDT ({trade.pnl_pct:+.2f}%)"
                 )
-                # Update balance
                 current_balance = self._get_account_balance()
                 self._performance.update_balance(current_balance)
 
-        # Determine close side (opposite of current position)
         close_side = OrderSide.SELL if position.side == OrderSide.BUY else OrderSide.BUY
 
-        # Create market order to close
         self.create_order(
             symbol=symbol,
             side=close_side,
@@ -616,18 +563,15 @@ class HurstKalmanStrategy(Strategy):
             amount=position.amount,
         )
 
-        # Update position state
         position.side = None
         position.entry_price = 0.0
         position.amount = Decimal("0")
         position.entry_time = None
         position.entry_bar = 0
 
-        # Set cooldown
         current_bar = self._bar_count.get(symbol, 0)
         self._cooldown_until[symbol] = current_bar + self._filter.cooldown_bars
 
-        # Update daily stats
         self._daily_stats.trade_count += 1
 
     def _close_all_positions(self, reason: str) -> None:
@@ -638,30 +582,24 @@ class HurstKalmanStrategy(Strategy):
     # Order callbacks
 
     def on_pending_order(self, order: Order) -> None:
-        """Handle pending order."""
         self.log.debug(f"Order pending: {order}")
 
     def on_accepted_order(self, order: Order) -> None:
-        """Handle accepted order."""
         self.log.info(f"Order accepted: {order.symbol} {order.side} {order.amount}")
 
     def on_filled_order(self, order: Order) -> None:
-        """Handle filled order."""
         self.log.info(
             f"Order FILLED: {order.symbol} {order.side} {order.amount} @ {order.price}"
         )
         self._daily_stats.trade_count += 1
 
     def on_partially_filled_order(self, order: Order) -> None:
-        """Handle partially filled order."""
         self.log.info(f"Order partially filled: {order}")
 
     def on_canceled_order(self, order: Order) -> None:
-        """Handle canceled order."""
         self.log.info(f"Order canceled: {order}")
 
     def on_failed_order(self, order: Order) -> None:
-        """Handle failed order."""
         self.log.error(f"Order FAILED: {order}")
 
 
@@ -671,12 +609,12 @@ class HurstKalmanStrategy(Strategy):
 # Mesa #0 = best Sharpe (default)
 # Mesa #1 = second best, etc.
 #
-# Generate configs: uv run python strategy/bitget/hurst_kalman/backtest.py --heatmap
-# List configs:     python -m strategy.bitget.hurst_kalman.configs
-# Override:         python -m strategy.bitget.hurst_kalman.strategy --mesa 1
+# Generate configs: uv run python strategy/bitget/bollinger_band/backtest.py --heatmap
+# List configs:     python -m strategy.bitget.bollinger_band.configs
+# Override:         python -m strategy.bitget.bollinger_band.strategy --mesa 1
 # =============================================================================
 
-import argparse as _argparse
+import argparse as _argparse  # noqa: E402
 
 _parser = _argparse.ArgumentParser(add_help=False)
 _parser.add_argument("--mesa", type=int, default=0, help="Mesa index (0=best)")
@@ -688,12 +626,12 @@ strategy_config, filter_config = selected.get_configs()
 
 # Clear log file on restart
 LOG_DIR = Path(__file__).parent
-HURST_LOG_FILE = LOG_DIR / "hurst_kalman.log"
-if HURST_LOG_FILE.exists():
-    HURST_LOG_FILE.write_text("")  # Clear the log file
+BB_LOG_FILE = LOG_DIR / "bollinger_band.log"
+if BB_LOG_FILE.exists():
+    BB_LOG_FILE.write_text("")
 
 # Create strategy instance
-strategy = HurstKalmanStrategy(
+strategy = BollingerBandStrategy(
     symbols=["BTCUSDT-PERP.BITGET"],
     config=strategy_config,
     filter_config=filter_config,
@@ -702,14 +640,14 @@ strategy.set_config_info(_args.mesa, selected.name)
 
 # Engine configuration
 config = Config(
-    strategy_id=f"hurst_kalman_{selected.name.lower().replace(' ', '_')}",
+    strategy_id=f"bollinger_band_{selected.name.lower().replace(' ', '_')}",
     user_id="user_test",
     strategy=strategy,
     log_config=LogConfig(
         level_stdout="INFO",
         level_file="INFO",
         directory=str(Path(__file__).parent),
-        file_name="hurst_kalman.log",
+        file_name="bollinger_band.log",
     ),
     basic_config={
         ExchangeType.BITGET: BasicConfig(
@@ -745,6 +683,5 @@ if __name__ == "__main__":
         engine.start()
     finally:
         engine.dispose()
-        # Close the log file
         if hasattr(sys.stdout, "close"):
             sys.stdout.close()

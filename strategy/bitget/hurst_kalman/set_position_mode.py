@@ -20,15 +20,17 @@ def main():
     print("Setting Bitget Position Mode to One-Way")
     print("=" * 60)
 
-    exchange = ccxt.bitget({
-        'apiKey': API_KEY,
-        'secret': SECRET,
-        'password': PASSPHRASE,
-        'options': {
-            'defaultType': 'swap',
-            'sandboxMode': True,  # Demo environment
+    exchange = ccxt.bitget(
+        {
+            "apiKey": API_KEY,
+            "secret": SECRET,
+            "password": PASSPHRASE,
+            "options": {
+                "defaultType": "swap",
+                "sandboxMode": True,  # Demo environment
+            },
         }
-    })
+    )
 
     try:
         # First check current position mode
@@ -36,7 +38,7 @@ def main():
 
         # Try to set position mode to one-way (hedged=False)
         print("Setting position mode to one-way...")
-        result = exchange.set_position_mode(hedged=False, symbol='BTCUSDT')
+        result = exchange.set_position_mode(hedged=False, symbol="BTCUSDT")
         print(f"Result: {result}")
         print("\n✅ Position mode changed to one-way successfully!")
 

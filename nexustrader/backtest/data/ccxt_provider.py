@@ -32,7 +32,7 @@ class CCXTDataProvider(DataProvider):
 
     def __init__(
         self,
-        exchange: str = "bitget",
+        exchange: str,
         rate_limit: bool = True,
     ):
         """
