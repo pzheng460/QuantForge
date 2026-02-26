@@ -121,6 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export optimized config for paper trading (used with --full)",
     )
     parser.add_argument(
+        "-L",
+        "--leverage",
+        type=float,
+        default=1.0,
+        help="Leverage multiplier (default: 1.0, e.g. 5 for 5x leverage)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -138,6 +145,7 @@ async def async_main(args: argparse.Namespace) -> None:
         exchange=args.exchange,
         symbol=args.symbol,
         output_dir=output_dir,
+        leverage=args.leverage,
     )
 
     # Show results and exit

@@ -126,6 +126,8 @@ class PrivateConnectorConfig:
     delay_max_ms: int = 800
     backoff_factor: int = 2
     max_slippage: float = 0.02  # 2% slippage
+    leverage: int | None = None
+    leverage_symbols: List[str] | None = None
 
 
 @dataclass

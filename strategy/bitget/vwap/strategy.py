@@ -122,6 +122,12 @@ class VWAPMeanReversionStrategy(Strategy):
     # Seconds to wait after warmup completes before allowing trades.
     _WARMUP_SETTLE_S: float = 5.0
 
+    # Maximum allowed age (in seconds) for a kline to be considered "live".
+    # Klines older than this are treated as stale (e.g. from websocket reconnect
+    # replaying historical data) and will update indicators but NOT trigger trades.
+    _MAX_KLINE_AGE_S: float = 60.0
+
+
     def __init__(
         self,
         symbols: Optional[List[str]] = None,
@@ -170,6 +176,12 @@ class VWAPMeanReversionStrategy(Strategy):
         # Live-mode guard: wall-clock time when warmup completed per symbol.
         self._warmup_done_at: Dict[str, float] = {}
         self._live_trading_ready: Dict[str, bool] = {}
+
+        # Stale-data burst detection: tracks consecutive stale bars after
+        # live trading has been activated.  Resets to 0 on each fresh bar.
+        self._stale_burst_count: Dict[str, int] = {}
+        # Wall-clock settle delay after a stale burst ends.
+        self._burst_settle_until: Dict[str, float] = {}
 
     def set_config_info(self, mesa_index: int, name: str) -> None:
         """Set config info for performance tracking."""
@@ -332,6 +344,17 @@ class VWAPMeanReversionStrategy(Strategy):
             return True
         return False
 
+    def _is_kline_stale(self, kline) -> bool:
+        """Check if a kline is stale (too old compared to wall-clock time).
+
+        This detects websocket reconnection bursts where the exchange replays
+        many historical klines at once.  These should update indicators but
+        must NOT trigger trades.
+        """
+        now_ms = int(time.time() * 1000)
+        kline_age_s = (now_ms - kline.timestamp) / 1000.0
+        return kline_age_s > self._MAX_KLINE_AGE_S
+
     def _is_in_cooldown(self, symbol: str) -> bool:
         """Check if symbol is in cooldown period."""
         current_bar = self._bar_count.get(symbol, 0)
@@ -385,6 +408,45 @@ class VWAPMeanReversionStrategy(Strategy):
         if not self._live_trading_ready.get(symbol):
             self._live_trading_ready[symbol] = True
             self.log.info(f"{symbol} | LIVE TRADING ACTIVATED at bar {current_bar}")
+
+        # ------------------------------------------------------------------
+        # Stale-data guard: detect websocket reconnection bursts.
+        # When the websocket reconnects, the exchange replays many historical
+        # klines at once.  These klines have old timestamps and arrive in a
+        # rapid burst.  We allow them to update indicators (so VWAP/RSI stay
+        # correct) but we MUST NOT trade on them — the prices are historical
+        # and no longer actionable.
+        # ------------------------------------------------------------------
+        is_stale = self._is_kline_stale(kline)
+
+        if is_stale:
+            prev_count = self._stale_burst_count.get(symbol, 0)
+            self._stale_burst_count[symbol] = prev_count + 1
+            if self._stale_burst_count[symbol] == 1:
+                self.log.warning(
+                    f"{symbol} | STALE DATA detected (kline age > {self._MAX_KLINE_AGE_S}s), "
+                    f"skipping trades until live data resumes"
+                )
+            # Don't log every stale bar — just update indicators silently.
+            return
+
+        # If we just exited a stale burst, enforce a short settle period
+        # to let indicators stabilize on fresh data before trading.
+        if self._stale_burst_count.get(symbol, 0) > 0:
+            burst_size = self._stale_burst_count[symbol]
+            self.log.info(
+                f"{symbol} | Stale burst ended ({burst_size} bars skipped), "
+                f"settling for {self._WARMUP_SETTLE_S}s before trading"
+            )
+            self._stale_burst_count[symbol] = 0
+            self._burst_settle_until[symbol] = time.monotonic() + self._WARMUP_SETTLE_S
+            # Clear signal history — it's contaminated by stale data.
+            self._signal_history[symbol] = []
+
+        # If still in post-burst settle period, skip trading.
+        settle_deadline = self._burst_settle_until.get(symbol, 0.0)
+        if settle_deadline > 0.0 and time.monotonic() < settle_deadline:
+            return
 
         signal = indicator.get_signal()
         if symbol not in self._signal_history:
@@ -625,15 +687,21 @@ _args, _ = _parser.parse_known_args()
 try:
     selected = get_config(_args.mesa)
     strategy_config, filter_config = selected.get_configs()
-except FileNotFoundError:
-    print("No heatmap_results.json found. Using default VWAP config.")
+except (FileNotFoundError, ValueError):
+    print("No usable Mesa configs found. Using optimized VWAP config from heatmap scan.")
     from strategy.backtest.config import StrategyConfig as _SC
 
-    strategy_config = VWAPConfig()
+    # Best parameters from heatmap scan (2026-02-18, 6m, Sharpe=1.008):
+    #   zscore_entry=3.79, std_window=193
+    # Compared to defaults: zscore_entry=2.0, std_window=200
+    strategy_config = VWAPConfig(
+        std_window=193,
+        zscore_entry=3.79,
+    )
     filter_config = VWAPTradeFilterConfig()
     selected = _SC(
-        name="Default",
-        description="Default VWAP config (no heatmap)",
+        name="Heatmap_Optimized",
+        description="Best params from heatmap scan (Sharpe=1.008)",
         strategy_config=strategy_config,
         filter_config=filter_config,
     )
@@ -684,6 +752,7 @@ config = Config(
             PrivateConnectorConfig(
                 account_type=BitgetAccountType.UTA_DEMO,
                 enable_rate_limit=True,
+                leverage=5,
             )
         ]
     },

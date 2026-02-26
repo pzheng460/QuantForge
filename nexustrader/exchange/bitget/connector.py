@@ -448,6 +448,8 @@ class BitgetPrivateConnector(PrivateConnector):
         msgbus: MessageBus,
         task_manager: TaskManager,
         enable_rate_limit: bool = True,
+        leverage: int | None = None,
+        leverage_symbols: list[str] | None = None,
         **kwargs,
     ):
         if not exchange.api_key or not exchange.secret or not exchange.passphrase:
@@ -492,6 +494,63 @@ class BitgetPrivateConnector(PrivateConnector):
             task_manager=task_manager,
             oms=oms,
         )
+        self._leverage = leverage
+        self._leverage_symbols = set(leverage_symbols) if leverage_symbols else None
+
+    def _get_product_type(self, market: BitgetMarket) -> str | None:
+        """Get Bitget product type for a market."""
+        is_demo = self._account_type.is_demo
+        if market.linear:
+            base = "USDT-FUTURES" if market.quote == "USDT" else "USDC-FUTURES"
+            return f"S{base}" if is_demo else base
+        elif market.inverse:
+            return "SCOIN-FUTURES" if is_demo else "COIN-FUTURES"
+        return None
+
+    async def _set_leverage(self, leverage: int):
+        """Set leverage for futures symbols.
+
+        If leverage_symbols is specified, only set leverage for those symbols.
+        Otherwise, set leverage for all futures symbols in the market.
+        """
+        is_uta = self._account_type.is_uta
+        success_count = 0
+        fail_count = 0
+
+        for symbol, market in self._market.items():
+            if not market.swap:
+                continue
+            if self._leverage_symbols and symbol not in self._leverage_symbols:
+                continue
+            product_type = self._get_product_type(market)
+            if not product_type:
+                continue
+            try:
+                if is_uta:
+                    await self._api_client.post_api_v3_account_set_leverage(
+                        category=product_type,
+                        symbol=market.id,
+                        leverage=str(leverage),
+                    )
+                else:
+                    margin_coin = market.settle or market.quote
+                    await self._api_client.post_api_v2_mix_account_set_leverage(
+                        symbol=market.id,
+                        productType=product_type,
+                        marginCoin=margin_coin,
+                        leverage=str(leverage),
+                    )
+                success_count += 1
+                self._log.info(f"Leverage set to {leverage}x for {symbol}")
+            except Exception as e:
+                fail_count += 1
+                self._log.warning(
+                    f"Failed to set leverage for {symbol} ({market.id}): {e}"
+                )
+
+        self._log.info(
+            f"Leverage setting complete: {success_count} succeeded, {fail_count} failed"
+        )
 
     async def connect(self):
         await self._oms._ws_api_client.connect()
@@ -500,18 +559,31 @@ class BitgetPrivateConnector(PrivateConnector):
             await self._oms._ws_client.subscribe_v3_position()
             await self._oms._ws_client.subscribe_v3_account()
         elif self._account_type.is_future:
+            if self._account_type.is_demo:
+                _futures_types = ["SUSDT-FUTURES", "SUSDC-FUTURES", "SCOIN-FUTURES"]
+            else:
+                _futures_types = ["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
             await self._oms._ws_client.subscribe_orders(
-                inst_types=["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
+                inst_types=_futures_types
             )
             await self._oms._ws_client.subscribe_positions(
-                inst_types=["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
+                inst_types=_futures_types
             )
             await self._oms._ws_client.subscribe_account(
-                inst_types=["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
+                inst_types=_futures_types
             )
         elif self._account_type.is_spot:
             await self._oms._ws_client.subscribe_orders(inst_types=["SPOT"])
             await self._oms._ws_client.subscribe_account(inst_types=["SPOT"])
+
+        if self._leverage is not None:
+            target = (
+                f"symbols: {', '.join(self._leverage_symbols)}"
+                if self._leverage_symbols
+                else "all futures symbols"
+            )
+            self._log.info(f"Setting leverage to {self._leverage}x for {target}...")
+            await self._set_leverage(self._leverage)
 
 
 # async def main():

@@ -117,6 +117,7 @@ class HeatmapScanner:
         cost_config: Optional[CostConfig] = None,
         interval: KlineInterval = KlineInterval.MINUTE_15,
         initial_capital: float = 10000.0,
+        leverage: float = 1.0,
     ):
         self._data = data
         self._signal_generator_cls = signal_generator_cls
@@ -135,6 +136,7 @@ class HeatmapScanner:
         )
         self._interval = interval
         self._initial_capital = initial_capital
+        self._leverage = leverage
 
     def scan(
         self,
@@ -274,6 +276,9 @@ class HeatmapScanner:
             )
 
         gen = self._signal_generator_cls(config, filt)
+        # Inject funding rate data if the generator supports it
+        if hasattr(gen, "funding_rates") and self._funding_rates is not None:
+            gen.funding_rates = self._funding_rates
         signals = gen.generate(self._data, params)
 
         bt_config = BacktestConfig(
@@ -282,6 +287,7 @@ class HeatmapScanner:
             start_date=self._data.index[0].to_pydatetime(),
             end_date=self._data.index[-1].to_pydatetime(),
             initial_capital=self._initial_capital,
+            leverage=self._leverage,
         )
 
         bt = VectorizedBacktest(config=bt_config, cost_config=self._cost_config)
@@ -1002,6 +1008,7 @@ def run_heatmap_scan(
     cost_config: Optional[CostConfig] = None,
     interval: KlineInterval = KlineInterval.MINUTE_15,
     initial_capital: float = 10000.0,
+    leverage: float = 1.0,
 ) -> None:
     """
     Run complete heatmap scan pipeline.
@@ -1055,6 +1062,7 @@ def run_heatmap_scan(
         cost_config=cost_config,
         interval=interval,
         initial_capital=initial_capital,
+        leverage=leverage,
     )
     results = scanner.scan(
         x_values=x_values,

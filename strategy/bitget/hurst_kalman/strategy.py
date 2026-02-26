@@ -732,6 +732,8 @@ config = Config(
             PrivateConnectorConfig(
                 account_type=BitgetAccountType.UTA_DEMO,
                 enable_rate_limit=True,
+                leverage=5,
+                leverage_symbols=["BTCUSDT-PERP.BITGET"],
             )
         ]
     },

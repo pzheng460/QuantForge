@@ -102,10 +102,11 @@ class VectorizedBacktest:
             price = prices[i]
             signal = signals[i]
 
-            # Calculate current equity
+            # Calculate current equity (capital + margin + unrealized PnL)
             if position != 0:
                 unrealized_pnl = position * (price - entry_price)
-                equity[i] = capital + abs(position) * entry_price + unrealized_pnl
+                margin = abs(position) * entry_price / self.config.leverage
+                equity[i] = capital + margin + unrealized_pnl
             else:
                 equity[i] = capital
 
@@ -190,7 +191,8 @@ class VectorizedBacktest:
             # Update equity after trades and funding
             if position != 0:
                 unrealized_pnl = position * (price - entry_price)
-                equity[i] = capital + abs(position) * entry_price + unrealized_pnl
+                margin = abs(position) * entry_price / self.config.leverage
+                equity[i] = capital + margin + unrealized_pnl
             else:
                 equity[i] = capital
 
@@ -222,11 +224,16 @@ class VectorizedBacktest:
         """
         Open a new position.
 
+        With leverage, position_value is amplified but only margin
+        (position_value / leverage) is deducted from capital.
+
         Returns:
             (new_capital, position, entry_price, trade_record)
         """
-        # Calculate position size
-        position_value = capital * self.position_size_pct
+        leverage = self.config.leverage
+
+        # Calculate position size (leveraged)
+        position_value = capital * self.position_size_pct * leverage
 
         # Apply costs
         cost_result = self.cost_model.calculate_total_cost(
@@ -244,8 +251,9 @@ class VectorizedBacktest:
         if not is_long:
             position = -position
 
-        # Update capital: deduct position value and fee
-        new_capital = capital - position_value - fee
+        # Update capital: deduct margin (position_value / leverage) and fee
+        margin = position_value / leverage
+        new_capital = capital - margin - fee
 
         # Create trade record
         trade = TradeRecord(
@@ -276,9 +284,13 @@ class VectorizedBacktest:
         """
         Close an existing position.
 
+        Returns margin back to capital plus realized PnL.
+
         Returns:
             (new_capital, trade_record)
         """
+        leverage = self.config.leverage
+
         # Apply costs
         cost_result = self.cost_model.calculate_total_cost(
             price=price,
@@ -290,17 +302,18 @@ class VectorizedBacktest:
         adjusted_price = cost_result["adjusted_price"]
         fee = cost_result["fee"]
 
-        # Calculate PnL
+        # Calculate PnL (on full leveraged position)
         if position > 0:  # Long position
             pnl = position * (adjusted_price - entry_price) - fee
         else:  # Short position
             pnl = -position * (entry_price - adjusted_price) - fee
 
-        pnl_pct = (pnl / (abs(position) * entry_price)) * 100 if entry_price > 0 else 0.0
+        # PnL percentage relative to margin (not full position value)
+        margin = abs(position) * entry_price / leverage
+        pnl_pct = (pnl / margin) * 100 if margin > 0 else 0.0
 
-        # Update capital
-        position_value = abs(position) * entry_price
-        new_capital = capital + position_value + pnl
+        # Update capital: return margin + PnL
+        new_capital = capital + margin + pnl
 
         # Create trade record
         trade = TradeRecord(

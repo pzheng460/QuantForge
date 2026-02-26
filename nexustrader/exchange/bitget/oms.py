@@ -331,12 +331,14 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
         return self._uta_inst_type_map[category]
 
     def _get_inst_type(self, market: BitgetMarket):
+        is_demo = self._account_type.is_demo
         if market.spot:
             return "SPOT"
         elif market.linear:
-            return "USDT-FUTURES" if market.quote == "USDT" else "USDC-FUTURES"
+            base = "USDT-FUTURES" if market.quote == "USDT" else "USDC-FUTURES"
+            return f"S{base}" if is_demo else base
         elif market.inverse:
-            return "COIN-FUTURES"
+            return "SCOIN-FUTURES" if is_demo else "COIN-FUTURES"
 
     def _init_account_balance(self):
         """Initialize account balance"""
@@ -415,7 +417,10 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
                     self._log.debug(f"Initialized UTA position: {str(position)}")
 
         else:
-            product_types = ["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
+            if self._account_type.is_demo:
+                product_types = ["SUSDT-FUTURES", "SUSDC-FUTURES", "SCOIN-FUTURES"]
+            else:
+                product_types = ["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
 
             for product_type in product_types:
                 # Get all positions for this product type
@@ -541,7 +546,24 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
         reduce_only: bool = False,
         **kwargs,
     ):
-        """Create an order"""
+        """Create an order via WebSocket API.
+
+        Note: Bitget demo/paper trading does not support WS-API trade operations.
+        When the account is testnet, this method automatically falls back to REST API.
+        """
+        if self._account_type.is_testnet:
+            return await self.create_order(
+                oid=oid,
+                symbol=symbol,
+                side=side,
+                type=type,
+                amount=amount,
+                price=price,
+                time_in_force=time_in_force,
+                reduce_only=reduce_only,
+                **kwargs,
+            )
+
         self._registry.register_tmp_order(
             order=Order(
                 oid=oid,
@@ -657,6 +679,14 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
                 await self._ws_api_client.spot_place_order(id=oid, **params)
 
     async def cancel_order_ws(self, oid: str, symbol: str, **kwargs):
+        """Cancel an order via WebSocket API.
+
+        Note: Bitget demo/paper trading does not support WS-API trade operations.
+        When the account is testnet, this method automatically falls back to REST API.
+        """
+        if self._account_type.is_testnet:
+            return await self.cancel_order(oid=oid, symbol=symbol, **kwargs)
+
         market = self._market.get(symbol)
         if not market:
             raise ValueError(f"Symbol {symbol} formated wrongly, or not supported")
@@ -765,7 +795,7 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
                     symbol=symbol,
                     eid=str(res.data.orderId),
                     oid=oid,
-                    status=OrderStatus.PENDING,
+                    status=OrderStatus.ACCEPTED,
                     side=side,
                     type=type,
                     price=float(price),
@@ -858,7 +888,7 @@ class BitgetOrderManagementSystem(OrderManagementSystem):
                     symbol=symbol,
                     oid=oid,
                     eid=str(res.data.orderId),
-                    status=OrderStatus.PENDING,
+                    status=OrderStatus.ACCEPTED,
                     side=side,
                     type=type,
                     price=float(price),

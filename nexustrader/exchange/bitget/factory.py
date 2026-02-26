@@ -33,6 +33,7 @@ class BitgetFactory(ExchangeFactory):
 
     def create_manager(self, basic_config: BasicConfig) -> ExchangeManager:
         """Create BitgetExchangeManager."""
+        import os
         ccxt_config = {
             "apiKey": basic_config.api_key,
             "secret": basic_config.secret,
@@ -40,6 +41,12 @@ class BitgetFactory(ExchangeFactory):
         }
         if basic_config.passphrase:
             ccxt_config["password"] = basic_config.passphrase
+
+        # Auto-detect system proxy (ccxt does not read env vars by default)
+        proxy = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+        if proxy:
+            ccxt_config["httpsProxy"] = proxy
+            ccxt_config["timeout"] = 30000
 
         return BitgetExchangeManager(ccxt_config)
 
@@ -84,6 +91,8 @@ class BitgetFactory(ExchangeFactory):
             registry=context.registry,
             enable_rate_limit=config.enable_rate_limit,
             task_manager=context.task_manager,
+            leverage=config.leverage,
+            leverage_symbols=config.leverage_symbols,
             max_retries=config.max_retries,
             delay_initial_ms=config.delay_initial_ms,
             delay_max_ms=config.delay_max_ms,

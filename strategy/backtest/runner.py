@@ -46,10 +46,12 @@ class BacktestRunner:
         exchange: str = "bitget",
         symbol: str = None,
         output_dir: Path = None,
+        leverage: float = 1.0,
     ):
         self.reg = get_strategy(strategy_name)
         self.profile = get_profile(exchange)
         self.symbol = symbol or self.profile.default_symbol
+        self.leverage = leverage
         self.output_dir = output_dir or Path(
             f"strategy/results/{strategy_name}/{exchange}"
         )
@@ -96,11 +98,15 @@ class BacktestRunner:
             end_date=data.index[-1].to_pydatetime(),
             initial_capital=10000.0,
             exchange=self.profile.ccxt_id,
+            leverage=self.leverage,
         )
 
-    def _make_signal_fn(self, base_config, base_filter, extra_params=None):
+    def _make_signal_fn(self, base_config, base_filter, extra_params=None, funding_rates=None):
         """Return a signal function suitable for GridSearchOptimizer / WalkForwardAnalyzer."""
         gen = self.reg.signal_generator_cls(base_config, base_filter)
+        # Inject funding rate data if the generator supports it
+        if hasattr(gen, "funding_rates") and funding_rates is not None:
+            gen.funding_rates = funding_rates
 
         def signal_fn(df: pd.DataFrame, params: Dict) -> np.ndarray:
             merged = {**(extra_params or {}), **params}
@@ -141,6 +147,9 @@ class BacktestRunner:
         cost_config = self.profile.cost_config()
 
         gen = self.reg.signal_generator_cls(cfg, filt)
+        # Inject funding rate data if the generator supports it
+        if hasattr(gen, "funding_rates") and funding_rates is not None:
+            gen.funding_rates = funding_rates
         signals = gen.generate(data)
 
         bt = VectorizedBacktest(config=bt_config, cost_config=cost_config)
@@ -160,6 +169,7 @@ class BacktestRunner:
         print(f"BACKTEST RESULTS - {config_name}")
         print(f"{'=' * 60}")
         print(f"Exchange: {self.profile.name}")
+        print(f"Leverage: {self.leverage}x")
         print(f"Period: {data.index[0].date()} to {data.index[-1].date()}")
         print(f"Total Return: {metrics['total_return_pct']:+.2f}%")
         print(f"Max Drawdown: {metrics['max_drawdown_pct']:.2f}%")
@@ -462,6 +472,14 @@ class BacktestRunner:
             else self.reg.filter_config_cls(**self.reg.default_filter_kwargs)
         )
         gen = self.reg.signal_generator_cls(base_config, base_filter)
+        # Inject funding rate data if the generator supports it
+        if hasattr(gen, "funding_rates") and funding_rates is not None:
+            holdout_start_ts = holdout_data.index[0]
+            holdout_end_ts = holdout_data.index[-1]
+            gen.funding_rates = funding_rates[
+                (funding_rates.index >= holdout_start_ts)
+                & (funding_rates.index <= holdout_end_ts)
+            ] if not funding_rates.empty else funding_rates
         signals = gen.generate(holdout_data, best_params)
 
         bt = VectorizedBacktest(config=bt_config, cost_config=cost_config)
@@ -619,6 +637,7 @@ class BacktestRunner:
             filter_config_factory=hc.filter_config_factory,
             symbol=self.symbol,
             cost_config=cost_config,
+            leverage=self.leverage,
         )
 
     def generate_report(self, result, output_path: Path = None):

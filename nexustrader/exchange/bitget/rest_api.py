@@ -575,6 +575,71 @@ class BitgetApiClient(ApiClient):
         raw = self._fetch_sync("GET", endpoint, payload, signed=True)
         return self._v3_position_response_decoder.decode(raw)
 
+    async def post_api_v2_mix_account_set_leverage(
+        self,
+        symbol: str,
+        productType: str,
+        marginCoin: str,
+        leverage: str,
+        holdSide: str | None = None,
+    ):
+        """
+        Set leverage for a symbol (non-UTA accounts).
+
+        POST /api/v2/mix/account/set-leverage
+        https://www.bitget.com/api-doc/contract/account/Change-Leverage
+
+        Args:
+            symbol: Symbol name (e.g. BTCUSDT)
+            productType: Product type (USDT-FUTURES, USDC-FUTURES, COIN-FUTURES)
+            marginCoin: Margin coin (e.g. USDT)
+            leverage: Leverage value (e.g. "5")
+            holdSide: Position side for hedge mode (long/short), None for one-way mode
+        """
+        endpoint = "/api/v2/mix/account/set-leverage"
+
+        payload = {
+            "symbol": symbol,
+            "productType": productType,
+            "marginCoin": marginCoin,
+            "leverage": leverage,
+            "holdSide": holdSide,
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        await self._limiter(endpoint).limit(key=endpoint, cost=1)
+        raw = await self._fetch("POST", endpoint, payload, signed=True)
+        return self._general_response_decoder.decode(raw)
+
+    async def post_api_v3_account_set_leverage(
+        self,
+        category: str,
+        symbol: str,
+        leverage: str,
+    ):
+        """
+        Set leverage for a symbol (UTA accounts).
+
+        POST /api/v3/account/set-leverage
+        https://www.bitget.com/api-doc/uta/account/Change-Leverage
+
+        Args:
+            category: Product category (USDT-FUTURES, USDC-FUTURES, COIN-FUTURES)
+            symbol: Symbol name (e.g. BTCUSDT)
+            leverage: Leverage value (e.g. "10")
+        """
+        endpoint = "/api/v3/account/set-leverage"
+
+        payload = {
+            "category": category,
+            "symbol": symbol,
+            "leverage": leverage,
+        }
+
+        await self._limiter(endpoint).limit(key=endpoint, cost=1)
+        raw = await self._fetch("POST", endpoint, payload, signed=True)
+        return self._general_response_decoder.decode(raw)
+
 
 # async def main():
 #     from nexustrader.constants import settings

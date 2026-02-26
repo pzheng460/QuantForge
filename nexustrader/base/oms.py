@@ -57,6 +57,9 @@ class OrderManagementSystem(ABC):
             return
 
         valid = self._cache._order_status_update(order)  # INITIALIZED -> PENDING
+        if not valid:
+            return
+
         match order.status:
             case OrderStatus.PENDING:
                 self._log.debug(f"ORDER STATUS PENDING: {str(order)}")

@@ -29,6 +29,7 @@ class BacktestConfig:
     slippage_pct: float = 0.0005
     use_funding_rate: bool = True
     exchange: str = ""
+    leverage: float = 1.0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
@@ -43,6 +44,7 @@ class BacktestConfig:
             "slippage_pct": self.slippage_pct,
             "use_funding_rate": self.use_funding_rate,
             "exchange": self.exchange,
+            "leverage": self.leverage,
         }
 
     @classmethod
@@ -73,6 +75,7 @@ class BacktestConfig:
             slippage_pct=data.get("slippage_pct", 0.0005),
             use_funding_rate=data.get("use_funding_rate", True),
             exchange=data.get("exchange", ""),
+            leverage=data.get("leverage", 1.0),
         )
 
 

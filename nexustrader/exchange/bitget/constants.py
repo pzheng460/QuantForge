@@ -66,6 +66,11 @@ class BitgetAccountType(AccountType):
         return self in (self.UTA, self.UTA_DEMO)
 
     @property
+    def is_demo(self):
+        """Non-UTA demo accounts that use S-prefixed productTypes."""
+        return self in (self.FUTURE_DEMO, self.SPOT_DEMO)
+
+    @property
     def is_mock(self):
         return self in (self.SPOT_MOCK, self.LINEAR_MOCK, self.INVERSE_MOCK)
 
@@ -351,6 +356,16 @@ class BitgetRateLimiter(RateLimiter):
                 using=RateLimiterType.GCRA.value,
             ),
             "/api/v3/trade/cancel-symbol-order": Throttled(
+                quota=rate_limiter.per_sec(5),
+                timeout=60 if enable_rate_limit else -1,
+                using=RateLimiterType.GCRA.value,
+            ),
+            "/api/v3/account/set-leverage": Throttled(
+                quota=rate_limiter.per_sec(5),
+                timeout=60 if enable_rate_limit else -1,
+                using=RateLimiterType.GCRA.value,
+            ),
+            "/api/v2/mix/account/set-leverage": Throttled(
                 quota=rate_limiter.per_sec(5),
                 timeout=60 if enable_rate_limit else -1,
                 using=RateLimiterType.GCRA.value,

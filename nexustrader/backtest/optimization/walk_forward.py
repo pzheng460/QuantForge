@@ -131,6 +131,7 @@ class WalkForwardAnalyzer:
                 start_date=train_data.index[0],
                 end_date=train_data.index[-1],
                 initial_capital=self.config.initial_capital,
+                leverage=self.config.leverage,
             )
 
             optimizer = GridSearchOptimizer(
@@ -151,6 +152,7 @@ class WalkForwardAnalyzer:
                 start_date=test_data.index[0],
                 end_date=test_data.index[-1],
                 initial_capital=self.config.initial_capital,
+                leverage=self.config.leverage,
             )
 
             test_signals = self.signal_generator(test_data, best_params)

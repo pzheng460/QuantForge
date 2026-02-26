@@ -50,12 +50,12 @@ class HurstKalmanSignalGenerator:
         Returns:
             Array of signal values (0=HOLD, 1=BUY, -1=SELL, 2=CLOSE).
         """
-        hurst_window = (
+        hurst_window = int(
             params.get("hurst_window", self.config.hurst_window)
             if params
             else self.config.hurst_window
         )
-        zscore_window = (
+        zscore_window = int(
             params.get("zscore_window", self.config.zscore_window)
             if params
             else self.config.zscore_window
