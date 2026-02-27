@@ -51,7 +51,7 @@ You need to send your trading signal to a zmq server. Here we are using the ``ip
     if __name__ == "__main__":
         main()
 
-The full code can be found in the :download:`signal_server.py <../../../strategy/bybit/signal_server.py>`.
+The full code can be found in the :download:`signal_server.py <../../../examples/bybit/signal_server.py>`.
 
 Build a Receiver
 -----------------------------
@@ -88,4 +88,4 @@ Then, we need to define ``on_custom_signal`` method in the strategy.
             # implement the trading logic Here
             ...
 
-The full code can be found in the :download:`custom_signal.py <../../../strategy/bybit/custom_signal.py>`.
+The full code can be found in the :download:`custom_signal.py <../../../examples/bybit/custom_signal.py>`.

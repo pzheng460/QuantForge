@@ -37,3 +37,4 @@ yaml-config/
 *.log
 *.json
 *.html
+appendonlydir/
