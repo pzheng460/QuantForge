@@ -1,10 +1,11 @@
 """Grid Trading strategy module."""
 
+from strategy.strategies._base.signal_generator import TradeFilterConfig
 from strategy.strategies.grid_trading.core import GridConfig
-from strategy.strategies.grid_trading.signal import GridSignalGenerator, GridTradeFilterConfig
+
+GridTradeFilterConfig = TradeFilterConfig  # backward compat alias
 
 __all__ = [
     "GridConfig",
-    "GridSignalGenerator", 
     "GridTradeFilterConfig",
 ]

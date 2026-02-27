@@ -1,42 +1,33 @@
 """Register EMA Crossover strategy with the backtest framework."""
 
-import dataclasses
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict
 
+from strategy.backtest.config import StrategyConfig
 from strategy.backtest.registry import (
     HeatmapConfig,
     StrategyRegistration,
     register_strategy,
 )
-from strategy.strategies.ema_crossover.core import EMAConfig
-from strategy.strategies.ema_crossover.signal import (
-    EMASignalGenerator,
-    EMATradeFilterConfig,
+from strategy.indicators.ema_crossover import EMASignalCore
+from strategy.strategies._base.registration_helpers import (
+    make_filter_config_factory,
+    make_split_params_fn,
 )
-from strategy.backtest.config import StrategyConfig
+from strategy.strategies._base.signal_generator import (
+    COLUMNS_CLOSE,
+    BaseSignalGenerator,
+    TradeFilterConfig,
+)
+from strategy.strategies.ema_crossover.core import EMAConfig
 
 
-_EMA_CONFIG_FIELDS = {f.name for f in dataclasses.fields(EMAConfig)}
-
-
-def _split_params(params: Optional[Dict]) -> Tuple[Dict, Dict]:
-    """Split mixed params dict into (config_kwargs, filter_kwargs)."""
-    if not params:
-        return {}, {}
-    config_kw = {k: v for k, v in params.items() if k in _EMA_CONFIG_FIELDS}
-    filter_kw = {k: v for k, v in params.items() if k not in _EMA_CONFIG_FIELDS}
-    return config_kw, filter_kw
-
-
-def _ema_filter_config_factory(xv, yv, params):
-    """Build EMATradeFilterConfig from heatmap params."""
-    min_hold = int(params.get("min_holding_bars", max(2, int(yv) // 5)))
-    cooldown = max(1, min_hold // 2)
-    return EMATradeFilterConfig(
-        min_holding_bars=min_hold,
-        cooldown_bars=cooldown,
-        signal_confirmation=int(params.get("signal_confirmation", 1)),
+def _make_generator(config, filter_config):
+    return BaseSignalGenerator(
+        config,
+        filter_config,
+        core_cls=EMASignalCore,
+        update_columns=COLUMNS_CLOSE,
     )
 
 
@@ -57,7 +48,7 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
 
     min_hold = int(extra.get("min_holding_bars", 4))
     cooldown = max(1, min_hold // 2)
-    filter_config = EMATradeFilterConfig(
+    filter_config = TradeFilterConfig(
         min_holding_bars=min_hold,
         cooldown_bars=cooldown,
         signal_confirmation=int(extra.get("signal_confirmation", 1)),
@@ -107,7 +98,7 @@ def _export_config(
 # =============================================================================
 
 from strategy.strategies.ema_crossover.core import EMAConfig
-from strategy.strategies.ema_crossover.signal import EMATradeFilterConfig
+from strategy.strategies._base.signal_generator import TradeFilterConfig
 
 OPTIMIZED_CONFIG = EMAConfig(
     symbols=["BTCUSDT-PERP{suffix}"],
@@ -118,7 +109,7 @@ OPTIMIZED_CONFIG = EMAConfig(
     daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
 )
 
-OPTIMIZED_FILTER = EMATradeFilterConfig(
+OPTIMIZED_FILTER = TradeFilterConfig(
     min_holding_bars={min_hold},
     cooldown_bars={cooldown},
     signal_confirmation={int(params.get("signal_confirmation", 1))},
@@ -130,9 +121,9 @@ register_strategy(
     StrategyRegistration(
         name="ema_crossover",
         display_name="EMA Crossover",
-        signal_generator_cls=EMASignalGenerator,
+        signal_generator_cls=_make_generator,
         config_cls=EMAConfig,
-        filter_config_cls=EMATradeFilterConfig,
+        filter_config_cls=TradeFilterConfig,
         default_grid={
             "fast_period": [8, 12, 16, 20],
             "slow_period": [20, 26, 35, 50],
@@ -155,10 +146,10 @@ register_strategy(
                 "stop_loss_pct": 0.05,
                 "daily_loss_limit": 0.03,
             },
-            filter_config_factory=_ema_filter_config_factory,
+            filter_config_factory=make_filter_config_factory(TradeFilterConfig),
         ),
         default_filter_kwargs={},
-        split_params_fn=_split_params,
+        split_params_fn=make_split_params_fn(EMAConfig),
         mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=_export_config,
     )

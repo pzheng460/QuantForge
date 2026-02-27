@@ -1,8 +1,10 @@
 """Register Funding Rate Arbitrage strategy with the backtest framework."""
 
-import dataclasses
-from datetime import datetime
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Optional
+
+import numpy as np
+import pandas as pd
 
 from nexustrader.constants import KlineInterval
 from strategy.backtest.registry import (
@@ -10,24 +12,134 @@ from strategy.backtest.registry import (
     StrategyRegistration,
     register_strategy,
 )
-from strategy.strategies.funding_rate.core import FundingRateConfig
-from strategy.strategies.funding_rate.signal import (
-    FundingRateFilterConfig,
-    FundingRateSignalGenerator,
+from strategy.indicators.funding_rate import FundingRateSignalCore
+from strategy.strategies._base.registration_helpers import (
+    make_export_config,
+    make_mesa_dict_to_config,
+    make_split_params_fn,
 )
-from strategy.backtest.config import StrategyConfig
+from strategy.strategies._base.signal_generator import (
+    COLUMNS_CLOSE,
+    BaseSignalGenerator,
+    TradeFilterConfig,
+)
+from strategy.strategies.funding_rate.core import FundingRateConfig
 
 
-_FR_CONFIG_FIELDS = {f.name for f in dataclasses.fields(FundingRateConfig)}
+# ---------------------------------------------------------------------------
+# Custom filter config (different defaults from base TradeFilterConfig)
+# ---------------------------------------------------------------------------
 
 
-def _split_params(params: Optional[Dict]) -> Tuple[Dict, Dict]:
-    """Split mixed params dict into (config_kwargs, filter_kwargs)."""
-    if not params:
-        return {}, {}
-    config_kw = {k: v for k, v in params.items() if k in _FR_CONFIG_FIELDS}
-    filter_kw = {k: v for k, v in params.items() if k not in _FR_CONFIG_FIELDS}
-    return config_kw, filter_kw
+@dataclass
+class FundingRateFilterConfig(TradeFilterConfig):
+    """Trade filter config with funding-rate-specific defaults."""
+
+    min_holding_bars: int = 1
+    cooldown_bars: int = 1
+
+
+# ---------------------------------------------------------------------------
+# Funding settlement helpers (moved from signal.py)
+# ---------------------------------------------------------------------------
+
+FUNDING_SETTLEMENT_HOURS = (0, 8, 16)
+
+
+def _hours_until_next_settlement(ts: pd.Timestamp) -> float:
+    """Calculate hours until the next 8h funding settlement."""
+    hour = ts.hour + ts.minute / 60.0
+    for settle_h in FUNDING_SETTLEMENT_HOURS:
+        if settle_h > hour:
+            return settle_h - hour
+    return 24.0 - hour
+
+
+def _hours_since_last_settlement(ts: pd.Timestamp) -> float:
+    """Calculate hours since the most recent 8h funding settlement."""
+    hour = ts.hour + ts.minute / 60.0
+    for settle_h in reversed(FUNDING_SETTLEMENT_HOURS):
+        if settle_h <= hour:
+            return hour - settle_h
+    return hour + 8.0
+
+
+def _build_funding_rate_series(
+    data_index: pd.DatetimeIndex,
+    funding_rates: Optional[pd.DataFrame],
+    lookback: int,
+) -> np.ndarray:
+    """Build per-bar average funding rate array."""
+    n = len(data_index)
+    avg_funding = np.full(n, 0.00001)
+
+    if funding_rates is None or funding_rates.empty:
+        avg_funding[:] = 0.000014
+        return avg_funding
+
+    fr_values = []
+    fr_timestamps = []
+    for ts, row in funding_rates.iterrows():
+        fr_values.append(row.get("funding_rate", 0.0))
+        fr_timestamps.append(ts)
+
+    fr_values = np.array(fr_values)
+    fr_timestamps = pd.DatetimeIndex(fr_timestamps)
+
+    for i in range(n):
+        bar_ts = data_index[i]
+        mask = fr_timestamps <= bar_ts
+        recent = fr_values[mask]
+        if len(recent) > 0:
+            window = recent[-lookback:] if len(recent) >= lookback else recent
+            avg_funding[i] = np.mean(window)
+
+    return avg_funding
+
+
+# ---------------------------------------------------------------------------
+# Hooks for BaseSignalGenerator
+# ---------------------------------------------------------------------------
+
+
+def _fr_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
+    """Build per-bar average funding rate array before the bar loop."""
+    funding_lookback = int(
+        params.get("funding_lookback", effective_config.funding_lookback)
+    )
+    fr_data = generator.funding_rates
+    if fr_data is None and "_funding_rates" in params:
+        fr_data = params["_funding_rates"]
+    avg_funding = _build_funding_rate_series(data.index, fr_data, funding_lookback)
+    generator._avg_funding = avg_funding
+
+
+def _fr_bar_hook(bar_kwargs, core, data, index, generator, **_kw):
+    """Inject funding rate and settlement timing into each bar."""
+    core.set_funding_rate(generator._avg_funding[index])
+    ts = data.index[index]
+    return {
+        "close": bar_kwargs["close"],
+        "hours_to_next": _hours_until_next_settlement(ts),
+        "hours_since_last": _hours_since_last_settlement(ts),
+    }
+
+
+def _make_generator(config, filter_config):
+    return BaseSignalGenerator(
+        config,
+        filter_config,
+        core_cls=FundingRateSignalCore,
+        update_columns=COLUMNS_CLOSE,
+        core_extra_filter_fields=(),
+        pre_loop_hook=_fr_pre_loop_hook,
+        bar_hook=_fr_bar_hook,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Heatmap filter config factory
+# ---------------------------------------------------------------------------
 
 
 def _fr_filter_config_factory(xv, yv, params):
@@ -41,107 +153,20 @@ def _fr_filter_config_factory(xv, yv, params):
     )
 
 
-def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
-    """Convert a mesa dict from heatmap_results.json to StrategyConfig."""
-    extra = mesa.get("extra_params", {})
-
-    hours_before = int(mesa.get("center_x", mesa.get("center_hours_before_funding", 2)))
-    price_sma_period = int(mesa.get("center_y", mesa.get("center_price_sma_period", 50)))
-
-    fr_config = FundingRateConfig(
-        hours_before_funding=hours_before,
-        price_sma_period=price_sma_period,
-        min_funding_rate=float(extra.get("min_funding_rate", 0.0005)),
-        max_funding_rate=float(extra.get("max_funding_rate", 0.01)),
-        funding_lookback=int(extra.get("funding_lookback", 24)),
-        hours_after_funding=int(extra.get("hours_after_funding", 1)),
-        max_adverse_move_pct=float(extra.get("max_adverse_move_pct", 0.02)),
-        position_size_pct=float(extra.get("position_size_pct", 0.30)),
-        stop_loss_pct=float(extra.get("stop_loss_pct", 0.03)),
-        daily_loss_limit=float(extra.get("daily_loss_limit", 0.02)),
-    )
-
-    min_hold = int(extra.get("min_holding_bars", 1))
-    cooldown = max(1, int(extra.get("cooldown_bars", 1)))
-    filter_config = FundingRateFilterConfig(
-        min_holding_bars=min_hold,
-        cooldown_bars=cooldown,
-        signal_confirmation=int(extra.get("signal_confirmation", 1)),
-    )
-
-    freq_label = mesa.get("frequency_label", "")
-    avg_sharpe = mesa.get("avg_sharpe", 0)
-    stability = mesa.get("stability", 0)
-
-    x_range = mesa.get("x_range", [0, 0])
-    y_range = mesa.get("y_range", [0, 0])
-
-    return StrategyConfig(
-        name=f"Mesa #{index} ({freq_label})",
-        description=(
-            f"Auto-detected Mesa region. "
-            f"HrsBefore [{x_range[0]:.0f}, {x_range[1]:.0f}], "
-            f"SMA [{y_range[0]:.0f}, {y_range[1]:.0f}]"
-        ),
-        strategy_config=fr_config,
-        filter_config=filter_config,
-        recommended=(index == 0),
-        mesa_index=index,
-        frequency_label=freq_label,
-        avg_sharpe=avg_sharpe,
-        stability=stability,
-        notes=(
-            f"Avg return: {mesa.get('avg_return_pct', 0):+.1f}%/yr, "
-            f"MaxDD: {mesa.get('avg_max_dd_pct', 0):.1f}%, "
-            f"Trades: {mesa.get('avg_trades_yr', 0):.0f}/yr"
-        ),
-    )
+# ---------------------------------------------------------------------------
+# Custom mesa min_hold formula
+# ---------------------------------------------------------------------------
 
 
-def _export_config(
-    params: Dict, metrics: Dict, period: str = None, profile=None
-) -> str:
-    """Export optimized parameters as config code."""
-    min_hold = int(params.get("min_holding_bars", 4))
-    cooldown = max(1, min_hold // 2)
-    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
-    return f"""
-# =============================================================================
-# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
-# Period: {period or "N/A"}
-# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
-# =============================================================================
-
-from strategy.strategies.funding_rate.core import FundingRateConfig
-from strategy.strategies.funding_rate.signal import FundingRateFilterConfig
-
-OPTIMIZED_CONFIG = FundingRateConfig(
-    symbols=["BTCUSDT-PERP{suffix}"],
-    min_funding_rate={float(params.get("min_funding_rate", 0.0001))},
-    max_funding_rate={float(params.get("max_funding_rate", 0.01))},
-    funding_lookback={int(params.get("funding_lookback", 3))},
-    price_sma_period={int(params.get("price_sma_period", 20))},
-    max_adverse_move_pct={float(params.get("max_adverse_move_pct", 0.005))},
-    position_size_pct={float(params.get("position_size_pct", 0.10))},
-    stop_loss_pct={float(params.get("stop_loss_pct", 0.02))},
-    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
-    hours_before_funding={float(params.get("hours_before_funding", 2.0))},
-    hours_after_funding={float(params.get("hours_after_funding", 1.0))},
-)
-
-OPTIMIZED_FILTER = FundingRateFilterConfig(
-    min_holding_bars={min_hold},
-    cooldown_bars={cooldown},
-    signal_confirmation={int(params.get("signal_confirmation", 1))},
-)
-"""
+def _fr_min_hold_from_mesa(mesa, extra):
+    return int(extra.get("min_holding_bars", 1))
 
 
 register_strategy(
     StrategyRegistration(
         name="funding_rate",
         display_name="Funding Rate Arbitrage",
-        signal_generator_cls=FundingRateSignalGenerator,
+        signal_generator_cls=_make_generator,
         config_cls=FundingRateConfig,
         filter_config_cls=FundingRateFilterConfig,
         default_interval=KlineInterval.HOUR_1,
@@ -174,8 +199,22 @@ register_strategy(
             filter_config_factory=_fr_filter_config_factory,
         ),
         default_filter_kwargs={},
-        split_params_fn=_split_params,
-        mesa_dict_to_config_fn=_mesa_dict_to_config,
-        export_config_fn=_export_config,
+        split_params_fn=make_split_params_fn(FundingRateConfig),
+        mesa_dict_to_config_fn=make_mesa_dict_to_config(
+            FundingRateConfig,
+            FundingRateFilterConfig,
+            "hours_before_funding",
+            "price_sma_period",
+            x_label="HrsBefore",
+            y_label="SMA",
+            min_hold_from_mesa=_fr_min_hold_from_mesa,
+        ),
+        export_config_fn=make_export_config(
+            "funding_rate",
+            FundingRateConfig,
+            FundingRateFilterConfig,
+            "strategy.strategies.funding_rate.core",
+            "strategy.strategies.funding_rate.registration",
+        ),
     )
 )

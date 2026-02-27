@@ -1,8 +1,6 @@
 """Register VWAP Mean Reversion strategy with the backtest framework."""
 
-import dataclasses
-from datetime import datetime
-from typing import Dict, Optional, Tuple
+import pandas as pd
 
 from nexustrader.constants import KlineInterval
 from strategy.backtest.registry import (
@@ -10,140 +8,69 @@ from strategy.backtest.registry import (
     StrategyRegistration,
     register_strategy,
 )
-from strategy.strategies.vwap.core import VWAPConfig
-from strategy.strategies.vwap.signal import (
-    VWAPSignalGenerator,
-    VWAPTradeFilterConfig,
+from strategy.indicators.vwap import VWAPSignalCore
+from strategy.strategies._base.registration_helpers import (
+    make_export_config,
+    make_mesa_dict_to_config,
+    make_split_params_fn,
 )
-from strategy.backtest.config import StrategyConfig
+from strategy.strategies._base.signal_generator import (
+    COLUMNS_CLOSE_HIGH_LOW_VOLUME,
+    BaseSignalGenerator,
+    TradeFilterConfig,
+)
+from strategy.strategies.vwap.core import VWAPConfig
 
 
-_VWAP_CONFIG_FIELDS = {f.name for f in dataclasses.fields(VWAPConfig)}
+# ---------------------------------------------------------------------------
+# Bar hook: inject ``day`` parameter for daily VWAP reset
+# ---------------------------------------------------------------------------
 
 
-def _split_params(params: Optional[Dict]) -> Tuple[Dict, Dict]:
-    """Split mixed params dict into (config_kwargs, filter_kwargs)."""
-    if not params:
-        return {}, {}
-    config_kw = {k: v for k, v in params.items() if k in _VWAP_CONFIG_FIELDS}
-    filter_kw = {k: v for k, v in params.items() if k not in _VWAP_CONFIG_FIELDS}
-    return config_kw, filter_kw
+def _vwap_bar_hook(bar_kwargs, data, index, **_kw):
+    """Inject ``day`` into bar_kwargs for VWAP daily boundary detection."""
+    timestamps = data.index if isinstance(data.index, pd.DatetimeIndex) else None
+    if timestamps is not None:
+        bar_kwargs["day"] = timestamps[index].date()
+    else:
+        bar_kwargs["day"] = None
+    return bar_kwargs
+
+
+def _make_generator(config, filter_config):
+    return BaseSignalGenerator(
+        config,
+        filter_config,
+        core_cls=VWAPSignalCore,
+        update_columns=COLUMNS_CLOSE_HIGH_LOW_VOLUME,
+        core_extra_filter_fields=("signal_confirmation",),
+        bar_hook=_vwap_bar_hook,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Heatmap filter config factory (custom min_hold formula)
+# ---------------------------------------------------------------------------
 
 
 def _vwap_filter_config_factory(xv, yv, params):
-    """Build VWAPTradeFilterConfig from heatmap params."""
+    """Build TradeFilterConfig from heatmap params."""
     min_hold = int(params.get("min_holding_bars", max(2, int(yv) // 40)))
     cooldown = max(1, min_hold // 2)
-    return VWAPTradeFilterConfig(
+    return TradeFilterConfig(
         min_holding_bars=min_hold,
         cooldown_bars=cooldown,
         signal_confirmation=int(params.get("signal_confirmation", 1)),
     )
 
 
-def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
-    """Convert a mesa dict from heatmap_results.json to StrategyConfig."""
-    extra = mesa.get("extra_params", {})
-
-    zscore_entry = float(mesa.get("center_x", mesa.get("center_zscore_entry", 2.0)))
-    std_window = int(mesa.get("center_y", mesa.get("center_std_window", 200)))
-
-    vwap_config = VWAPConfig(
-        std_window=std_window,
-        zscore_entry=zscore_entry,
-        rsi_period=int(extra.get("rsi_period", 14)),
-        rsi_oversold=float(extra.get("rsi_oversold", 30.0)),
-        rsi_overbought=float(extra.get("rsi_overbought", 70.0)),
-        zscore_exit=float(extra.get("zscore_exit", 0.0)),
-        zscore_stop=float(extra.get("zscore_stop", 3.5)),
-        position_size_pct=float(extra.get("position_size_pct", 0.20)),
-        stop_loss_pct=float(extra.get("stop_loss_pct", 0.03)),
-        daily_loss_limit=float(extra.get("daily_loss_limit", 0.03)),
-    )
-
-    min_hold = int(extra.get("min_holding_bars", 4))
-    cooldown = max(1, min_hold // 2)
-    filter_config = VWAPTradeFilterConfig(
-        min_holding_bars=min_hold,
-        cooldown_bars=cooldown,
-        signal_confirmation=int(extra.get("signal_confirmation", 1)),
-    )
-
-    freq_label = mesa.get("frequency_label", "")
-    avg_sharpe = mesa.get("avg_sharpe", 0)
-    stability = mesa.get("stability", 0)
-
-    x_range = mesa.get("x_range", mesa.get("zscore_entry_range", [0, 0]))
-    y_range = mesa.get("y_range", mesa.get("std_window_range", [0, 0]))
-
-    return StrategyConfig(
-        name=f"Mesa #{index} ({freq_label})",
-        description=(
-            f"Auto-detected Mesa region. "
-            f"Z-Entry [{x_range[0]:.1f}, {x_range[1]:.1f}], "
-            f"StdWin [{y_range[0]:.0f}, {y_range[1]:.0f}]"
-        ),
-        strategy_config=vwap_config,
-        filter_config=filter_config,
-        recommended=(index == 0),
-        mesa_index=index,
-        frequency_label=freq_label,
-        avg_sharpe=avg_sharpe,
-        stability=stability,
-        notes=(
-            f"Avg return: {mesa.get('avg_return_pct', 0):+.1f}%/yr, "
-            f"MaxDD: {mesa.get('avg_max_dd_pct', 0):.1f}%, "
-            f"Trades: {mesa.get('avg_trades_yr', 0):.0f}/yr"
-        ),
-    )
-
-
-def _export_config(
-    params: Dict, metrics: Dict, period: str = None, profile=None
-) -> str:
-    """Export optimized parameters as config code."""
-    min_hold = int(params.get("min_holding_bars", 4))
-    cooldown = max(1, min_hold // 2)
-    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
-    return f"""
-# =============================================================================
-# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
-# Period: {period or "N/A"}
-# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
-# =============================================================================
-
-from strategy.strategies.vwap.core import VWAPConfig
-from strategy.strategies.vwap.signal import VWAPTradeFilterConfig
-
-OPTIMIZED_CONFIG = VWAPConfig(
-    symbols=["BTCUSDT-PERP{suffix}"],
-    std_window={int(params.get("std_window", 200))},
-    rsi_period={int(params.get("rsi_period", 14))},
-    zscore_entry={float(params.get("zscore_entry", 2.0))},
-    zscore_exit={float(params.get("zscore_exit", 0.5))},
-    zscore_stop={float(params.get("zscore_stop", 3.5))},
-    rsi_oversold={float(params.get("rsi_oversold", 30.0))},
-    rsi_overbought={float(params.get("rsi_overbought", 70.0))},
-    position_size_pct={float(params.get("position_size_pct", 0.10))},
-    stop_loss_pct={float(params.get("stop_loss_pct", 0.03))},
-    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
-)
-
-OPTIMIZED_FILTER = VWAPTradeFilterConfig(
-    min_holding_bars={min_hold},
-    cooldown_bars={cooldown},
-    signal_confirmation={int(params.get("signal_confirmation", 1))},
-)
-"""
-
-
 register_strategy(
     StrategyRegistration(
         name="vwap",
         display_name="VWAP Mean Reversion",
-        signal_generator_cls=VWAPSignalGenerator,
+        signal_generator_cls=_make_generator,
         config_cls=VWAPConfig,
-        filter_config_cls=VWAPTradeFilterConfig,
+        filter_config_cls=TradeFilterConfig,
         default_interval=KlineInterval.MINUTE_5,
         default_grid={
             "zscore_entry": [1.5, 2.0, 2.5],
@@ -174,8 +101,21 @@ register_strategy(
             filter_config_factory=_vwap_filter_config_factory,
         ),
         default_filter_kwargs={},
-        split_params_fn=_split_params,
-        mesa_dict_to_config_fn=_mesa_dict_to_config,
-        export_config_fn=_export_config,
+        split_params_fn=make_split_params_fn(VWAPConfig),
+        mesa_dict_to_config_fn=make_mesa_dict_to_config(
+            VWAPConfig,
+            TradeFilterConfig,
+            "zscore_entry",
+            "std_window",
+            x_label="Z-Entry",
+            y_label="StdWin",
+        ),
+        export_config_fn=make_export_config(
+            "vwap",
+            VWAPConfig,
+            TradeFilterConfig,
+            "strategy.strategies.vwap.core",
+            "strategy.strategies._base.signal_generator",
+        ),
     )
 )

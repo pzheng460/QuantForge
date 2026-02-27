@@ -18,7 +18,7 @@ from typing import Optional
 from strategy.backtest.exchange_profiles import get_profile, list_exchanges
 from strategy.backtest.runner import BacktestRunner
 
-from strategy.bitget.common.backtest_utils import (
+from strategy.backtest.utils import (
     DEFAULT_PERIOD,
     PERIODS,
     fetch_data,

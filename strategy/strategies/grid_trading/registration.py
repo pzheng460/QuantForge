@@ -1,42 +1,41 @@
 """Register Grid Trading strategy with the backtest framework."""
 
-import dataclasses
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict
 
 from nexustrader.constants import KlineInterval
+from strategy.backtest.config import StrategyConfig
 from strategy.backtest.registry import (
     HeatmapConfig,
     StrategyRegistration,
     register_strategy,
 )
-from strategy.strategies.grid_trading.core import GridConfig
-from strategy.strategies.grid_trading.signal import (
-    GridSignalGenerator,
-    GridTradeFilterConfig,
+from strategy.indicators.grid_trading import GridSignalCore
+from strategy.strategies._base.registration_helpers import make_split_params_fn
+from strategy.strategies._base.signal_generator import (
+    COLUMNS_CLOSE_HIGH_LOW,
+    BaseSignalGenerator,
+    TradeFilterConfig,
 )
-from strategy.backtest.config import StrategyConfig
+from strategy.strategies.grid_trading.core import GridConfig
 
 
-_GRID_CONFIG_FIELDS = {f.name for f in dataclasses.fields(GridConfig)}
-
-
-def _split_params(params: Optional[Dict]) -> Tuple[Dict, Dict]:
-    """Split mixed params dict into (config_kwargs, filter_kwargs)."""
-    if not params:
-        return {}, {}
-    config_kw = {k: v for k, v in params.items() if k in _GRID_CONFIG_FIELDS}
-    filter_kw = {k: v for k, v in params.items() if k not in _GRID_CONFIG_FIELDS}
-    return config_kw, filter_kw
+def _make_generator(config, filter_config):
+    return BaseSignalGenerator(
+        config,
+        filter_config,
+        core_cls=GridSignalCore,
+        update_columns=COLUMNS_CLOSE_HIGH_LOW,
+        core_extra_filter_fields=(),
+    )
 
 
 def _grid_filter_config_factory(xv, yv, params):
-    """Build GridTradeFilterConfig from heatmap params."""
-    # Grid trading typically doesn't need long holding periods or cooldowns
+    """Build TradeFilterConfig from heatmap params."""
     min_hold = int(params.get("min_holding_bars", 1))
     cooldown = int(params.get("cooldown_bars", 0))
-    
-    return GridTradeFilterConfig(
+
+    return TradeFilterConfig(
         min_holding_bars=min_hold,
         cooldown_bars=cooldown,
         signal_confirmation=int(params.get("signal_confirmation", 1)),
@@ -71,7 +70,7 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
 
     min_hold = int(extra.get("min_holding_bars", 1))
     cooldown = int(extra.get("cooldown_bars", 0))
-    filter_config = GridTradeFilterConfig(
+    filter_config = TradeFilterConfig(
         min_holding_bars=min_hold,
         cooldown_bars=cooldown,
         signal_confirmation=int(extra.get("signal_confirmation", 1)),
@@ -121,7 +120,7 @@ def _export_config(
 # =============================================================================
 
 from strategy.strategies.grid_trading.core import GridConfig
-from strategy.strategies.grid_trading.signal import GridTradeFilterConfig
+from strategy.strategies._base.signal_generator import TradeFilterConfig
 
 OPTIMIZED_CONFIG = GridConfig(
     symbols=["BTCUSDT-PERP{suffix}"],
@@ -138,7 +137,7 @@ OPTIMIZED_CONFIG = GridConfig(
     daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
 )
 
-OPTIMIZED_FILTER = GridTradeFilterConfig(
+OPTIMIZED_FILTER = TradeFilterConfig(
     min_holding_bars={min_hold},
     cooldown_bars={cooldown},
     signal_confirmation={int(params.get("signal_confirmation", 1))},
@@ -150,9 +149,9 @@ register_strategy(
     StrategyRegistration(
         name="grid_trading",
         display_name="Grid Trading",
-        signal_generator_cls=GridSignalGenerator,
+        signal_generator_cls=_make_generator,
         config_cls=GridConfig,
-        filter_config_cls=GridTradeFilterConfig,
+        filter_config_cls=TradeFilterConfig,
         default_interval=KlineInterval.HOUR_1,
         default_grid={
             "grid_count": [5, 8, 10, 12, 15],
@@ -165,7 +164,7 @@ register_strategy(
         },
         heatmap_config=HeatmapConfig(
             x_param_name="grid_count",
-            y_param_name="atr_multiplier", 
+            y_param_name="atr_multiplier",
             x_range=(3, 10),
             y_range=(2.0, 5.0),
             x_label="Grid Count",
@@ -194,7 +193,7 @@ register_strategy(
             filter_config_factory=_grid_filter_config_factory,
         ),
         default_filter_kwargs={},
-        split_params_fn=_split_params,
+        split_params_fn=make_split_params_fn(GridConfig),
         mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=_export_config,
     )

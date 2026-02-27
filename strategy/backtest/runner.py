@@ -29,7 +29,7 @@ from strategy.backtest.exchange_profiles import get_profile
 from strategy.backtest.registry import get_strategy
 
 # Re-use the common utilities that already exist
-from strategy.bitget.common.backtest_utils import (
+from strategy.backtest.utils import (
     DEFAULT_PERIOD,
     THREE_STAGE_CONFIG,
     load_results as _load_results,

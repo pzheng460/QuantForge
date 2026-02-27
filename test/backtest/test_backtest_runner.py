@@ -83,7 +83,7 @@ class TestBacktestRunnerRunSingle:
         import strategy.strategies  # noqa: F401
 
         from strategy.strategies.hurst_kalman.core import HurstKalmanConfig
-        from strategy.strategies.hurst_kalman.signal import TradeFilterConfig
+        from strategy.strategies._base.signal_generator import TradeFilterConfig
 
         runner = BacktestRunner(strategy_name="hurst_kalman", exchange="bitget")
         data = _make_mock_data(1000)
@@ -101,7 +101,7 @@ class TestBacktestRunnerRunSingle:
         import strategy.strategies  # noqa: F401
 
         from strategy.strategies.ema_crossover.core import EMAConfig
-        from strategy.strategies.ema_crossover.signal import EMATradeFilterConfig
+        from strategy.strategies._base.signal_generator import TradeFilterConfig as EMATradeFilterConfig
 
         runner = BacktestRunner(strategy_name="ema_crossover", exchange="bitget")
         data = _make_mock_data(1000)
@@ -119,7 +119,7 @@ class TestBacktestRunnerRunSingle:
         import strategy.strategies  # noqa: F401
 
         from strategy.strategies.bollinger_band.core import BBConfig
-        from strategy.strategies.bollinger_band.signal import BBTradeFilterConfig
+        from strategy.strategies._base.signal_generator import TradeFilterConfig as BBTradeFilterConfig
 
         runner = BacktestRunner(strategy_name="bollinger_band", exchange="bitget")
         data = _make_mock_data(1000)

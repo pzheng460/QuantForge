@@ -1,11 +1,18 @@
-"""Exchange-agnostic strategy definitions for the backtest framework."""
+"""Exchange-agnostic strategy definitions for the backtest framework.
 
-import strategy.strategies.hurst_kalman.registration  # noqa: F401
-import strategy.strategies.ema_crossover.registration  # noqa: F401
-import strategy.strategies.bollinger_band.registration  # noqa: F401
-import strategy.strategies.vwap.registration  # noqa: F401
-import strategy.strategies.funding_rate.registration  # noqa: F401
-import strategy.strategies.momentum.registration  # noqa: F401
-import strategy.strategies.regime_ema.registration  # noqa: F401
-import strategy.strategies.dual_regime.registration  # noqa: F401
-import strategy.strategies.grid_trading.registration  # noqa: F401
+Auto-discovers and imports all strategy registration modules from
+subdirectories that contain a registration.py file.
+"""
+
+import importlib
+import pkgutil
+from pathlib import Path
+
+_PKG_DIR = Path(__file__).parent
+
+for _importer, _modname, _ispkg in pkgutil.iter_modules([str(_PKG_DIR)]):
+    if _ispkg and _modname != "_base":
+        try:
+            importlib.import_module(f"strategy.strategies.{_modname}.registration")
+        except ImportError:
+            pass
