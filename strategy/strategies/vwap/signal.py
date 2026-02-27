@@ -1,23 +1,20 @@
 """
 VWAP Mean Reversion Signal Generator.
 
-Extracted to be exchange-agnostic for the unified backtest framework.
+Exchange-agnostic signal generator for the unified backtest framework.
+Delegates to VWAPSignalCore for bar-by-bar signal generation,
+ensuring 100% parity with live trading logic.
 """
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
 
-from nexustrader.backtest import Signal
-
-from strategy.strategies.vwap.core import (
-    VWAPConfig,
-    calculate_rsi,
-    calculate_vwap,
-    calculate_vwap_zscore,
-)
+from strategy.indicators.vwap import VWAPSignalCore
+from strategy.strategies.vwap.core import VWAPConfig
 
 
 @dataclass
@@ -29,14 +26,14 @@ class VWAPTradeFilterConfig:
     signal_confirmation: int = 1
 
 
+# Fields that belong to VWAPConfig (for splitting params)
+_CONFIG_FIELDS = {f.name for f in dataclasses.fields(VWAPConfig)}
+
+
 class VWAPSignalGenerator:
     """Generate trading signals for vectorized backtest.
 
-    Implements VWAP mean-reversion logic:
-    - Z <= -entry AND RSI < oversold -> BUY
-    - Z >= entry AND RSI > overbought -> SELL
-    - |Z| < exit_threshold -> CLOSE (price returned to VWAP)
-    - |Z| > zscore_stop OR pnl < -stop_loss_pct -> CLOSE (model failure)
+    Delegates to VWAPSignalCore for bar-by-bar processing.
     """
 
     def __init__(self, config: VWAPConfig, filter_config: VWAPTradeFilterConfig):
@@ -54,45 +51,34 @@ class VWAPSignalGenerator:
         Returns:
             Array of signal values (0=HOLD, 1=BUY, -1=SELL, 2=CLOSE).
         """
-        std_window = int(
-            params.get("std_window", self.config.std_window)
-            if params
-            else self.config.std_window
+        p = params or {}
+
+        # Build effective config with parameter overrides
+        config_overrides = {}
+        for field_name in _CONFIG_FIELDS:
+            if field_name in p:
+                config_overrides[field_name] = type(getattr(self.config, field_name))(
+                    p[field_name]
+                )
+        effective_config = (
+            dataclasses.replace(self.config, **config_overrides)
+            if config_overrides
+            else self.config
         )
-        rsi_period = int(
-            params.get("rsi_period", self.config.rsi_period)
-            if params
-            else self.config.rsi_period
+
+        # Build effective filter config with overrides
+        min_holding_bars = int(p.get("min_holding_bars", self.filter.min_holding_bars))
+        cooldown_bars = int(p.get("cooldown_bars", self.filter.cooldown_bars))
+        signal_confirmation = int(
+            p.get("signal_confirmation", self.filter.signal_confirmation)
         )
-        zscore_entry = float(
-            params.get("zscore_entry", self.config.zscore_entry)
-            if params
-            else self.config.zscore_entry
-        )
-        zscore_exit = float(
-            params.get("zscore_exit", self.config.zscore_exit)
-            if params
-            else self.config.zscore_exit
-        )
-        zscore_stop = float(
-            params.get("zscore_stop", self.config.zscore_stop)
-            if params
-            else self.config.zscore_stop
-        )
-        rsi_oversold = float(
-            params.get("rsi_oversold", self.config.rsi_oversold)
-            if params
-            else self.config.rsi_oversold
-        )
-        rsi_overbought = float(
-            params.get("rsi_overbought", self.config.rsi_overbought)
-            if params
-            else self.config.rsi_overbought
-        )
-        stop_loss_pct = float(
-            params.get("stop_loss_pct", self.config.stop_loss_pct)
-            if params
-            else self.config.stop_loss_pct
+
+        # Create core and process all bars
+        core = VWAPSignalCore(
+            config=effective_config,
+            min_holding_bars=min_holding_bars,
+            cooldown_bars=cooldown_bars,
+            signal_confirmation=signal_confirmation,
         )
 
         n = len(data)
@@ -102,123 +88,20 @@ class VWAPSignalGenerator:
         lows = data["low"].values
         volumes = data["volume"].values
 
-        # Compute indicators
+        # Day boundary detection for VWAP reset
         timestamps = data.index if isinstance(data.index, pd.DatetimeIndex) else None
-        vwap = calculate_vwap(highs, lows, prices, volumes, timestamps)
-        zscore = calculate_vwap_zscore(prices, vwap, std_window)
-        rsi = calculate_rsi(prices, rsi_period)
 
-        min_holding_bars = self.filter.min_holding_bars
-        cooldown_bars = self.filter.cooldown_bars
+        for i in range(n):
+            day = None
+            if timestamps is not None:
+                day = timestamps[i].date()
 
-        position = 0
-        entry_bar = 0
-        entry_price = 0.0
-        cooldown_until = 0
-        signal_count = {Signal.BUY.value: 0, Signal.SELL.value: 0}
-
-        # Skip warmup: need std_window bars for valid Z-score
-        start_bar = std_window
-
-        for i in range(start_bar, n):
-            price = prices[i]
-
-            if np.isnan(zscore[i]) or np.isnan(rsi[i]):
-                continue
-
-            z = zscore[i]
-            r = rsi[i]
-
-            # 1. Stop loss check
-            if position != 0 and entry_price > 0:
-                is_long = position == 1
-                if is_long:
-                    pnl_pct = (price - entry_price) / entry_price
-                else:
-                    pnl_pct = (entry_price - price) / entry_price
-
-                # Z-score model failure OR price stop
-                if abs(z) >= zscore_stop or pnl_pct < -stop_loss_pct:
-                    signals[i] = Signal.CLOSE.value
-                    position = 0
-                    entry_price = 0.0
-                    entry_bar = i
-                    cooldown_until = i + cooldown_bars
-                    continue
-
-            # 2. Raw signal generation
-            raw_signal = Signal.HOLD.value
-
-            if z <= -zscore_entry and r < rsi_oversold:
-                raw_signal = Signal.BUY.value
-            elif z >= zscore_entry and r > rsi_overbought:
-                raw_signal = Signal.SELL.value
-            elif position != 0 and abs(z) <= abs(zscore_exit):
-                raw_signal = Signal.CLOSE.value
-
-            # 3. Cooldown check
-            if i < cooldown_until:
-                if raw_signal == Signal.CLOSE.value and position != 0:
-                    if i - entry_bar >= min_holding_bars:
-                        signals[i] = Signal.CLOSE.value
-                        position = 0
-                        entry_price = 0.0
-                        cooldown_until = i + cooldown_bars
-                continue
-
-            # 4. Signal confirmation
-            if raw_signal == Signal.BUY.value:
-                signal_count[Signal.BUY.value] += 1
-                signal_count[Signal.SELL.value] = 0
-            elif raw_signal == Signal.SELL.value:
-                signal_count[Signal.SELL.value] += 1
-                signal_count[Signal.BUY.value] = 0
-            else:
-                signal_count[Signal.BUY.value] = 0
-                signal_count[Signal.SELL.value] = 0
-
-            confirmed_signal = raw_signal
-            if raw_signal in (Signal.BUY.value, Signal.SELL.value):
-                if raw_signal == Signal.BUY.value:
-                    if signal_count[Signal.BUY.value] < self.filter.signal_confirmation:
-                        confirmed_signal = Signal.HOLD.value
-                elif raw_signal == Signal.SELL.value:
-                    if (
-                        signal_count[Signal.SELL.value]
-                        < self.filter.signal_confirmation
-                    ):
-                        confirmed_signal = Signal.HOLD.value
-
-            # 5. Position management
-            if confirmed_signal == Signal.CLOSE.value and position != 0:
-                if i - entry_bar >= min_holding_bars:
-                    signals[i] = Signal.CLOSE.value
-                    position = 0
-                    entry_price = 0.0
-                    cooldown_until = i + cooldown_bars
-
-            elif confirmed_signal == Signal.BUY.value:
-                if position == -1 and i - entry_bar >= min_holding_bars:
-                    signals[i] = Signal.CLOSE.value
-                    position = 0
-                    entry_price = 0.0
-                    cooldown_until = i + cooldown_bars
-                elif position == 0:
-                    signals[i] = Signal.BUY.value
-                    position = 1
-                    entry_bar = i
-                    entry_price = price
-
-            elif confirmed_signal == Signal.SELL.value:
-                if position == 1 and i - entry_bar >= min_holding_bars:
-                    signals[i] = Signal.CLOSE.value
-                    position = 0
-                    entry_price = 0.0
-                    cooldown_until = i + cooldown_bars
-                elif position == 0:
-                    signals[i] = Signal.SELL.value
-                    position = -1
-                    entry_bar = i
-                    entry_price = price
+            signals[i] = core.update(
+                close=prices[i],
+                high=highs[i],
+                low=lows[i],
+                volume=volumes[i],
+                day=day,
+            )
 
         return signals

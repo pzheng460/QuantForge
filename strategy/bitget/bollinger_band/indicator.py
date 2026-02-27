@@ -1,40 +1,45 @@
 """
 NexusTrader Indicator wrapper for Bollinger Band Mean Reversion strategy.
+
+Delegates all indicator calculations to BBSignalCore, ensuring
+100% parity with the backtest signal generator.
 """
 
-from collections import deque
 from enum import Enum
 from typing import Optional
-
-import numpy as np
 
 from nexustrader.constants import KlineInterval
 from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
-from strategy.bitget.bollinger_band.core import (
-    BBConfig,
-    calculate_bb_single,
-)
+from strategy.bitget.bollinger_band.core import BBConfig
+from strategy.indicators.bollinger_band import BBSignalCore, BUY, CLOSE, HOLD, SELL
 
 
 class Signal(Enum):
     """Trading signals."""
 
     HOLD = "hold"
-    BUY = "buy"  # Price below lower band (oversold)
-    SELL = "sell"  # Price above upper band (overbought)
-    CLOSE = "close"  # Price returned to SMA
+    BUY = "buy"
+    SELL = "sell"
+    CLOSE = "close"
+
+
+# Map BBSignalCore int constants to Signal enum
+_SIGNAL_MAP = {
+    HOLD: Signal.HOLD,
+    BUY: Signal.BUY,
+    SELL: Signal.SELL,
+    CLOSE: Signal.CLOSE,
+}
 
 
 class BollingerBandIndicator(Indicator):
     """
     Indicator that calculates Bollinger Bands and generates mean-reversion signals.
 
-    Provides:
-    - SMA, upper band, lower band
-    - %B indicator (where price is relative to bands)
-    - Trading signals based on band touches and mean reversion
+    All indicator calculations are delegated to BBSignalCore,
+    which is shared with the backtest signal generator.
     """
 
     def __init__(
@@ -44,11 +49,10 @@ class BollingerBandIndicator(Indicator):
         kline_interval: KlineInterval = KlineInterval.MINUTE_15,
     ):
         self._config = config or BBConfig()
-        # Trend SMA needs more history than BB alone
         trend_len = self._config.bb_period * self._config.trend_sma_multiplier
         max_period = max(self._config.bb_period, trend_len)
-        if warmup_period is None:
-            warmup_period = max_period + 10
+
+        self._real_warmup_period = max_period + 10
 
         super().__init__(
             params={
@@ -61,97 +65,44 @@ class BollingerBandIndicator(Indicator):
             kline_interval=kline_interval,
         )
 
-        self._price_history: deque[float] = deque(maxlen=max_period + 10)
+        # Shared core
+        self._core = BBSignalCore(self._config)
 
-        # Band values
-        self._sma: Optional[float] = None
-        self._upper: Optional[float] = None
-        self._lower: Optional[float] = None
-        self._pct_b: Optional[float] = None  # %B indicator
-
-        # Trend detection
-        self._trend_sma: Optional[float] = None
-        self._trend_sma_len: int = trend_len
-
-        # Signal state
+        self._confirmed_bar_count: int = 0
         self._signal: Signal = Signal.HOLD
         self._last_price: Optional[float] = None
 
     def handle_kline(self, kline: Kline) -> None:
-        """Process a new kline and update indicator values."""
-        if not self._is_warmed_up:
-            self._warmup_data_count += 1
-            if self._warmup_data_count >= self.warmup_period:
-                self._is_warmed_up = True
+        """Process a new kline using bar confirmation via timestamp change."""
+        bar_start = int(kline.start)
 
-        price = float(kline.close)
-        self._last_price = price
-        self._price_history.append(price)
-
-        # Calculate bands once we have enough data
-        if len(self._price_history) >= self._config.bb_period:
-            window = np.array(list(self._price_history)[-self._config.bb_period :])
-            self._sma, self._upper, self._lower = calculate_bb_single(
-                window, self._config.bb_multiplier
-            )
-
-            # %B = (price - lower) / (upper - lower)
-            band_width = self._upper - self._lower
-            if band_width > 1e-10:
-                self._pct_b = (price - self._lower) / band_width
-            else:
-                self._pct_b = 0.5
-
-        # Trend SMA for auto bias detection
-        if len(self._price_history) >= self._trend_sma_len:
-            trend_window = list(self._price_history)[-self._trend_sma_len :]
-            self._trend_sma = float(np.mean(trend_window))
-
-        self._update_signal()
-
-    def _resolve_bias(self) -> str | None:
-        """Return the effective bias: 'long_only', 'short_only', or None."""
-        bias = self._config.trend_bias
-        if bias == "auto":
-            if self._trend_sma is None or self._last_price is None:
-                return None
-            return "short_only" if self._last_price < self._trend_sma else "long_only"
-        return bias
-
-    def _update_signal(self) -> None:
-        """Generate trading signal based on Bollinger Band position."""
-        if self._sma is None or self._upper is None or self._lower is None:
-            self._signal = Signal.HOLD
+        if not hasattr(self, "_current_bar_start"):
+            self._current_bar_start = bar_start
+            self._current_bar_kline = kline
             return
 
-        price = self._last_price
+        if bar_start != self._current_bar_start:
+            confirmed_kline = self._current_bar_kline
+            self._confirmed_bar_count += 1
+            self._process_kline_data(confirmed_kline)
 
-        # Price below lower band -> oversold -> BUY
-        if price <= self._lower:
-            self._signal = Signal.BUY
-        # Price above upper band -> overbought -> SELL
-        elif price >= self._upper:
-            self._signal = Signal.SELL
-        # Price returned near SMA -> close position
-        elif self._sma is not None:
-            band_half = self._upper - self._sma
-            if band_half > 1e-10:
-                distance_ratio = abs(price - self._sma) / band_half
-                if distance_ratio < self._config.exit_threshold:
-                    self._signal = Signal.CLOSE
-                else:
-                    self._signal = Signal.HOLD
-            else:
-                self._signal = Signal.HOLD
+            self._current_bar_start = bar_start
+            self._current_bar_kline = kline
         else:
-            self._signal = Signal.HOLD
+            self._current_bar_kline = kline
 
-        # Apply trend bias filter (only suppress entry signals, never suppress CLOSE)
-        bias = self._resolve_bias()
-        if bias == "short_only" and self._signal == Signal.BUY:
-            self._signal = Signal.HOLD
-        elif bias == "long_only" and self._signal == Signal.SELL:
-            self._signal = Signal.HOLD
+    @property
+    def is_warmed_up(self) -> bool:
+        return self._confirmed_bar_count >= self._real_warmup_period
+
+    def _process_kline_data(self, kline: Kline) -> None:
+        price = float(kline.close)
+        self._last_price = price
+
+        self._core.update_indicators_only(close=price)
+
+        raw = self._core.get_raw_signal(price)
+        self._signal = _SIGNAL_MAP.get(raw, Signal.HOLD)
 
     def handle_bookl1(self, bookl1: BookL1) -> None:
         pass
@@ -165,34 +116,28 @@ class BollingerBandIndicator(Indicator):
     @property
     def value(self) -> dict:
         return {
-            "sma": self._sma,
-            "upper": self._upper,
-            "lower": self._lower,
-            "pct_b": self._pct_b,
-            "trend_sma": self._trend_sma,
-            "trend_bias": self._resolve_bias(),
+            "sma": self._core.sma_value,
+            "upper": self._core.upper_value,
+            "lower": self._core.lower_value,
+            "trend_sma": self._core.trend_sma_value,
             "signal": self._signal.value,
         }
 
     @property
     def sma(self) -> Optional[float]:
-        return self._sma
+        return self._core.sma_value
 
     @property
     def trend_sma(self) -> Optional[float]:
-        return self._trend_sma
+        return self._core.trend_sma_value
 
     @property
     def upper_band(self) -> Optional[float]:
-        return self._upper
+        return self._core.upper_value
 
     @property
     def lower_band(self) -> Optional[float]:
-        return self._lower
-
-    @property
-    def pct_b(self) -> Optional[float]:
-        return self._pct_b
+        return self._core.lower_value
 
     @property
     def signal(self) -> Signal:
@@ -204,7 +149,6 @@ class BollingerBandIndicator(Indicator):
     def should_stop_loss(
         self, entry_price: float, current_price: float, is_long: bool
     ) -> bool:
-        """Check if stop loss should be triggered (price-based only)."""
         if entry_price <= 0:
             return False
         if is_long:
@@ -214,12 +158,11 @@ class BollingerBandIndicator(Indicator):
         return pnl_pct < -self._config.stop_loss_pct
 
     def reset(self) -> None:
-        self._price_history.clear()
-        self._sma = None
-        self._upper = None
-        self._lower = None
-        self._pct_b = None
-        self._trend_sma = None
+        self._core.reset()
         self._signal = Signal.HOLD
         self._last_price = None
-        self.reset_warmup()
+        self._confirmed_bar_count = 0
+        if hasattr(self, "_current_bar_start"):
+            del self._current_bar_start
+        if hasattr(self, "_current_bar_kline"):
+            del self._current_bar_kline

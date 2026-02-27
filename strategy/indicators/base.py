@@ -1,7 +1,7 @@
 """Streaming indicator classes that match vectorized implementations exactly.
 
 Each class processes data bar-by-bar (streaming) and produces values identical
-to the vectorized numpy implementations in strategy/strategies/momentum/core.py.
+to the vectorized numpy implementations in the strategy core modules.
 
 This enables code reuse between backtest (feeding historical bars) and live
 trading (feeding real-time bars), guaranteeing numerical parity.
@@ -9,6 +9,8 @@ trading (feeding real-time bars), guaranteeing numerical parity.
 
 from collections import deque
 from typing import Optional
+
+import numpy as np
 
 
 class StreamingEMA:
@@ -300,3 +302,128 @@ class StreamingADX:
         self._dx_values = []
         self._value = None
         self._dm_init_count = 0
+
+
+class StreamingBB:
+    """Bollinger Bands (streaming).
+
+    Maintains a rolling window and computes SMA, upper and lower bands
+    using population std (ddof=0).
+    Matches calculate_bollinger_bands() in bollinger_band/core.py.
+    """
+
+    def __init__(self, period: int = 20, multiplier: float = 2.0):
+        self._period = period
+        self._multiplier = multiplier
+        self._window: deque[float] = deque(maxlen=period)
+        self._sma: Optional[float] = None
+        self._upper: Optional[float] = None
+        self._lower: Optional[float] = None
+
+    def update(
+        self, price: float
+    ) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        """Process one value. Returns (sma, upper, lower) or (None, None, None)."""
+        self._window.append(price)
+
+        if len(self._window) < self._period:
+            return None, None, None
+
+        arr = np.array(self._window)
+        m = float(np.mean(arr))
+        s = float(np.std(arr, ddof=0))
+        self._sma = m
+        self._upper = m + self._multiplier * s
+        self._lower = m - self._multiplier * s
+        return self._sma, self._upper, self._lower
+
+    @property
+    def sma(self) -> Optional[float]:
+        return self._sma
+
+    @property
+    def upper(self) -> Optional[float]:
+        return self._upper
+
+    @property
+    def lower(self) -> Optional[float]:
+        return self._lower
+
+    def reset(self):
+        self._window.clear()
+        self._sma = None
+        self._upper = None
+        self._lower = None
+
+
+class StreamingRSI:
+    """Relative Strength Index with Wilder's smoothing (streaming).
+
+    Matches calculate_rsi() in vwap/core.py.
+    - SMA seed for first `period` deltas.
+    - Then Wilder smoothing: avg = (prev * (period-1) + current) / period.
+    """
+
+    def __init__(self, period: int = 14):
+        self._period = period
+        self._count = 0
+        self._prev_price: Optional[float] = None
+        self._avg_gain: Optional[float] = None
+        self._avg_loss: Optional[float] = None
+        self._value: Optional[float] = None
+        self._gains: list[float] = []
+        self._losses: list[float] = []
+
+    def update(self, price: float) -> Optional[float]:
+        """Process one price. Returns RSI or None if not ready."""
+        if self._prev_price is None:
+            self._prev_price = price
+            self._count += 1
+            return None
+
+        self._count += 1
+        delta = price - self._prev_price
+        self._prev_price = price
+
+        gain = delta if delta > 0 else 0.0
+        loss = -delta if delta < 0 else 0.0
+
+        if self._avg_gain is None:
+            # Accumulating for SMA seed
+            self._gains.append(gain)
+            self._losses.append(loss)
+
+            if len(self._gains) >= self._period:
+                self._avg_gain = sum(self._gains) / self._period
+                self._avg_loss = sum(self._losses) / self._period
+
+                if self._avg_loss < 1e-10:
+                    self._value = 100.0
+                else:
+                    rs = self._avg_gain / self._avg_loss
+                    self._value = 100.0 - 100.0 / (1.0 + rs)
+                return self._value
+            return None
+        else:
+            self._avg_gain = (self._avg_gain * (self._period - 1) + gain) / self._period
+            self._avg_loss = (self._avg_loss * (self._period - 1) + loss) / self._period
+
+            if self._avg_loss < 1e-10:
+                self._value = 100.0
+            else:
+                rs = self._avg_gain / self._avg_loss
+                self._value = 100.0 - 100.0 / (1.0 + rs)
+            return self._value
+
+    @property
+    def value(self) -> Optional[float]:
+        return self._value
+
+    def reset(self):
+        self._count = 0
+        self._prev_price = None
+        self._avg_gain = None
+        self._avg_loss = None
+        self._value = None
+        self._gains = []
+        self._losses = []

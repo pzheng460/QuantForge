@@ -1,24 +1,24 @@
 """
 NexusTrader Indicator wrapper for Hurst-Kalman strategy.
 
-This module wraps the core algorithms into a NexusTrader Indicator class
-that can be registered with a Strategy.
+Delegates all indicator calculations to HurstKalmanSignalCore, ensuring
+100% parity with the backtest signal generator.
 """
 
-from collections import deque
 from enum import Enum
 from typing import Optional
-
-import numpy as np
 
 from nexustrader.constants import KlineInterval
 from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
-from strategy.bitget.hurst_kalman.core import (
-    HurstKalmanConfig,
-    KalmanFilter1D,
-    calculate_hurst,
+from strategy.bitget.hurst_kalman.core import HurstKalmanConfig
+from strategy.indicators.hurst_kalman import (
+    BUY,
+    CLOSE,
+    HOLD,
+    HurstKalmanSignalCore,
+    SELL,
 )
 
 
@@ -40,16 +40,29 @@ class Signal(Enum):
     CLOSE = "close"
 
 
+# Map int constants to Signal enum
+_SIGNAL_MAP = {
+    HOLD: Signal.HOLD,
+    BUY: Signal.BUY,
+    SELL: Signal.SELL,
+    CLOSE: Signal.CLOSE,
+}
+
+# Map core market state strings to MarketState enum
+_MARKET_STATE_MAP = {
+    "unknown": MarketState.UNKNOWN,
+    "mean_reverting": MarketState.MEAN_REVERTING,
+    "random_walk": MarketState.RANDOM_WALK,
+    "trending": MarketState.TRENDING,
+}
+
+
 class HurstKalmanIndicator(Indicator):
     """
     Indicator that calculates Hurst exponent and Kalman-filtered price.
 
-    This indicator provides:
-    - Hurst exponent for market state identification
-    - Kalman-filtered price estimate
-    - Z-Score of price deviation
-    - Kalman slope for trend direction
-    - Trading signals based on market state
+    All indicator calculations are delegated to HurstKalmanSignalCore,
+    which is shared with the backtest signal generator.
     """
 
     def __init__(
@@ -58,17 +71,11 @@ class HurstKalmanIndicator(Indicator):
         warmup_period: Optional[int] = None,
         kline_interval: KlineInterval = KlineInterval.MINUTE_15,
     ):
-        """
-        Initialize the Hurst-Kalman indicator.
-
-        Args:
-            config: Strategy configuration (uses defaults if None)
-            warmup_period: Number of klines for warmup (auto-calculated if None)
-            kline_interval: Kline interval for warmup data
-        """
         self._config = config or HurstKalmanConfig()
-        if warmup_period is None:
-            warmup_period = self._config.hurst_window + self._config.zscore_window
+
+        self._real_warmup_period = (
+            self._config.hurst_window + self._config.zscore_window
+        )
 
         super().__init__(
             params={
@@ -82,235 +89,113 @@ class HurstKalmanIndicator(Indicator):
             kline_interval=kline_interval,
         )
 
-        # Kalman filter
-        self._kalman = KalmanFilter1D(
-            R=self._config.kalman_R,
-            Q=self._config.kalman_Q,
-        )
+        # Shared core
+        self._core = HurstKalmanSignalCore(self._config)
 
-        # Price history for Hurst calculation
-        self._price_history: deque[float] = deque(maxlen=self._config.hurst_window + 50)
-
-        # Kalman estimate history for Z-Score
-        self._kalman_history: deque[float] = deque(
-            maxlen=self._config.zscore_window + 10
-        )
-
-        # Current values
-        self._hurst: float = 0.5
-        self._kalman_price: Optional[float] = None
-        self._zscore: float = 0.0
-        self._slope: float = 0.0
-        self._market_state: MarketState = MarketState.UNKNOWN
+        self._confirmed_bar_count: int = 0
         self._signal: Signal = Signal.HOLD
         self._last_price: Optional[float] = None
 
     def handle_kline(self, kline: Kline) -> None:
-        """
-        Process a new kline and update indicator values.
+        """Process a new kline using bar confirmation via timestamp change."""
+        bar_start = int(kline.start)
 
-        Args:
-            kline: The new kline data
-        """
-        # Manual warmup tracking (in case framework warmup fails)
-        if not self._is_warmed_up:
-            self._warmup_data_count += 1
-            if self._warmup_data_count >= self.warmup_period:
-                self._is_warmed_up = True
+        if not hasattr(self, "_current_bar_start"):
+            self._current_bar_start = bar_start
+            self._current_bar_kline = kline
+            return
 
+        if bar_start != self._current_bar_start:
+            confirmed_kline = self._current_bar_kline
+            self._confirmed_bar_count += 1
+            self._process_kline_data(confirmed_kline)
+
+            self._current_bar_start = bar_start
+            self._current_bar_kline = kline
+        else:
+            self._current_bar_kline = kline
+
+    @property
+    def is_warmed_up(self) -> bool:
+        return self._confirmed_bar_count >= self._real_warmup_period
+
+    def _process_kline_data(self, kline: Kline) -> None:
         price = float(kline.close)
         self._last_price = price
 
-        # Update price history
-        self._price_history.append(price)
+        self._core.update_indicators_only(close=price)
 
-        # Update Kalman filter
-        self._kalman_price = self._kalman.update(price)
-        self._kalman_history.append(self._kalman_price)
-
-        # Calculate Hurst (need enough data)
-        if len(self._price_history) >= self._config.hurst_window:
-            prices_array = np.array(self._price_history)
-            self._hurst = calculate_hurst(prices_array, self._config.hurst_window)
-
-        # Calculate Z-Score
-        if len(self._kalman_history) >= self._config.zscore_window:
-            recent_prices = list(self._price_history)[-self._config.zscore_window :]
-            recent_kalman = list(self._kalman_history)[-self._config.zscore_window :]
-
-            deviations = np.array(recent_prices) - np.array(recent_kalman)
-            std = np.std(deviations)
-
-            if std > 1e-10:
-                self._zscore = (price - self._kalman_price) / std
-            else:
-                self._zscore = 0.0
-
-        # Get slope
-        self._slope = self._kalman.get_slope(lookback=5)
-
-        # Determine market state
-        self._update_market_state()
-
-        # Generate signal
-        self._update_signal()
-
-    def _update_market_state(self) -> None:
-        """Update market state based on Hurst value."""
-        if self._hurst < self._config.mean_reversion_threshold:
-            self._market_state = MarketState.MEAN_REVERTING
-        elif self._hurst > self._config.trend_threshold:
-            self._market_state = MarketState.TRENDING
-        elif (
-            self._config.mean_reversion_threshold
-            <= self._hurst
-            <= self._config.trend_threshold
-        ):
-            self._market_state = MarketState.RANDOM_WALK
-        else:
-            self._market_state = MarketState.UNKNOWN
-
-    def _update_signal(self) -> None:
-        """Generate trading signal based on market state and indicators."""
-        if self._kalman_price is None or self._last_price is None:
-            self._signal = Signal.HOLD
-            return
-
-        # Random walk - close positions, don't trade
-        if self._market_state == MarketState.RANDOM_WALK:
-            self._signal = Signal.CLOSE
-            return
-
-        # Mean reversion mode
-        if self._market_state == MarketState.MEAN_REVERTING:
-            if self._zscore < -self._config.zscore_entry:
-                self._signal = Signal.BUY
-            elif self._zscore > self._config.zscore_entry:
-                self._signal = Signal.SELL
-            elif abs(self._zscore) < 0.5:
-                self._signal = Signal.CLOSE
-            else:
-                self._signal = Signal.HOLD
-            return
-
-        # Trend following mode
-        if self._market_state == MarketState.TRENDING:
-            if self._last_price > self._kalman_price and self._slope > 0:
-                self._signal = Signal.BUY
-            elif self._last_price < self._kalman_price and self._slope < 0:
-                self._signal = Signal.SELL
-            elif self._slope * (1 if self._signal == Signal.BUY else -1) < 0:
-                # Slope reversed
-                self._signal = Signal.CLOSE
-            else:
-                self._signal = Signal.HOLD
-            return
-
-        self._signal = Signal.HOLD
+        raw = self._core.get_raw_signal()
+        self._signal = _SIGNAL_MAP.get(raw, Signal.HOLD)
 
     def handle_bookl1(self, bookl1: BookL1) -> None:
-        """Handle bookl1 data (not used for this indicator)."""
         pass
 
     def handle_bookl2(self, bookl2: BookL2) -> None:
-        """Handle bookl2 data (not used for this indicator)."""
         pass
 
     def handle_trade(self, trade: Trade) -> None:
-        """Handle trade data (not used for this indicator)."""
         pass
-
-    # Properties for accessing indicator values
 
     @property
     def value(self) -> dict:
-        """Get all indicator values as a dictionary."""
         return {
-            "hurst": self._hurst,
-            "kalman_price": self._kalman_price,
-            "zscore": self._zscore,
-            "slope": self._slope,
-            "market_state": self._market_state.value,
+            "hurst": self._core.hurst_value,
+            "kalman_price": self._core.kalman_price_value,
+            "zscore": self._core.zscore_value,
+            "slope": self._core.slope_value,
+            "market_state": self._core.market_state,
             "signal": self._signal.value,
         }
 
     @property
     def hurst(self) -> float:
-        """Get current Hurst exponent."""
-        return self._hurst
+        return self._core.hurst_value
 
     @property
     def kalman_price(self) -> Optional[float]:
-        """Get current Kalman-filtered price."""
-        return self._kalman_price
+        return self._core.kalman_price_value
 
     @property
     def zscore(self) -> float:
-        """Get current Z-Score."""
-        return self._zscore
+        return self._core.zscore_value
 
     @property
     def slope(self) -> float:
-        """Get current Kalman slope."""
-        return self._slope
+        return self._core.slope_value
 
     @property
     def market_state(self) -> MarketState:
-        """Get current market state."""
-        return self._market_state
+        return _MARKET_STATE_MAP.get(self._core.market_state, MarketState.UNKNOWN)
 
     @property
     def signal(self) -> Signal:
-        """Get current trading signal."""
         return self._signal
 
     def get_signal(self) -> Signal:
-        """Get current trading signal (method form for compatibility)."""
         return self._signal
 
     def should_stop_loss(
         self, entry_price: float, current_price: float, is_long: bool
     ) -> bool:
-        """
-        Check if stop loss should be triggered.
-
-        Args:
-            entry_price: Position entry price
-            current_price: Current market price
-            is_long: True if long position, False if short
-
-        Returns:
-            True if stop loss should be triggered
-        """
         if entry_price <= 0:
             return False
-
-        # Calculate PnL based on position direction
         if is_long:
             pnl_pct = (current_price - entry_price) / entry_price
         else:
             pnl_pct = (entry_price - current_price) / entry_price
-
-        # Only trigger on losses exceeding threshold
         if pnl_pct < -self._config.stop_loss_pct:
             return True
-
-        # Z-Score model failure (abs is correct here — model anomaly detection)
-        if abs(self._zscore) > self._config.zscore_stop:
+        if abs(self._core.zscore_value) > self._config.zscore_stop:
             return True
-
         return False
 
     def reset(self) -> None:
-        """Reset indicator to initial state."""
-        self._kalman.reset()
-        self._price_history.clear()
-        self._kalman_history.clear()
-        self._hurst = 0.5
-        self._kalman_price = None
-        self._zscore = 0.0
-        self._slope = 0.0
-        self._market_state = MarketState.UNKNOWN
+        self._core.reset()
         self._signal = Signal.HOLD
         self._last_price = None
-        self.reset_warmup()
+        self._confirmed_bar_count = 0
+        if hasattr(self, "_current_bar_start"):
+            del self._current_bar_start
+        if hasattr(self, "_current_bar_kline"):
+            del self._current_bar_kline
