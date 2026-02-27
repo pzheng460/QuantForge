@@ -7,7 +7,7 @@ A mean-reversion strategy that uses:
 - Price-based stop loss for risk management
 """
 
-from strategy.bitget.bollinger_band.core import (
+from strategy.strategies.bollinger_band.core import (
     BBConfig,
     calculate_bb_single,
     calculate_bollinger_bands,

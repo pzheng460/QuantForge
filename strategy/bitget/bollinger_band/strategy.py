@@ -70,7 +70,7 @@ from strategy.bitget.bollinger_band.configs import (  # noqa: E402
     BBTradeFilterConfig,
     get_config,
 )
-from strategy.bitget.bollinger_band.core import BBConfig  # noqa: E402
+from strategy.strategies.bollinger_band.core import BBConfig  # noqa: E402
 from strategy.bitget.bollinger_band.indicator import (  # noqa: E402
     BollingerBandIndicator,
     Signal,

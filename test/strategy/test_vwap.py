@@ -4,7 +4,7 @@ Unit tests for VWAP Mean Reversion core algorithms and indicator logic.
 
 import numpy as np
 
-from strategy.bitget.vwap.core import (
+from strategy.strategies.vwap.core import (
     VWAPConfig,
     calculate_rsi,
     calculate_vwap,

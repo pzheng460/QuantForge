@@ -12,7 +12,7 @@ from nexustrader.constants import KlineInterval
 from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
-from strategy.bitget.regime_ema.core import MarketRegime, RegimeEMAConfig
+from strategy.strategies.regime_ema.core import MarketRegime, RegimeEMAConfig
 from strategy.indicators.regime_ema import BUY, CLOSE, HOLD, RegimeEMASignalCore, SELL
 
 

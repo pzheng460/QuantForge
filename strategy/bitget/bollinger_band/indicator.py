@@ -12,7 +12,7 @@ from nexustrader.constants import KlineInterval
 from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
-from strategy.bitget.bollinger_band.core import BBConfig
+from strategy.strategies.bollinger_band.core import BBConfig
 from strategy.indicators.bollinger_band import BBSignalCore, BUY, CLOSE, HOLD, SELL
 
 

@@ -6,7 +6,7 @@ A trend-following strategy that uses:
 - Price-based stop loss for risk management
 """
 
-from strategy.bitget.ema_crossover.core import (
+from strategy.strategies.ema_crossover.core import (
     EMAConfig,
     calculate_ema,
     calculate_ema_single,

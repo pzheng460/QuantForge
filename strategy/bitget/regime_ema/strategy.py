@@ -71,7 +71,7 @@ from strategy.bitget.regime_ema.configs import (  # noqa: E402
     RegimeEMATradeFilterConfig,
     get_config,
 )
-from strategy.bitget.regime_ema.core import (  # noqa: E402
+from strategy.strategies.regime_ema.core import (  # noqa: E402
     MarketRegime,
     RegimeEMAConfig,
 )

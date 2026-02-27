@@ -7,7 +7,7 @@ A trend-following strategy that uses:
 - Automatic position flattening in non-trending regimes
 """
 
-from strategy.bitget.regime_ema.core import (
+from strategy.strategies.regime_ema.core import (
     MarketRegime,
     RegimeEMAConfig,
     calculate_adx,

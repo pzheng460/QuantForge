@@ -72,7 +72,7 @@ from strategy.bitget.momentum.configs import (  # noqa: E402
     MomentumTradeFilterConfig,
     get_config,
 )
-from strategy.bitget.momentum.core import MomentumConfig  # noqa: E402
+from strategy.strategies.momentum.core import MomentumConfig  # noqa: E402
 from strategy.bitget.momentum.indicator import (  # noqa: E402
     MomentumIndicator,
     Signal,

@@ -44,7 +44,7 @@ from strategy.bitget.ema_crossover.configs import (
     EMATradeFilterConfig,
     get_config,
 )
-from strategy.bitget.ema_crossover.core import EMAConfig
+from strategy.strategies.ema_crossover.core import EMAConfig
 from strategy.bitget.ema_crossover.indicator import EMACrossoverIndicator
 
 

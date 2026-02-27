@@ -8,7 +8,7 @@ A momentum strategy that uses:
 - Volume SMA for volume confirmation
 """
 
-from strategy.bitget.momentum.core import (
+from strategy.strategies.momentum.core import (
     MomentumConfig,
     calculate_atr,
     calculate_ema,

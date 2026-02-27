@@ -71,7 +71,7 @@ from strategy.bitget.hurst_kalman.configs import (
     TradeFilterConfig,
     get_config,
 )
-from strategy.bitget.hurst_kalman.core import HurstKalmanConfig
+from strategy.strategies.hurst_kalman.core import HurstKalmanConfig
 from strategy.bitget.hurst_kalman.indicator import (
     HurstKalmanIndicator,
     MarketState,

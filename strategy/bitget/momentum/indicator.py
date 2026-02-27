@@ -12,7 +12,7 @@ from nexustrader.constants import KlineInterval
 from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
-from strategy.bitget.momentum.core import MomentumConfig
+from strategy.strategies.momentum.core import MomentumConfig
 from strategy.indicators.momentum import BUY, HOLD, MomentumSignalCore, SELL
 
 

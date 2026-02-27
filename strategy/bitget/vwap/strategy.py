@@ -71,7 +71,7 @@ from strategy.bitget.vwap.configs import (  # noqa: E402
     VWAPTradeFilterConfig,
     get_config,
 )
-from strategy.bitget.vwap.core import VWAPConfig  # noqa: E402
+from strategy.strategies.vwap.core import VWAPConfig  # noqa: E402
 from strategy.bitget.vwap.indicator import (  # noqa: E402
     VWAPIndicator,
     Signal,

@@ -7,7 +7,7 @@ A mean-reversion strategy that uses:
 - RSI (14) as secondary confirmation filter
 """
 
-from strategy.bitget.vwap.core import (
+from strategy.strategies.vwap.core import (
     VWAPConfig,
     calculate_rsi,
     calculate_vwap,

@@ -4,7 +4,7 @@ Unit tests for Hurst-Kalman core algorithms and indicator logic.
 
 import numpy as np
 
-from strategy.bitget.hurst_kalman.core import (
+from strategy.strategies.hurst_kalman.core import (
     HurstKalmanConfig,
     KalmanFilter1D,
     calculate_hurst,

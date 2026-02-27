@@ -6,7 +6,7 @@ A quantitative trading strategy that uses:
 - Kalman Filter for true value estimation
 """
 
-from strategy.bitget.hurst_kalman.core import (
+from strategy.strategies.hurst_kalman.core import (
     HurstKalmanConfig,
     KalmanFilter1D,
     calculate_hurst,

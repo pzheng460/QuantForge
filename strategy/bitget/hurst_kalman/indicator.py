@@ -12,7 +12,7 @@ from nexustrader.constants import KlineInterval
 from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
-from strategy.bitget.hurst_kalman.core import HurstKalmanConfig
+from strategy.strategies.hurst_kalman.core import HurstKalmanConfig
 from strategy.indicators.hurst_kalman import (
     BUY,
     CLOSE,
