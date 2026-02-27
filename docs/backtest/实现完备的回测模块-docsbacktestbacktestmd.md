@@ -6,7 +6,7 @@
 
 ## Problem Statement
 
-当前的回测实现（`strategy/bitget/hurst_kalman/backtest.py`）是策略特定的，无法复用。缺乏：
+当前的回测实现（`strategy/live/hurst_kalman/backtest.py`）是策略特定的，无法复用。缺乏：
 - 统一的数据源抽象
 - 完整的交易成本模拟（资金费率、滑点）
 - 标准化的性能指标计算

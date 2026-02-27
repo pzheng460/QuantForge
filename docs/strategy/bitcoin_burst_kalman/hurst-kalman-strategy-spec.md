@@ -46,7 +46,7 @@
 - [ ] 从 Bitget API（via ccxt）获取 2023-2024 年 BTCUSDT 15m K线数据
 - [ ] 使用 vectorbt 实现向量化回测
 - [ ] 输出回测报告：总收益、夏普比率、最大回撤
-- [ ] 脚本可运行：`uv run python strategy/bitget/hurst_kalman_backtest.py`
+- [ ] 脚本可运行：`uv run python strategy/live/hurst_kalman_backtest.py`
 
 ### US-3: NexusTrader 指标类实现
 **Description:** 作为策略开发者，我需要 NexusTrader Indicator 类封装核心算法。
@@ -66,7 +66,7 @@
 - [ ] 通过 `subscribe_klines` 订阅 15m K线
 - [ ] 在 `on_kline` 中执行交易逻辑
 - [ ] 支持通过配置文件指定多个交易对
-- [ ] 策略可启动：`uv run python strategy/bitget/hurst_kalman_strategy.py`
+- [ ] 策略可启动：`uv run python strategy/live/hurst_kalman_strategy.py`
 - [ ] 日志输出当前状态：H值、Kalman价格、Z-Score、持仓
 
 ### US-5: 风控模块实现
@@ -91,7 +91,7 @@
 
 ### 文件结构
 ```
-strategy/bitget/
+strategy/live/
 ├── hurst_kalman/
 │   ├── __init__.py
 │   ├── core.py              # 纯 numpy 核心算法
@@ -207,20 +207,20 @@ class HurstKalmanConfig:
 - [ ] 实现向量化信号生成
 - [ ] 实现 vectorbt 回测主体
 - [ ] 生成回测报告
-- **Verification:** `uv run python strategy/bitget/hurst_kalman/backtest.py`
+- **Verification:** `uv run python strategy/live/hurst_kalman/backtest.py`
 
 ### Phase 3: NexusTrader 指标封装
 - [ ] 实现 `HurstKalmanIndicator` 类
 - [ ] 实现 warmup 逻辑
 - [ ] 实现信号生成接口
-- **Verification:** `uvx ruff check strategy/bitget/hurst_kalman/`
+- **Verification:** `uvx ruff check strategy/live/hurst_kalman/`
 
 ### Phase 4: 实盘策略与风控
 - [ ] 实现策略主体类
 - [ ] 实现风控模块（熔断、止损、手续费检查）
 - [ ] 实现 PostgreSQL 交易记录
 - [ ] 在 Bitget Demo 模拟盘测试运行
-- **Verification:** `uv run python strategy/bitget/hurst_kalman/strategy.py` 启动无报错，日志正常输出
+- **Verification:** `uv run python strategy/live/hurst_kalman/strategy.py` 启动无报错，日志正常输出
 
 ## Definition of Done
 
@@ -239,7 +239,7 @@ This feature is complete when:
 
 PHASES:
 1. Core algorithms: Implement calculate_hurst() and KalmanFilter1D in core.py, write unit tests - verify with uv run pytest test/strategy/test_hurst_kalman.py
-2. Backtest: Implement vectorbt backtest script with ccxt data fetching - verify with uv run python strategy/bitget/hurst_kalman/backtest.py
+2. Backtest: Implement vectorbt backtest script with ccxt data fetching - verify with uv run python strategy/live/hurst_kalman/backtest.py
 3. Indicator: Implement HurstKalmanIndicator with warmup support - verify with uvx ruff check
 4. Strategy: Implement live strategy with risk management and PostgreSQL logging - verify with strategy startup test
 

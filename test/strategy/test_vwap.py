@@ -10,7 +10,7 @@ from strategy.strategies.vwap.core import (
     calculate_vwap,
     calculate_vwap_zscore,
 )
-from strategy.bitget.vwap.indicator import VWAPIndicator
+from strategy.live.vwap.indicator import VWAPIndicator
 
 
 class TestCalculateVWAP:

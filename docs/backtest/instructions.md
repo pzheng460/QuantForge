@@ -95,17 +95,17 @@ Phase 5: 实盘交易
 
 ### 快速开始
 
-回测脚本位于: `strategy/bitget/hurst_kalman/backtest.py`
+回测脚本位于: `strategy/live/hurst_kalman/backtest.py`
 
 ```bash
 # 基础回测 (默认 level 2 配置, 1年数据)
-uv run python strategy/bitget/hurst_kalman/backtest.py
+uv run python strategy/live/hurst_kalman/backtest.py
 
 # 三阶段完整测试 (推荐用于生产验证)
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y
+uv run python strategy/live/hurst_kalman/backtest.py --full --period 1y
 
 # 查看已保存的回测结果
-uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
+uv run python strategy/live/hurst_kalman/backtest.py --show-results
 ```
 
 ### 时间周期选项
@@ -178,28 +178,28 @@ uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
 
 ```bash
 # 1. 完整验证模式 (推荐用于生产验证)
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y
+uv run python strategy/live/hurst_kalman/backtest.py --full --period 1y
 
 # 2. 完整验证 + 导出最佳配置
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y --export-config
+uv run python strategy/live/hurst_kalman/backtest.py --full --period 1y --export-config
 
 # 3. 完整验证 + 额外的标准报告
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 1y --report
+uv run python strategy/live/hurst_kalman/backtest.py --full --period 1y --report
 
 # 4. 使用 2 年数据进行完整验证
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --period 2y
+uv run python strategy/live/hurst_kalman/backtest.py --full --period 2y
 
 # 5. 测试特定级别和周期
-uv run python strategy/bitget/hurst_kalman/backtest.py --level 3 --period 1y
+uv run python strategy/live/hurst_kalman/backtest.py --level 3 --period 1y
 
 # 6. 测试所有级别 (1-5)
-uv run python strategy/bitget/hurst_kalman/backtest.py --all-levels --period 6m
+uv run python strategy/live/hurst_kalman/backtest.py --all-levels --period 6m
 
 # 7. 仅参数优化
-uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --period 6m
+uv run python strategy/live/hurst_kalman/backtest.py --optimize --period 6m
 
 # 8. 查看历史回测结果
-uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
+uv run python strategy/live/hurst_kalman/backtest.py --show-results
 ```
 
 ### 报告输出
@@ -242,7 +242,7 @@ uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
 
 ```bash
 # 使用推荐配置 (L2 Swing) 回测 6 个月数据
-uv run python strategy/bitget/hurst_kalman/backtest.py --level 2 --period 6m
+uv run python strategy/live/hurst_kalman/backtest.py --level 2 --period 6m
 ```
 
 输出示例：
@@ -271,7 +271,7 @@ Profit Factor: 1.78
 使用 `--optimize` 运行参数优化：
 
 ```bash
-uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --period 6m
+uv run python strategy/live/hurst_kalman/backtest.py --optimize --period 6m
 ```
 
 默认优化参数网格：
@@ -285,13 +285,13 @@ uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --period 6m
 优化完成后，使用 `--export-config` 导出最佳参数：
 
 ```bash
-uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --export-config
+uv run python strategy/live/hurst_kalman/backtest.py --optimize --export-config
 ```
 
 这会生成 `optimized_config.py` 文件，可直接用于模拟盘：
 
 ```python
-from strategy.bitget.hurst_kalman.optimized_config import OPTIMIZED_CONFIG
+from strategy.live.hurst_kalman.optimized_config import OPTIMIZED_CONFIG
 
 # 在策略中使用
 hk_config, filter_config = OPTIMIZED_CONFIG.get_configs()
@@ -316,7 +316,7 @@ hk_config, filter_config = OPTIMIZED_CONFIG.get_configs()
 防止过拟合的关键步骤：
 
 ```bash
-uv run python strategy/bitget/hurst_kalman/backtest.py --walk-forward --period 6m
+uv run python strategy/live/hurst_kalman/backtest.py --walk-forward --period 6m
 ```
 
 输出示例：
@@ -338,7 +338,7 @@ Total Test Return: 28.08%
 确认策略在不同市场状态下的表现：
 
 ```bash
-uv run python strategy/bitget/hurst_kalman/backtest.py --regime --period 6m
+uv run python strategy/live/hurst_kalman/backtest.py --regime --period 6m
 ```
 
 输出示例：
@@ -366,7 +366,7 @@ Performance by Regime:
 一次性运行所有验证：
 
 ```bash
-uv run python strategy/bitget/hurst_kalman/backtest.py --full --report
+uv run python strategy/live/hurst_kalman/backtest.py --full --report
 ```
 
 ### 3.4 验证检查点
@@ -386,11 +386,11 @@ uv run python strategy/bitget/hurst_kalman/backtest.py --full --report
 
 ```bash
 # 1. 导出最佳配置
-uv run python strategy/bitget/hurst_kalman/backtest.py --optimize --export-config
+uv run python strategy/live/hurst_kalman/backtest.py --optimize --export-config
 
 # 2. 修改策略文件使用导出的配置
 # 在 strategy.py 中:
-from strategy.bitget.hurst_kalman.optimized_config import OPTIMIZED_CONFIG
+from strategy.live.hurst_kalman.optimized_config import OPTIMIZED_CONFIG
 ```
 
 ### 4.2 使用 Testnet 配置
@@ -479,14 +479,14 @@ Week 7+:   100% 资金
 
 ### 保存位置
 
-- **回测结果**: `strategy/bitget/hurst_kalman/backtest_results.json`
-- **HTML 报告**: `strategy/bitget/hurst_kalman/backtest_report.html`
-- **导出配置**: `strategy/bitget/hurst_kalman/optimized_config.py`
+- **回测结果**: `strategy/live/hurst_kalman/backtest_results.json`
+- **HTML 报告**: `strategy/live/hurst_kalman/backtest_report.html`
+- **导出配置**: `strategy/live/hurst_kalman/optimized_config.py`
 
 ### 查看历史结果
 
 ```bash
-uv run python strategy/bitget/hurst_kalman/backtest.py --show-results
+uv run python strategy/live/hurst_kalman/backtest.py --show-results
 ```
 
 输出示例：
@@ -522,7 +522,7 @@ Period   Z-Score   Hurst     Return   Sharpe     MaxDD   Trades
 
 ```python
 # 导出配置后
-from strategy.bitget.hurst_kalman.optimized_config import OPTIMIZED_CONFIG
+from strategy.live.hurst_kalman.optimized_config import OPTIMIZED_CONFIG
 
 hk_config, filter_config = OPTIMIZED_CONFIG.get_configs()
 ```
@@ -530,7 +530,7 @@ hk_config, filter_config = OPTIMIZED_CONFIG.get_configs()
 ### 方法 2: 使用 UQSS 级别
 
 ```python
-from strategy.bitget.hurst_kalman.configs import get_config
+from strategy.live.hurst_kalman.configs import get_config
 
 # 切换到不同 UQSS 级别
 strategy_config = get_config(level=2)  # L1-L5
@@ -547,7 +547,7 @@ hk_config, filter_config = strategy_config.get_configs()
 ### 方法 3: 按名称获取
 
 ```python
-from strategy.bitget.hurst_kalman.configs import get_config_by_name
+from strategy.live.hurst_kalman.configs import get_config_by_name
 
 strategy_config = get_config_by_name("swing")
 # 可用名称: macro, swing, intraday, scalp, sniper
@@ -557,7 +557,7 @@ strategy_config = get_config_by_name("swing")
 
 ```python
 from nexustrader.strategy_config import StrategyLevel
-from strategy.bitget.hurst_kalman.configs import get_config_by_level
+from strategy.live.hurst_kalman.configs import get_config_by_level
 
 strategy_config = get_config_by_level(StrategyLevel.L2_SWING)
 hk_config, filter_config = strategy_config.get_configs()

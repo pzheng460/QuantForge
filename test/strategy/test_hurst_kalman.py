@@ -10,7 +10,7 @@ from strategy.strategies.hurst_kalman.core import (
     calculate_hurst,
     calculate_zscore,
 )
-from strategy.bitget.hurst_kalman.indicator import HurstKalmanIndicator
+from strategy.live.hurst_kalman.indicator import HurstKalmanIndicator
 
 
 class TestCalculateHurst:

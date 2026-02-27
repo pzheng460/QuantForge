@@ -24,7 +24,7 @@ Hurst-Kalman 策略是一个基于统计套利的量化交易策略，结合了 
 ## 文件结构
 
 ```
-strategy/bitget/hurst_kalman/
+strategy/live/hurst_kalman/
 ├── configs.py              # 配置定义 (1-5级别)
 ├── backtest.py             # 统一回测脚本 (支持参数控制)
 ├── backtest_results.json   # 回测结果数据
@@ -60,7 +60,7 @@ strategy/bitget/hurst_kalman/
 ### 查看所有配置
 
 ```bash
-uv run python -m strategy.bitget.hurst_kalman.configs
+uv run python -m strategy.live.hurst_kalman.configs
 ```
 
 输出示例：
@@ -96,7 +96,7 @@ Usage: SELECTED_CONFIG = 2  # Select level 1-5
 
 ### 在策略中选择配置
 
-**文件位置：** `strategy/bitget/hurst_kalman/strategy.py` 第 541 行
+**文件位置：** `strategy/live/hurst_kalman/strategy.py` 第 541 行
 
 **修改方法：** 将 `SELECTED_CONFIG` 的值改为 1-5：
 
@@ -138,22 +138,22 @@ strategy_config, filter_config = selected.get_configs()
 
 ```bash
 # 回测所有配置 (Level 1-5) 和时间段 (6m, 1y, 2y)
-uv run python -m strategy.bitget.hurst_kalman.backtest
+uv run python -m strategy.live.hurst_kalman.backtest
 
 # 只测试特定级别
-uv run python -m strategy.bitget.hurst_kalman.backtest --level 2
+uv run python -m strategy.live.hurst_kalman.backtest --level 2
 
 # 只测试特定时间段
-uv run python -m strategy.bitget.hurst_kalman.backtest --period 6m
+uv run python -m strategy.live.hurst_kalman.backtest --period 6m
 
 # 组合使用
-uv run python -m strategy.bitget.hurst_kalman.backtest --level 5 --period 3m
+uv run python -m strategy.live.hurst_kalman.backtest --level 5 --period 3m
 
 # 参数优化（寻找最佳短期配置）
-uv run python -m strategy.bitget.hurst_kalman.backtest --optimize
+uv run python -m strategy.live.hurst_kalman.backtest --optimize
 
 # 查看已保存的结果
-uv run python -m strategy.bitget.hurst_kalman.backtest --show-results
+uv run python -m strategy.live.hurst_kalman.backtest --show-results
 ```
 
 ### 时间段选项
@@ -205,7 +205,7 @@ uv run python -m strategy.bitget.hurst_kalman.backtest --show-results
 
 ```bash
 # 运行策略 (配置由 SELECTED_CONFIG 决定)
-uv run python -m strategy.bitget.hurst_kalman.strategy
+uv run python -m strategy.live.hurst_kalman.strategy
 ```
 
 **切换配置：** 修改 `strategy.py` 中的 `SELECTED_CONFIG = 1/2/3/4/5`
@@ -230,7 +230,7 @@ uv run python -m strategy.bitget.hurst_kalman.strategy
 
 **查看实时性能：**
 ```bash
-uv run python -m strategy.bitget.hurst_kalman.performance
+uv run python -m strategy.live.hurst_kalman.performance
 ```
 
 **输出示例：**
@@ -256,7 +256,7 @@ Current Drawdown: 0.30%
 ============================================================
 ```
 
-**性能数据文件：** `strategy/bitget/hurst_kalman/live_performance.json`
+**性能数据文件：** `strategy/live/hurst_kalman/live_performance.json`
 
 ---
 

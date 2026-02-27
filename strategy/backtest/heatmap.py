@@ -1,7 +1,7 @@
 """
 Heatmap Parameter Scan System (exchange-agnostic).
 
-Moved from ``strategy/bitget/common/heatmap.py`` and parameterized to accept
+Moved from ``strategy/live/common/heatmap.py`` and parameterized to accept
 ``symbol``, ``cost_config``, ``interval``, and ``initial_capital`` so the
 BacktestRunner can thread exchange profile through it.
 

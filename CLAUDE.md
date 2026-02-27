@@ -113,8 +113,8 @@ Each exchange directory contains:
 - `strategy/indicators/{name}.py` - Signal cores (single source of truth for each strategy)
 - `strategy/strategies/_base/` - BaseSignalGenerator, TradeFilterConfig, registration helpers
 - `strategy/strategies/{name}/` - Backtest configs and registrations (auto-discovered)
-- `strategy/bitget/common/base_strategy.py` - BaseQuantStrategy: shared live strategy base class
-- `strategy/bitget/{name}/` - Live trading indicators and exchange-specific wrappers
+- `strategy/live/common/base_strategy.py` - BaseQuantStrategy: shared live strategy base class
+- `strategy/live/{name}/` - Live trading indicators and exchange-specific wrappers
 
 ### Configuration and Data
 - `nexustrader/constants.py` - Enums and constants
@@ -236,8 +236,8 @@ strategy/strategies/{name}/
 ├── core.py              # Strategy config dataclass
 ├── registration.py      # Strategy registration (auto-discovered via __init__.py)
 
-strategy/bitget/common/base_strategy.py   # BaseQuantStrategy: shared live strategy base class
-strategy/bitget/{name}/indicator.py       # Live: dual-mode (warmup: update_indicators_only, live: core.update())
+strategy/live/common/base_strategy.py   # BaseQuantStrategy: shared live strategy base class
+strategy/live/{name}/indicator.py       # Live: dual-mode (warmup: update_indicators_only, live: core.update())
 
 test/indicators/parity_factory.py      # Test factory: make_parity_test_class()
 test/indicators/test_all_parity.py     # Unified parity tests for all 9 strategies
@@ -346,8 +346,8 @@ Minimal steps to add a new strategy (only real logic needed, ~350-550 lines):
 3. **Registration** — `strategy/strategies/{name}/registration.py`: ~50 lines of declarative registration using `BaseSignalGenerator` + helper factories
 4. **Package init** — `strategy/strategies/{name}/__init__.py`: Docstring only (auto-discovered, no manual import needed)
 5. **Parity test** — Add entry in `test/indicators/test_all_parity.py`: ~10 lines using `make_parity_test_class()`
-6. **Live indicator** — `strategy/bitget/{name}/indicator.py`: Dual-mode wrapper with `enable_live_mode()`, passes filter params to core
-7. **Live strategy** — `strategy/bitget/{name}/strategy.py`: Inherit `BaseQuantStrategy`, implement `on_start()` and `_format_log_line()`
+6. **Live indicator** — `strategy/live/{name}/indicator.py`: Dual-mode wrapper with `enable_live_mode()`, passes filter params to core
+7. **Live strategy** — `strategy/live/{name}/strategy.py`: Inherit `BaseQuantStrategy`, implement `on_start()` and `_format_log_line()`
 
 No need to create signal.py, no manual import in `__init__.py`, no per-strategy test file.
 
@@ -359,7 +359,7 @@ No need to create signal.py, no manual import in `__init__.py`, no per-strategy 
 - **Bar confirmation**: Live indicators use timestamp change detection to confirm the previous bar is complete before processing
 - **Signal mapping**: Live indicators use `_SIGNAL_MAP` dict to convert int signals to exchange-specific enum values
 - **Dual-mode indicators**: Live indicators start in warmup mode (`update_indicators_only()`) and switch to live mode (`core.update()`) via `enable_live_mode()`, ensuring no false position state during historical kline replay
-- **BaseQuantStrategy**: Shared base class (`strategy/bitget/common/base_strategy.py`) for all live trading strategies, containing position tracking, order management, circuit breaker, performance tracking, and a template `on_kline()`. Subclasses only implement `on_start()` and optionally `_format_log_line()`. Currently piloted by ema_crossover.
+- **BaseQuantStrategy**: Shared base class (`strategy/live/common/base_strategy.py`) for all live trading strategies, containing position tracking, order management, circuit breaker, performance tracking, and a template `on_kline()`. Subclasses only implement `on_start()` and optionally `_format_log_line()`. Currently piloted by ema_crossover.
 
 ### Running Parity Tests
 
@@ -387,8 +387,8 @@ uv run python -m strategy.backtest -S ema_crossover -X binance --heatmap
 uv run python -m strategy.backtest -S bollinger_band -X okx --optimize
 
 # Backward-compatible (old entry points still work):
-uv run python strategy/bitget/hurst_kalman/backtest.py --full
-uv run python strategy/bitget/ema_crossover/backtest.py --heatmap
+uv run python strategy/live/hurst_kalman/backtest.py --full
+uv run python strategy/live/ema_crossover/backtest.py --heatmap
 ```
 
 ### CLI Arguments
@@ -413,7 +413,7 @@ uv run python strategy/bitget/ema_crossover/backtest.py --heatmap
 - `strategy/indicators/` — Shared signal cores and streaming primitives (single source of truth)
 - `strategy/backtest/` — Unified framework (runner, CLI, registry, exchange profiles, heatmap, utils)
 - `strategy/strategies/` — Exchange-agnostic strategy definitions (configs, signal generators delegate to cores)
-- `strategy/bitget/` — Live trading indicators (delegate to signal cores for parity)
+- `strategy/live/` — Live trading indicators (delegate to signal cores for parity)
 - `examples/` — Exchange API usage examples (binance, okx, bybit, hyperliquid, bitget)
 
 ### Supported Exchanges
