@@ -1,6 +1,7 @@
 """Register VWAP Mean Reversion strategy with the backtest framework."""
 
 import dataclasses
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from nexustrader.constants import KlineInterval
@@ -97,29 +98,43 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
     )
 
 
-def _export_config(config: StrategyConfig) -> str:
-    """Generate Python config code for paper trading."""
-    sc = config.strategy_config
-    fc = config.filter_config
-    return (
-        f"VWAPConfig(\n"
-        f"    std_window={sc.std_window},\n"
-        f"    rsi_period={sc.rsi_period},\n"
-        f"    zscore_entry={sc.zscore_entry},\n"
-        f"    zscore_exit={sc.zscore_exit},\n"
-        f"    zscore_stop={sc.zscore_stop},\n"
-        f"    rsi_oversold={sc.rsi_oversold},\n"
-        f"    rsi_overbought={sc.rsi_overbought},\n"
-        f"    position_size_pct={sc.position_size_pct},\n"
-        f"    stop_loss_pct={sc.stop_loss_pct},\n"
-        f"    daily_loss_limit={sc.daily_loss_limit},\n"
-        f")\n\n"
-        f"VWAPTradeFilterConfig(\n"
-        f"    min_holding_bars={fc.min_holding_bars},\n"
-        f"    cooldown_bars={fc.cooldown_bars},\n"
-        f"    signal_confirmation={fc.signal_confirmation},\n"
-        f")"
-    )
+def _export_config(
+    params: Dict, metrics: Dict, period: str = None, profile=None
+) -> str:
+    """Export optimized parameters as config code."""
+    min_hold = int(params.get("min_holding_bars", 4))
+    cooldown = max(1, min_hold // 2)
+    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    return f"""
+# =============================================================================
+# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
+# Period: {period or "N/A"}
+# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
+# =============================================================================
+
+from strategy.strategies.vwap.core import VWAPConfig
+from strategy.strategies.vwap.signal import VWAPTradeFilterConfig
+
+OPTIMIZED_CONFIG = VWAPConfig(
+    symbols=["BTCUSDT-PERP{suffix}"],
+    std_window={int(params.get("std_window", 200))},
+    rsi_period={int(params.get("rsi_period", 14))},
+    zscore_entry={float(params.get("zscore_entry", 2.0))},
+    zscore_exit={float(params.get("zscore_exit", 0.5))},
+    zscore_stop={float(params.get("zscore_stop", 3.5))},
+    rsi_oversold={float(params.get("rsi_oversold", 30.0))},
+    rsi_overbought={float(params.get("rsi_overbought", 70.0))},
+    position_size_pct={float(params.get("position_size_pct", 0.10))},
+    stop_loss_pct={float(params.get("stop_loss_pct", 0.03))},
+    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
+)
+
+OPTIMIZED_FILTER = VWAPTradeFilterConfig(
+    min_holding_bars={min_hold},
+    cooldown_bars={cooldown},
+    signal_confirmation={int(params.get("signal_confirmation", 1))},
+)
+"""
 
 
 register_strategy(

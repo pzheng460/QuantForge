@@ -108,10 +108,15 @@ Each exchange directory contains:
 - `websockets.py` - WebSocket implementations
 - `rest_api.py` - REST API client
 
+### Strategy Signal Layer
+- `strategy/indicators/base.py` - Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
+- `strategy/indicators/{name}.py` - Signal cores (single source of truth for each strategy)
+- `strategy/strategies/{name}/` - Backtest configs, signal generators, registrations
+- `strategy/bitget/{name}/` - Live trading indicators and exchange-specific wrappers
+
 ### Configuration and Data
 - `nexustrader/constants.py` - Enums and constants
 - `nexustrader/backends/` - Database backends (Redis, PostgreSQL, SQLite)
-- `strategy/` - Example strategies organized by exchange
 
 ## Environment Configuration
 
@@ -201,6 +206,97 @@ Start with: `docker-compose up -d`
 ### Import Guidelines
 - Always use absolute path imports
 
+## Unified Signal Core Architecture
+
+All trading strategies share a **SignalCore** pattern that guarantees 100% code parity between backtest and live trading. The signal logic lives in a single shared class — both the backtest signal generator and the live indicator delegate to it.
+
+### Directory Layout
+
+```
+strategy/indicators/
+├── base.py              # Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
+├── momentum.py          # MomentumSignalCore
+├── ema_crossover.py     # EMASignalCore
+├── bollinger_band.py    # BBSignalCore
+├── regime_ema.py        # RegimeEMASignalCore
+├── hurst_kalman.py      # HurstKalmanSignalCore
+├── vwap.py              # VWAPSignalCore
+├── funding_rate.py      # FundingRateSignalCore
+├── dual_regime.py       # DualRegimeSignalCore
+├── grid_trading.py      # GridSignalCore
+
+strategy/strategies/{name}/signal.py   # Backtest: thin wrapper calling core.update()
+strategy/bitget/{name}/indicator.py    # Live: delegates to core.update_indicators_only() + get_raw_signal()
+test/indicators/test_{name}_parity.py  # Parity tests verifying core vs generator match
+```
+
+### Signal Constants
+
+All cores use the same integer signal values:
+- `HOLD = 0` — No action
+- `BUY = 1` — Open long / close short
+- `SELL = -1` — Open short / close long
+- `CLOSE = 2` — Close current position
+
+### Three-Method API
+
+Each `SignalCore` class exposes three methods:
+
+| Method | Used By | Description |
+|--------|---------|-------------|
+| `update(close, high, low, ...)` | Backtest | Updates indicators + returns signal with full position management |
+| `update_indicators_only(close, high, low, ...)` | Live | Updates indicators only, no signal/position logic |
+| `get_raw_signal()` | Live | Stateless signal computation from current indicator values |
+
+### Streaming Indicator Primitives (`base.py`)
+
+| Class | Description |
+|-------|-------------|
+| `StreamingEMA(period)` | Exponential moving average |
+| `StreamingSMA(period)` | Simple moving average (rolling window) |
+| `StreamingATR(period)` | Average true range (Wilder smoothing) |
+| `StreamingROC(period)` | Rate of change |
+| `StreamingADX(period)` | Average directional index |
+| `StreamingBB(period, multiplier)` | Bollinger bands (SMA ± multiplier × σ) |
+| `StreamingRSI(period)` | Relative strength index (Wilder smoothing) |
+
+All primitives share: `.value` property, `.update()` returning `Optional[float]`, `.reset()` method.
+
+### Signal Core → Strategy Mapping
+
+| Core Class | Config | Indicators Used | Strategy Type |
+|------------|--------|-----------------|---------------|
+| `MomentumSignalCore` | `MomentumConfig` | EMA×2, SMA, ATR, ROC | Trend following |
+| `EMASignalCore` | `EMAConfig` | EMA×2 | Trend following |
+| `BBSignalCore` | `BBConfig` | BB, SMA (trend bias) | Mean reversion |
+| `RegimeEMASignalCore` | `RegimeEMAConfig` | EMA×2, ATR, ADX | Regime-gated trend |
+| `HurstKalmanSignalCore` | `HurstKalmanConfig` | KalmanFilter1D, Hurst, ZScore | Statistical arb |
+| `VWAPSignalCore` | `VWAPConfig` | RSI, cumulative VWAP, ZScore | Mean reversion |
+| `FundingRateSignalCore` | `FundingRateConfig` | SMA, funding rate deque | Funding arb (short-only) |
+| `DualRegimeSignalCore` | `DualRegimeConfig` | ADX, ROC, EMA×3, ATR, SMA, BB | Adaptive regime switch |
+| `GridSignalCore` | `GridConfig` | SMA, ATR, dynamic grid levels | Grid trading |
+
+### Position Management State
+
+Each core tracks: `position` (0/1/-1), `entry_bar`, `entry_price`, `cooldown_until`, `signal_count`, `bar_index`. Filter params: `min_holding_bars`, `cooldown_bars`, `signal_confirmation`.
+
+### Design Patterns
+
+- **Lazy imports**: `regime_ema.py` and `hurst_kalman.py` use lazy import functions (e.g., `_lazy_regime_imports()`) to break circular dependencies between `strategy/indicators/` and `strategy/strategies/`
+- **Config override**: Signal generators use `dataclasses.replace()` to apply parameter overrides from backtest optimization
+- **Bar confirmation**: Live indicators use timestamp change detection to confirm the previous bar is complete before processing
+- **Signal mapping**: Live indicators use `_SIGNAL_MAP` dict to convert int signals to exchange-specific enum values
+
+### Running Parity Tests
+
+```bash
+# Run all parity tests (86 tests)
+uv run pytest test/indicators/ -v
+
+# Run a specific strategy's parity test
+uv run pytest test/indicators/test_momentum_parity.py -v
+```
+
 ## Unified Backtest Framework
 
 The backtest system is exchange-agnostic and supports all strategies through a unified CLI.
@@ -237,9 +333,10 @@ uv run python strategy/bitget/ema_crossover/backtest.py --heatmap
 
 ### Architecture
 
+- `strategy/indicators/` — Shared signal cores and streaming primitives (single source of truth)
 - `strategy/backtest/` — Unified framework (runner, CLI, registry, exchange profiles, heatmap)
-- `strategy/strategies/` — Exchange-agnostic strategy definitions (core algorithms, signal generators, registrations)
-- `strategy/bitget/` — Live trading code (exchange-specific, unchanged)
+- `strategy/strategies/` — Exchange-agnostic strategy definitions (configs, signal generators delegate to cores)
+- `strategy/bitget/` — Live trading indicators (delegate to signal cores for parity)
 
 ### Supported Exchanges
 

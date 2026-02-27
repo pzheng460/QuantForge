@@ -1,6 +1,7 @@
 """Register Grid Trading strategy with the backtest framework."""
 
 import dataclasses
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from nexustrader.constants import KlineInterval
@@ -105,35 +106,44 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
     )
 
 
-def _export_config(config: StrategyConfig) -> str:
-    """Generate Python config code for paper trading."""
-    sc = config.strategy_config
-    fc = config.filter_config
-    return (
-        f"GridConfig(\n"
-        f"    grid_count={sc.grid_count},\n"
-        f"    atr_multiplier={sc.atr_multiplier},\n"
-        f"    sma_period={sc.sma_period},\n"
-        f"    atr_period={sc.atr_period},\n"
-        f"    recalc_period={sc.recalc_period},\n"
-        f"    use_bollinger={sc.use_bollinger},\n"
-        f"    bb_period={sc.bb_period},\n"
-        f"    bb_std_dev={sc.bb_std_dev},\n"
-        f"    position_size_pct={sc.position_size_pct},\n"
-        f"    max_position_pct={sc.max_position_pct},\n"
-        f"    leverage={sc.leverage},\n"
-        f"    stop_loss_pct={sc.stop_loss_pct},\n"
-        f"    grid_deviation_limit={sc.grid_deviation_limit},\n"
-        f"    daily_loss_limit={sc.daily_loss_limit},\n"
-        f"    min_grid_spacing_pct={sc.min_grid_spacing_pct},\n"
-        f"    grid_rebalance_threshold={sc.grid_rebalance_threshold},\n"
-        f")\n\n"
-        f"GridTradeFilterConfig(\n"
-        f"    min_holding_bars={fc.min_holding_bars},\n"
-        f"    cooldown_bars={fc.cooldown_bars},\n"
-        f"    signal_confirmation={fc.signal_confirmation},\n"
-        f")"
-    )
+def _export_config(
+    params: Dict, metrics: Dict, period: str = None, profile=None
+) -> str:
+    """Export optimized parameters as config code."""
+    min_hold = int(params.get("min_holding_bars", 1))
+    cooldown = int(params.get("cooldown_bars", 0))
+    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    return f"""
+# =============================================================================
+# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
+# Period: {period or "N/A"}
+# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
+# =============================================================================
+
+from strategy.strategies.grid_trading.core import GridConfig
+from strategy.strategies.grid_trading.signal import GridTradeFilterConfig
+
+OPTIMIZED_CONFIG = GridConfig(
+    symbols=["BTCUSDT-PERP{suffix}"],
+    grid_count={int(params.get("grid_count", 20))},
+    atr_multiplier={float(params.get("atr_multiplier", 2.0))},
+    sma_period={int(params.get("sma_period", 50))},
+    atr_period={int(params.get("atr_period", 14))},
+    recalc_period={int(params.get("recalc_period", 24))},
+    position_size_pct={float(params.get("position_size_pct", 0.05))},
+    max_position_pct={float(params.get("max_position_pct", 0.80))},
+    leverage={float(params.get("leverage", 5.0))},
+    stop_loss_pct={float(params.get("stop_loss_pct", 0.05))},
+    grid_deviation_limit={float(params.get("grid_deviation_limit", 0.10))},
+    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
+)
+
+OPTIMIZED_FILTER = GridTradeFilterConfig(
+    min_holding_bars={min_hold},
+    cooldown_bars={cooldown},
+    signal_confirmation={int(params.get("signal_confirmation", 1))},
+)
+"""
 
 
 register_strategy(

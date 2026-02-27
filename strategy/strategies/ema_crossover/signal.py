@@ -6,6 +6,7 @@ Delegates to EMASignalCore for bar-by-bar signal generation,
 ensuring 100% parity with live trading logic.
 """
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -23,6 +24,10 @@ class EMATradeFilterConfig:
     min_holding_bars: int = 4
     cooldown_bars: int = 2
     signal_confirmation: int = 1
+
+
+# Fields that belong to EMAConfig (for splitting params)
+_CONFIG_FIELDS = {f.name for f in dataclasses.fields(EMAConfig)}
 
 
 class EMASignalGenerator:
@@ -49,18 +54,16 @@ class EMASignalGenerator:
         p = params or {}
 
         # Build effective config with parameter overrides
-        fast_period = int(p.get("fast_period", self.config.fast_period))
-        slow_period = int(p.get("slow_period", self.config.slow_period))
-        stop_loss_pct = float(p.get("stop_loss_pct", self.config.stop_loss_pct))
-
-        effective_config = EMAConfig(
-            fast_period=fast_period,
-            slow_period=slow_period,
-            stop_loss_pct=stop_loss_pct,
-            symbols=self.config.symbols,
-            timeframe=self.config.timeframe,
-            position_size_pct=self.config.position_size_pct,
-            daily_loss_limit=self.config.daily_loss_limit,
+        config_overrides = {}
+        for field_name in _CONFIG_FIELDS:
+            if field_name in p:
+                config_overrides[field_name] = type(getattr(self.config, field_name))(
+                    p[field_name]
+                )
+        effective_config = (
+            dataclasses.replace(self.config, **config_overrides)
+            if config_overrides
+            else self.config
         )
 
         # Build effective filter config with overrides

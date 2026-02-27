@@ -1,6 +1,7 @@
 """Register Funding Rate Arbitrage strategy with the backtest framework."""
 
 import dataclasses
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from nexustrader.constants import KlineInterval
@@ -97,29 +98,43 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
     )
 
 
-def _export_config(config: StrategyConfig) -> str:
-    """Generate Python config code for paper trading."""
-    sc = config.strategy_config
-    fc = config.filter_config
-    return (
-        f"FundingRateConfig(\n"
-        f"    min_funding_rate={sc.min_funding_rate},\n"
-        f"    max_funding_rate={sc.max_funding_rate},\n"
-        f"    funding_lookback={sc.funding_lookback},\n"
-        f"    price_sma_period={sc.price_sma_period},\n"
-        f"    max_adverse_move_pct={sc.max_adverse_move_pct},\n"
-        f"    position_size_pct={sc.position_size_pct},\n"
-        f"    stop_loss_pct={sc.stop_loss_pct},\n"
-        f"    daily_loss_limit={sc.daily_loss_limit},\n"
-        f"    hours_before_funding={sc.hours_before_funding},\n"
-        f"    hours_after_funding={sc.hours_after_funding},\n"
-        f")\n\n"
-        f"FundingRateFilterConfig(\n"
-        f"    min_holding_bars={fc.min_holding_bars},\n"
-        f"    cooldown_bars={fc.cooldown_bars},\n"
-        f"    signal_confirmation={fc.signal_confirmation},\n"
-        f")"
-    )
+def _export_config(
+    params: Dict, metrics: Dict, period: str = None, profile=None
+) -> str:
+    """Export optimized parameters as config code."""
+    min_hold = int(params.get("min_holding_bars", 4))
+    cooldown = max(1, min_hold // 2)
+    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    return f"""
+# =============================================================================
+# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
+# Period: {period or "N/A"}
+# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
+# =============================================================================
+
+from strategy.strategies.funding_rate.core import FundingRateConfig
+from strategy.strategies.funding_rate.signal import FundingRateFilterConfig
+
+OPTIMIZED_CONFIG = FundingRateConfig(
+    symbols=["BTCUSDT-PERP{suffix}"],
+    min_funding_rate={float(params.get("min_funding_rate", 0.0001))},
+    max_funding_rate={float(params.get("max_funding_rate", 0.01))},
+    funding_lookback={int(params.get("funding_lookback", 3))},
+    price_sma_period={int(params.get("price_sma_period", 20))},
+    max_adverse_move_pct={float(params.get("max_adverse_move_pct", 0.005))},
+    position_size_pct={float(params.get("position_size_pct", 0.10))},
+    stop_loss_pct={float(params.get("stop_loss_pct", 0.02))},
+    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
+    hours_before_funding={float(params.get("hours_before_funding", 2.0))},
+    hours_after_funding={float(params.get("hours_after_funding", 1.0))},
+)
+
+OPTIMIZED_FILTER = FundingRateFilterConfig(
+    min_holding_bars={min_hold},
+    cooldown_bars={cooldown},
+    signal_confirmation={int(params.get("signal_confirmation", 1))},
+)
+"""
 
 
 register_strategy(

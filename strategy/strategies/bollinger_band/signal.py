@@ -6,6 +6,7 @@ Delegates to BBSignalCore for bar-by-bar signal generation,
 ensuring 100% parity with live trading logic.
 """
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -23,6 +24,10 @@ class BBTradeFilterConfig:
     min_holding_bars: int = 4
     cooldown_bars: int = 2
     signal_confirmation: int = 1
+
+
+# Fields that belong to BBConfig (for splitting params)
+_CONFIG_FIELDS = {f.name for f in dataclasses.fields(BBConfig)}
 
 
 class BBSignalGenerator:
@@ -49,26 +54,16 @@ class BBSignalGenerator:
         p = params or {}
 
         # Build effective config with parameter overrides
-        bb_period = int(p.get("bb_period", self.config.bb_period))
-        bb_multiplier = float(p.get("bb_multiplier", self.config.bb_multiplier))
-        exit_threshold = float(p.get("exit_threshold", self.config.exit_threshold))
-        stop_loss_pct = float(p.get("stop_loss_pct", self.config.stop_loss_pct))
-        trend_bias = p.get("trend_bias", self.config.trend_bias)
-        trend_sma_multiplier = int(
-            p.get("trend_sma_multiplier", self.config.trend_sma_multiplier)
-        )
-
-        effective_config = BBConfig(
-            bb_period=bb_period,
-            bb_multiplier=bb_multiplier,
-            exit_threshold=exit_threshold,
-            stop_loss_pct=stop_loss_pct,
-            trend_bias=trend_bias,
-            trend_sma_multiplier=trend_sma_multiplier,
-            symbols=self.config.symbols,
-            timeframe=self.config.timeframe,
-            position_size_pct=self.config.position_size_pct,
-            daily_loss_limit=self.config.daily_loss_limit,
+        config_overrides = {}
+        for field_name in _CONFIG_FIELDS:
+            if field_name in p:
+                config_overrides[field_name] = type(getattr(self.config, field_name))(
+                    p[field_name]
+                )
+        effective_config = (
+            dataclasses.replace(self.config, **config_overrides)
+            if config_overrides
+            else self.config
         )
 
         # Build effective filter config

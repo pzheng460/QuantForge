@@ -1,6 +1,7 @@
 """Register EMA Crossover strategy with the backtest framework."""
 
 import dataclasses
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from strategy.backtest.registry import (
@@ -91,6 +92,40 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
     )
 
 
+def _export_config(
+    params: Dict, metrics: Dict, period: str = None, profile=None
+) -> str:
+    """Export optimized parameters as config code."""
+    min_hold = int(params.get("min_holding_bars", 4))
+    cooldown = max(1, min_hold // 2)
+    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    return f"""
+# =============================================================================
+# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
+# Period: {period or "N/A"}
+# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
+# =============================================================================
+
+from strategy.strategies.ema_crossover.core import EMAConfig
+from strategy.strategies.ema_crossover.signal import EMATradeFilterConfig
+
+OPTIMIZED_CONFIG = EMAConfig(
+    symbols=["BTCUSDT-PERP{suffix}"],
+    fast_period={int(params.get("fast_period", 12))},
+    slow_period={int(params.get("slow_period", 26))},
+    position_size_pct={float(params.get("position_size_pct", 0.10))},
+    stop_loss_pct={float(params.get("stop_loss_pct", 0.05))},
+    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
+)
+
+OPTIMIZED_FILTER = EMATradeFilterConfig(
+    min_holding_bars={min_hold},
+    cooldown_bars={cooldown},
+    signal_confirmation={int(params.get("signal_confirmation", 1))},
+)
+"""
+
+
 register_strategy(
     StrategyRegistration(
         name="ema_crossover",
@@ -125,5 +160,6 @@ register_strategy(
         default_filter_kwargs={},
         split_params_fn=_split_params,
         mesa_dict_to_config_fn=_mesa_dict_to_config,
+        export_config_fn=_export_config,
     )
 )

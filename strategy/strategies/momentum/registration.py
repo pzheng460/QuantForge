@@ -1,6 +1,7 @@
 """Register Multi-Timeframe Momentum strategy with the backtest framework."""
 
 import dataclasses
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from nexustrader.constants import KlineInterval
@@ -99,31 +100,45 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
     )
 
 
-def _export_config(config: StrategyConfig) -> str:
-    """Generate Python config code for paper trading."""
-    sc = config.strategy_config
-    fc = config.filter_config
-    return (
-        f"MomentumConfig(\n"
-        f"    roc_period={sc.roc_period},\n"
-        f"    roc_threshold={sc.roc_threshold},\n"
-        f"    ema_fast={sc.ema_fast},\n"
-        f"    ema_slow={sc.ema_slow},\n"
-        f"    ema_trend={sc.ema_trend},\n"
-        f"    atr_period={sc.atr_period},\n"
-        f"    atr_multiplier={sc.atr_multiplier},\n"
-        f"    volume_sma_period={sc.volume_sma_period},\n"
-        f"    volume_threshold={sc.volume_threshold},\n"
-        f"    position_size_pct={sc.position_size_pct},\n"
-        f"    stop_loss_pct={sc.stop_loss_pct},\n"
-        f"    daily_loss_limit={sc.daily_loss_limit},\n"
-        f")\n\n"
-        f"MomentumTradeFilterConfig(\n"
-        f"    min_holding_bars={fc.min_holding_bars},\n"
-        f"    cooldown_bars={fc.cooldown_bars},\n"
-        f"    signal_confirmation={fc.signal_confirmation},\n"
-        f")"
-    )
+def _export_config(
+    params: Dict, metrics: Dict, period: str = None, profile=None
+) -> str:
+    """Export optimized parameters as config code."""
+    min_hold = int(params.get("min_holding_bars", 4))
+    cooldown = max(1, min_hold // 2)
+    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    return f"""
+# =============================================================================
+# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
+# Period: {period or "N/A"}
+# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
+# =============================================================================
+
+from strategy.strategies.momentum.core import MomentumConfig
+from strategy.strategies.momentum.signal import MomentumTradeFilterConfig
+
+OPTIMIZED_CONFIG = MomentumConfig(
+    symbols=["BTCUSDT-PERP{suffix}"],
+    roc_period={int(params.get("roc_period", 14))},
+    roc_threshold={float(params.get("roc_threshold", 0.02))},
+    ema_fast={int(params.get("ema_fast", 8))},
+    ema_slow={int(params.get("ema_slow", 21))},
+    ema_trend={int(params.get("ema_trend", 50))},
+    atr_period={int(params.get("atr_period", 14))},
+    atr_multiplier={float(params.get("atr_multiplier", 1.5))},
+    volume_sma_period={int(params.get("volume_sma_period", 20))},
+    volume_threshold={float(params.get("volume_threshold", 1.2))},
+    position_size_pct={float(params.get("position_size_pct", 0.20))},
+    stop_loss_pct={float(params.get("stop_loss_pct", 0.03))},
+    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
+)
+
+OPTIMIZED_FILTER = MomentumTradeFilterConfig(
+    min_holding_bars={min_hold},
+    cooldown_bars={cooldown},
+    signal_confirmation={int(params.get("signal_confirmation", 1))},
+)
+"""
 
 
 register_strategy(

@@ -1,6 +1,7 @@
 """Register Bollinger Band strategy with the backtest framework."""
 
 import dataclasses
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 from strategy.backtest.registry import (
@@ -97,6 +98,43 @@ def _mesa_dict_to_config(mesa: Dict, index: int) -> StrategyConfig:
     )
 
 
+def _export_config(
+    params: Dict, metrics: Dict, period: str = None, profile=None
+) -> str:
+    """Export optimized parameters as config code."""
+    min_hold = int(params.get("min_holding_bars", 4))
+    cooldown = max(1, min_hold // 2)
+    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    return f"""
+# =============================================================================
+# OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})
+# Period: {period or "N/A"}
+# Performance: {metrics.get("total_return_pct", 0):.1f}% return, {metrics.get("sharpe_ratio", 0):.2f} Sharpe
+# =============================================================================
+
+from strategy.strategies.bollinger_band.core import BBConfig
+from strategy.strategies.bollinger_band.signal import BBTradeFilterConfig
+
+OPTIMIZED_CONFIG = BBConfig(
+    symbols=["BTCUSDT-PERP{suffix}"],
+    bb_period={int(params.get("bb_period", 20))},
+    bb_multiplier={float(params.get("bb_multiplier", 2.0))},
+    exit_threshold={float(params.get("exit_threshold", 0.3))},
+    trend_bias={repr(params.get("trend_bias", None))},
+    trend_sma_multiplier={int(params.get("trend_sma_multiplier", 3))},
+    position_size_pct={float(params.get("position_size_pct", 0.10))},
+    stop_loss_pct={float(params.get("stop_loss_pct", 0.05))},
+    daily_loss_limit={float(params.get("daily_loss_limit", 0.03))},
+)
+
+OPTIMIZED_FILTER = BBTradeFilterConfig(
+    min_holding_bars={min_hold},
+    cooldown_bars={cooldown},
+    signal_confirmation={int(params.get("signal_confirmation", 1))},
+)
+"""
+
+
 register_strategy(
     StrategyRegistration(
         name="bollinger_band",
@@ -132,5 +170,6 @@ register_strategy(
         default_filter_kwargs={},
         split_params_fn=_split_params,
         mesa_dict_to_config_fn=_mesa_dict_to_config,
+        export_config_fn=_export_config,
     )
 )
