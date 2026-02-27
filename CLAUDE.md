@@ -111,7 +111,9 @@ Each exchange directory contains:
 ### Strategy Signal Layer
 - `strategy/indicators/base.py` - Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
 - `strategy/indicators/{name}.py` - Signal cores (single source of truth for each strategy)
-- `strategy/strategies/{name}/` - Backtest configs, signal generators, registrations
+- `strategy/strategies/_base/` - BaseSignalGenerator, TradeFilterConfig, registration helpers
+- `strategy/strategies/{name}/` - Backtest configs and registrations (auto-discovered)
+- `strategy/bitget/common/base_strategy.py` - BaseQuantStrategy: shared live strategy base class
 - `strategy/bitget/{name}/` - Live trading indicators and exchange-specific wrappers
 
 ### Configuration and Data
@@ -225,9 +227,20 @@ strategy/indicators/
 ├── dual_regime.py       # DualRegimeSignalCore
 ├── grid_trading.py      # GridSignalCore
 
-strategy/strategies/{name}/signal.py   # Backtest: thin wrapper calling core.update()
-strategy/bitget/{name}/indicator.py    # Live: delegates to core.update_indicators_only() + get_raw_signal()
-test/indicators/test_{name}_parity.py  # Parity tests verifying core vs generator match
+strategy/strategies/_base/
+├── __init__.py
+├── signal_generator.py  # BaseSignalGenerator, TradeFilterConfig, column constants
+├── registration_helpers.py  # Factory functions: make_split_params_fn, make_mesa_dict_to_config, etc.
+
+strategy/strategies/{name}/
+├── core.py              # Strategy config dataclass
+├── registration.py      # Strategy registration (auto-discovered via __init__.py)
+
+strategy/bitget/common/base_strategy.py   # BaseQuantStrategy: shared live strategy base class
+strategy/bitget/{name}/indicator.py       # Live: dual-mode (warmup: update_indicators_only, live: core.update())
+
+test/indicators/parity_factory.py      # Test factory: make_parity_test_class()
+test/indicators/test_all_parity.py     # Unified parity tests for all 9 strategies
 ```
 
 ### Signal Constants
@@ -244,9 +257,11 @@ Each `SignalCore` class exposes three methods:
 
 | Method | Used By | Description |
 |--------|---------|-------------|
-| `update(close, high, low, ...)` | Backtest | Updates indicators + returns signal with full position management |
-| `update_indicators_only(close, high, low, ...)` | Live | Updates indicators only, no signal/position logic |
-| `get_raw_signal()` | Live | Stateless signal computation from current indicator values |
+| `update(close, high, low, ...)` | Backtest + Live (live mode) | Updates indicators + returns signal with full position management |
+| `update_indicators_only(close, high, low, ...)` | Live (warmup mode) | Updates indicators only, no signal/position logic |
+| `get_raw_signal()` | Live (warmup mode) | Stateless signal computation from current indicator values |
+
+Live indicators operate in **dual mode**: during warmup they use `update_indicators_only()` + `get_raw_signal()` to avoid false position state; after warmup settles they switch to `core.update()` via `enable_live_mode()` for unified position management.
 
 ### Streaming Indicator Primitives (`base.py`)
 
@@ -280,21 +295,83 @@ All primitives share: `.value` property, `.update()` returning `Optional[float]`
 
 Each core tracks: `position` (0/1/-1), `entry_bar`, `entry_price`, `cooldown_until`, `signal_count`, `bar_index`. Filter params: `min_holding_bars`, `cooldown_bars`, `signal_confirmation`.
 
+### BaseSignalGenerator (`_base/signal_generator.py`)
+
+Generic signal generator that replaces all per-strategy `signal.py` files. Variance between strategies is encoded as constructor parameters:
+
+```python
+class BaseSignalGenerator:
+    def __init__(self, config, filter_config, *, core_cls, update_columns,
+                 core_extra_filter_fields=("signal_confirmation",),
+                 pre_loop_hook=None, bar_hook=None):
+```
+
+**Column constants** (which DataFrame columns to pass to `core.update()`):
+- `COLUMNS_CLOSE = ("close",)` — ema_crossover, bollinger_band, hurst_kalman
+- `COLUMNS_CLOSE_HIGH_LOW = ("close", "high", "low")` — regime_ema, grid_trading
+- `COLUMNS_CLOSE_HIGH_LOW_VOLUME = ("close", "high", "low", "volume")` — momentum, dual_regime, vwap
+
+**TradeFilterConfig** (base filter config for all strategies):
+```python
+@dataclass
+class TradeFilterConfig:
+    min_holding_bars: int = 4
+    cooldown_bars: int = 2
+    signal_confirmation: int = 1
+```
+
+Strategies needing extra filter fields use subclasses (e.g., `HurstKalmanFilterConfig` adds `only_mean_reversion`).
+
+**Hooks** for outlier strategies:
+- `pre_loop_hook(core, data, generator)` — funding_rate: inject funding rate time series
+- `bar_hook(core, data, i, arrays)` — vwap: inject `day` param; funding_rate: inject timing params
+
+### Registration Helpers (`_base/registration_helpers.py`)
+
+Four factory functions auto-generate boilerplate from dataclass introspection:
+
+| Function | Purpose |
+|----------|---------|
+| `make_split_params_fn(config_cls)` | Split mixed params dict into (config_kwargs, filter_kwargs) |
+| `make_filter_config_factory(filter_config_cls, min_hold_formula=None)` | Generate filter config for heatmap scanning |
+| `make_mesa_dict_to_config(config_cls, filter_config_cls, x_param, y_param, ...)` | Convert mesa heatmap results to StrategyConfig |
+| `make_export_config(strategy_name, config_cls, filter_config_cls, ...)` | Generate Python config code from optimized params |
+
+### Adding a New Strategy
+
+Minimal steps to add a new strategy (only real logic needed, ~350-550 lines):
+
+1. **Signal core** — `strategy/indicators/{name}.py`: Implement `{Name}SignalCore` with `update()`, `update_indicators_only()`, `get_raw_signal()`
+2. **Config** — `strategy/strategies/{name}/core.py`: Define `{Name}Config` dataclass
+3. **Registration** — `strategy/strategies/{name}/registration.py`: ~50 lines of declarative registration using `BaseSignalGenerator` + helper factories
+4. **Package init** — `strategy/strategies/{name}/__init__.py`: Docstring only (auto-discovered, no manual import needed)
+5. **Parity test** — Add entry in `test/indicators/test_all_parity.py`: ~10 lines using `make_parity_test_class()`
+6. **Live indicator** — `strategy/bitget/{name}/indicator.py`: Dual-mode wrapper with `enable_live_mode()`, passes filter params to core
+7. **Live strategy** — `strategy/bitget/{name}/strategy.py`: Inherit `BaseQuantStrategy`, implement `on_start()` and `_format_log_line()`
+
+No need to create signal.py, no manual import in `__init__.py`, no per-strategy test file.
+
 ### Design Patterns
 
 - **Lazy imports**: `regime_ema.py` and `hurst_kalman.py` use lazy import functions (e.g., `_lazy_regime_imports()`) to break circular dependencies between `strategy/indicators/` and `strategy/strategies/`
 - **Config override**: Signal generators use `dataclasses.replace()` to apply parameter overrides from backtest optimization
+- **Auto-discovery**: `strategy/strategies/__init__.py` uses `pkgutil.iter_modules()` to automatically import `registration.py` from all strategy subdirectories
 - **Bar confirmation**: Live indicators use timestamp change detection to confirm the previous bar is complete before processing
 - **Signal mapping**: Live indicators use `_SIGNAL_MAP` dict to convert int signals to exchange-specific enum values
+- **Dual-mode indicators**: Live indicators start in warmup mode (`update_indicators_only()`) and switch to live mode (`core.update()`) via `enable_live_mode()`, ensuring no false position state during historical kline replay
+- **BaseQuantStrategy**: Shared base class (`strategy/bitget/common/base_strategy.py`) for all live trading strategies, containing position tracking, order management, circuit breaker, performance tracking, and a template `on_kline()`. Subclasses only implement `on_start()` and optionally `_format_log_line()`. Currently piloted by ema_crossover.
 
 ### Running Parity Tests
 
 ```bash
-# Run all parity tests (86 tests)
+# Run all parity tests (87 tests: 68 strategy parity + 19 streaming primitive)
 uv run pytest test/indicators/ -v
 
-# Run a specific strategy's parity test
-uv run pytest test/indicators/test_momentum_parity.py -v
+# Run only strategy parity tests
+uv run pytest test/indicators/test_all_parity.py -v
+
+# Run streaming primitive parity tests
+uv run pytest test/indicators/test_streaming_parity.py -v
 ```
 
 ## Unified Backtest Framework
@@ -334,9 +411,10 @@ uv run python strategy/bitget/ema_crossover/backtest.py --heatmap
 ### Architecture
 
 - `strategy/indicators/` — Shared signal cores and streaming primitives (single source of truth)
-- `strategy/backtest/` — Unified framework (runner, CLI, registry, exchange profiles, heatmap)
+- `strategy/backtest/` — Unified framework (runner, CLI, registry, exchange profiles, heatmap, utils)
 - `strategy/strategies/` — Exchange-agnostic strategy definitions (configs, signal generators delegate to cores)
 - `strategy/bitget/` — Live trading indicators (delegate to signal cores for parity)
+- `examples/` — Exchange API usage examples (binance, okx, bybit, hyperliquid, bitget)
 
 ### Supported Exchanges
 

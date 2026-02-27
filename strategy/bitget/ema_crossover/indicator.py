@@ -13,7 +13,7 @@ from nexustrader.indicator import Indicator
 from nexustrader.schema import BookL1, BookL2, Kline, Trade
 
 from strategy.bitget.ema_crossover.core import EMAConfig
-from strategy.indicators.ema_crossover import BUY, HOLD, EMASignalCore, SELL
+from strategy.indicators.ema_crossover import BUY, CLOSE, HOLD, EMASignalCore, SELL
 
 
 class Signal(Enum):
@@ -30,6 +30,7 @@ _SIGNAL_MAP = {
     HOLD: Signal.HOLD,
     BUY: Signal.BUY,
     SELL: Signal.SELL,
+    CLOSE: Signal.CLOSE,
 }
 
 
@@ -46,6 +47,9 @@ class EMACrossoverIndicator(Indicator):
         config: Optional[EMAConfig] = None,
         warmup_period: Optional[int] = None,
         kline_interval: KlineInterval = KlineInterval.MINUTE_15,
+        min_holding_bars: int = 4,
+        cooldown_bars: int = 2,
+        signal_confirmation: int = 1,
     ):
         self._config = config or EMAConfig()
 
@@ -61,12 +65,18 @@ class EMACrossoverIndicator(Indicator):
             kline_interval=kline_interval,
         )
 
-        # Shared core (indicators only - no position management)
-        self._core = EMASignalCore(self._config)
+        # Shared core — filter params forwarded for live mode position management
+        self._core = EMASignalCore(
+            self._config,
+            min_holding_bars=min_holding_bars,
+            cooldown_bars=cooldown_bars,
+            signal_confirmation=signal_confirmation,
+        )
 
         self._confirmed_bar_count: int = 0
         self._signal: Signal = Signal.HOLD
         self._last_price: Optional[float] = None
+        self._live_mode: bool = False
 
     def handle_kline(self, kline: Kline) -> None:
         """Process a new kline using bar confirmation via timestamp change."""
@@ -91,15 +101,26 @@ class EMACrossoverIndicator(Indicator):
     def is_warmed_up(self) -> bool:
         return self._confirmed_bar_count >= self._real_warmup_period
 
+    def enable_live_mode(self) -> None:
+        """Switch to live mode: use core.update() for full position management."""
+        self._live_mode = True
+
     def _process_kline_data(self, kline: Kline) -> None:
-        """Core kline processing: delegate to EMASignalCore."""
+        """Core kline processing: delegate to EMASignalCore.
+
+        In warmup mode (default): only updates indicators, no position decisions.
+        In live mode: calls core.update() which includes stop loss, cooldown,
+        signal confirmation, and position management.
+        """
         price = float(kline.close)
         self._last_price = price
 
-        self._core.update_indicators_only(close=price)
+        if self._live_mode:
+            raw = self._core.update(close=price)
+        else:
+            self._core.update_indicators_only(close=price)
+            raw = self._core.get_raw_signal()
 
-        # Update signal from raw indicator values
-        raw = self._core.get_raw_signal()
         self._signal = _SIGNAL_MAP.get(raw, Signal.HOLD)
 
     def handle_bookl1(self, bookl1: BookL1) -> None:
@@ -135,17 +156,6 @@ class EMACrossoverIndicator(Indicator):
 
     def get_signal(self) -> Signal:
         return self._signal
-
-    def should_stop_loss(
-        self, entry_price: float, current_price: float, is_long: bool
-    ) -> bool:
-        if entry_price <= 0:
-            return False
-        if is_long:
-            pnl_pct = (current_price - entry_price) / entry_price
-        else:
-            pnl_pct = (entry_price - current_price) / entry_price
-        return pnl_pct < -self._config.stop_loss_pct
 
     def reset(self) -> None:
         self._core.reset()
