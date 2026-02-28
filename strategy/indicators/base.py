@@ -21,8 +21,8 @@ class StreamingEMA:
     """
 
     def __init__(self, period: int):
-        self._period = period
-        self._k = 2.0 / (period + 1)
+        self._period = int(period)
+        self._k = 2.0 / (self._period + 1)
         self._count = 0
         self._value: Optional[float] = None
         self._seed_sum = 0.0
@@ -62,7 +62,7 @@ class StreamingATR:
     """
 
     def __init__(self, period: int):
-        self._period = period
+        self._period = int(period)
         self._count = 0  # number of bars processed
         self._prev_close: Optional[float] = None
         self._value: Optional[float] = None
@@ -121,8 +121,8 @@ class StreamingROC:
     """
 
     def __init__(self, period: int):
-        self._period = period
-        self._history: deque[float] = deque(maxlen=period + 1)
+        self._period = int(period)
+        self._history: deque[float] = deque(maxlen=self._period + 1)
         self._value: Optional[float] = None
 
     def update(self, price: float) -> Optional[float]:
@@ -156,8 +156,8 @@ class StreamingSMA:
     """
 
     def __init__(self, period: int):
-        self._period = period
-        self._window: deque[float] = deque(maxlen=period)
+        self._period = int(period)
+        self._window: deque[float] = deque(maxlen=self._period)
         self._value: Optional[float] = None
 
     def update(self, value: float) -> Optional[float]:
@@ -315,7 +315,7 @@ class StreamingBB:
     def __init__(self, period: int = 20, multiplier: float = 2.0):
         self._period = period
         self._multiplier = multiplier
-        self._window: deque[float] = deque(maxlen=period)
+        self._window: deque[float] = deque(maxlen=self._period)
         self._sma: Optional[float] = None
         self._upper: Optional[float] = None
         self._lower: Optional[float] = None
