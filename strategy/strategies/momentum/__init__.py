@@ -16,10 +16,6 @@ from strategy.strategies.momentum.core import (
     calculate_roc,
     calculate_sma,
 )
-from strategy.strategies.momentum.indicator import (
-    MomentumIndicator,
-    Signal,
-)
 
 __all__ = [
     "MomentumConfig",
@@ -28,6 +24,4 @@ __all__ = [
     "calculate_ema_single",
     "calculate_roc",
     "calculate_sma",
-    "MomentumIndicator",
-    "Signal",
 ]

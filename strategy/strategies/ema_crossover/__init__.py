@@ -11,15 +11,9 @@ from strategy.strategies.ema_crossover.core import (
     calculate_ema,
     calculate_ema_single,
 )
-from strategy.strategies.ema_crossover.indicator import (
-    EMACrossoverIndicator,
-    Signal,
-)
 
 __all__ = [
     "calculate_ema",
     "calculate_ema_single",
     "EMAConfig",
-    "EMACrossoverIndicator",
-    "Signal",
 ]

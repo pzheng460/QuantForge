@@ -10,7 +10,6 @@ from strategy.strategies.vwap.core import (
     calculate_vwap,
     calculate_vwap_zscore,
 )
-from strategy.strategies.vwap.indicator import VWAPIndicator
 
 
 class TestCalculateVWAP:
@@ -226,85 +225,3 @@ class TestVWAPConfig:
         assert config.timeframe == "5m"
 
 
-class TestVWAPIndicator:
-    """Tests for VWAPIndicator."""
-
-    def test_default_warmup_matches_config(self):
-        """Default warmup should equal std_window + rsi_period."""
-        config = VWAPConfig(std_window=200, rsi_period=14)
-        ind = VWAPIndicator(config=config)
-        assert ind.warmup_period == 214  # 200 + 14
-
-    def test_custom_config_warmup(self):
-        """Custom config should compute warmup from its own parameters."""
-        config = VWAPConfig(std_window=100, rsi_period=20)
-        ind = VWAPIndicator(config=config)
-        assert ind.warmup_period == 120  # 100 + 20
-
-    def test_explicit_warmup_overrides_auto(self):
-        """Explicit warmup_period should override the auto-calculated value."""
-        config = VWAPConfig(std_window=200, rsi_period=14)
-        ind = VWAPIndicator(config=config, warmup_period=300)
-        assert ind.warmup_period == 300
-
-
-class TestStopLoss:
-    """Tests for the direction-aware stop loss in VWAPIndicator."""
-
-    def _make_indicator(self, stop_loss_pct: float = 0.02, zscore_stop: float = 4.0):
-        config = VWAPConfig(
-            stop_loss_pct=stop_loss_pct,
-            zscore_stop=zscore_stop,
-        )
-        return VWAPIndicator(config=config)
-
-    def test_long_stop_loss_triggers_on_loss(self):
-        """Long position should trigger stop loss when price drops beyond threshold."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price drops to 97 -> -3% loss > 2% threshold
-        assert ind.should_stop_loss(entry_price=100.0, current_price=97.0, is_long=True)
-
-    def test_long_stop_loss_no_trigger_on_profit(self):
-        """Long position should NOT trigger stop loss when in profit."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price rises to 105 -> +5% profit
-        assert not ind.should_stop_loss(
-            entry_price=100.0, current_price=105.0, is_long=True
-        )
-
-    def test_short_stop_loss_triggers_on_loss(self):
-        """Short position should trigger stop loss when price rises beyond threshold."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price rises to 103 -> -3% loss for short > 2% threshold
-        assert ind.should_stop_loss(
-            entry_price=100.0, current_price=103.0, is_long=False
-        )
-
-    def test_short_stop_loss_no_trigger_on_profit(self):
-        """Short position should NOT trigger stop loss when in profit."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price drops to 95 -> +5% profit for short
-        assert not ind.should_stop_loss(
-            entry_price=100.0, current_price=95.0, is_long=False
-        )
-
-    def test_zscore_stop_triggers_regardless_of_direction(self):
-        """Z-Score model failure should trigger stop loss regardless of PnL."""
-        ind = self._make_indicator(stop_loss_pct=0.02, zscore_stop=4.0)
-        # Force internal zscore to extreme value
-        ind._zscore = 5.0
-        # Even though long is in profit, zscore stop should trigger
-        assert ind.should_stop_loss(
-            entry_price=100.0, current_price=105.0, is_long=True
-        )
-        # Also for short in profit
-        assert ind.should_stop_loss(
-            entry_price=100.0, current_price=95.0, is_long=False
-        )
-
-    def test_zero_entry_price_returns_false(self):
-        """Zero entry price should never trigger stop loss."""
-        ind = self._make_indicator()
-        assert not ind.should_stop_loss(
-            entry_price=0.0, current_price=100.0, is_long=True
-        )

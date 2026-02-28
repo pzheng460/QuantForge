@@ -16,10 +16,6 @@ from strategy.strategies.regime_ema.core import (
     calculate_ema_single,
     classify_regime,
 )
-from strategy.strategies.regime_ema.indicator import (
-    RegimeEMAIndicator,
-    Signal,
-)
 
 __all__ = [
     "MarketRegime",
@@ -29,6 +25,4 @@ __all__ = [
     "calculate_ema",
     "calculate_ema_single",
     "classify_regime",
-    "RegimeEMAIndicator",
-    "Signal",
 ]

@@ -10,7 +10,6 @@ from strategy.strategies.hurst_kalman.core import (
     calculate_hurst,
     calculate_zscore,
 )
-from strategy.strategies.hurst_kalman.indicator import HurstKalmanIndicator
 
 
 class TestCalculateHurst:
@@ -274,85 +273,3 @@ class TestHurstKalmanConfig:
         assert config.timeframe == "15m"
 
 
-class TestStopLoss:
-    """Tests for the direction-aware stop loss in HurstKalmanIndicator."""
-
-    def _make_indicator(self, stop_loss_pct: float = 0.02, zscore_stop: float = 4.0):
-        config = HurstKalmanConfig(
-            stop_loss_pct=stop_loss_pct,
-            zscore_stop=zscore_stop,
-        )
-        return HurstKalmanIndicator(config=config)
-
-    def test_long_stop_loss_triggers_on_loss(self):
-        """Long position should trigger stop loss when price drops beyond threshold."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price drops to 97 → -3% loss > 2% threshold
-        assert ind.should_stop_loss(entry_price=100.0, current_price=97.0, is_long=True)
-
-    def test_long_stop_loss_no_trigger_on_profit(self):
-        """Long position should NOT trigger stop loss when in profit."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price rises to 105 → +5% profit
-        assert not ind.should_stop_loss(
-            entry_price=100.0, current_price=105.0, is_long=True
-        )
-
-    def test_short_stop_loss_triggers_on_loss(self):
-        """Short position should trigger stop loss when price rises beyond threshold."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price rises to 103 → -3% loss for short > 2% threshold
-        assert ind.should_stop_loss(
-            entry_price=100.0, current_price=103.0, is_long=False
-        )
-
-    def test_short_stop_loss_no_trigger_on_profit(self):
-        """Short position should NOT trigger stop loss when in profit."""
-        ind = self._make_indicator(stop_loss_pct=0.02)
-        # Entry at 100, price drops to 95 → +5% profit for short
-        assert not ind.should_stop_loss(
-            entry_price=100.0, current_price=95.0, is_long=False
-        )
-
-    def test_zscore_stop_triggers_regardless_of_direction(self):
-        """Z-Score model failure should trigger stop loss regardless of PnL."""
-        ind = self._make_indicator(stop_loss_pct=0.02, zscore_stop=4.0)
-        # Force internal zscore to extreme value
-        ind._zscore = 5.0
-        # Even though long is in profit, zscore stop should trigger
-        assert ind.should_stop_loss(
-            entry_price=100.0, current_price=105.0, is_long=True
-        )
-        # Also for short in profit
-        assert ind.should_stop_loss(
-            entry_price=100.0, current_price=95.0, is_long=False
-        )
-
-    def test_zero_entry_price_returns_false(self):
-        """Zero entry price should never trigger stop loss."""
-        ind = self._make_indicator()
-        assert not ind.should_stop_loss(
-            entry_price=0.0, current_price=100.0, is_long=True
-        )
-
-
-class TestWarmupPeriod:
-    """Tests for automatic warmup period calculation."""
-
-    def test_default_warmup_matches_config(self):
-        """Default warmup should equal hurst_window + zscore_window."""
-        config = HurstKalmanConfig(hurst_window=100, zscore_window=50)
-        ind = HurstKalmanIndicator(config=config)
-        assert ind.warmup_period == 150  # 100 + 50
-
-    def test_custom_config_warmup(self):
-        """Custom config should compute warmup from its own window sizes."""
-        config = HurstKalmanConfig(hurst_window=80, zscore_window=40)
-        ind = HurstKalmanIndicator(config=config)
-        assert ind.warmup_period == 120  # 80 + 40
-
-    def test_explicit_warmup_overrides_auto(self):
-        """Explicit warmup_period should override the auto-calculated value."""
-        config = HurstKalmanConfig(hurst_window=100, zscore_window=50)
-        ind = HurstKalmanIndicator(config=config, warmup_period=200)
-        assert ind.warmup_period == 200
