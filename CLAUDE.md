@@ -111,8 +111,9 @@ Each exchange directory contains:
 ### Strategy Signal Layer
 - `strategy/indicators/base.py` - Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
 - `strategy/indicators/{name}.py` - Signal cores (single source of truth for each strategy)
-- `strategy/strategies/_base/` - BaseSignalGenerator, TradeFilterConfig, registration helpers, BaseQuantStrategy, PerformanceTracker
-- `strategy/strategies/{name}/` - Self-contained strategy: core.py, registration.py, indicator.py, live.py, configs.py
+- `strategy/strategies/_base/` - BaseSignalGenerator, TradeFilterConfig, registration helpers, BaseQuantStrategy, PerformanceTracker, GenericStrategy, GenericIndicator, generic configs
+- `strategy/strategies/{name}/` - Self-contained strategy: core.py, registration.py (minimal); indicator.py, live.py, configs.py (optional, for complex strategies)
+- `strategy/runner.py` - Generic CLI runner for any strategy with LiveConfig
 
 ### Configuration and Data
 - `nexustrader/constants.py` - Enums and constants
@@ -230,15 +231,20 @@ strategy/strategies/_base/
 ├── signal_generator.py      # BaseSignalGenerator, TradeFilterConfig, column constants
 ├── registration_helpers.py  # Factory functions: make_split_params_fn, make_mesa_dict_to_config, etc.
 ├── base_strategy.py         # BaseQuantStrategy: shared live strategy base class
+├── generic_indicator.py     # GenericIndicator: wraps any SignalCore for live trading
+├── generic_strategy.py      # GenericStrategy: generic live strategy using LiveConfig
+├── generic_configs.py       # Generic config loader (replaces per-strategy configs.py)
 ├── performance.py           # PerformanceTracker for live/demo trading metrics
 ├── paper_validate.py        # Paper trading validation utilities
 
+strategy/runner.py               # Generic CLI runner for any strategy with LiveConfig
+
 strategy/strategies/{name}/
 ├── core.py              # Strategy config dataclass
-├── registration.py      # Strategy registration (auto-discovered via __init__.py)
-├── indicator.py         # Live: dual-mode (warmup: update_indicators_only, live: core.update())
-├── live.py              # Live trading strategy (inherits BaseQuantStrategy)
-├── configs.py           # Mesa config loading from heatmap_results.json
+├── registration.py      # Strategy registration (auto-discovered via __init__.py) + LiveConfig
+├── indicator.py         # (OPTIONAL) Custom indicator for complex strategies
+├── live.py              # (OPTIONAL) Custom live strategy for complex strategies
+├── configs.py           # (OPTIONAL) Custom config loader (generic_configs.py replaces this)
 
 test/indicators/parity_factory.py      # Test factory: make_parity_test_class()
 test/indicators/test_all_parity.py     # Unified parity tests for all 9 strategies
@@ -340,17 +346,26 @@ Four factory functions auto-generate boilerplate from dataclass introspection:
 
 ### Adding a New Strategy
 
-Minimal steps to add a new strategy (only real logic needed, ~350-550 lines):
+#### Minimal (generic runner — only 2 files needed):
 
 1. **Signal core** — `strategy/indicators/{name}.py`: Implement `{Name}SignalCore` with `update()`, `update_indicators_only()`, `get_raw_signal()`
 2. **Config** — `strategy/strategies/{name}/core.py`: Define `{Name}Config` dataclass
-3. **Registration** — `strategy/strategies/{name}/registration.py`: ~50 lines of declarative registration using `BaseSignalGenerator` + helper factories
-4. **Package init** — `strategy/strategies/{name}/__init__.py`: Docstring only (auto-discovered, no manual import needed)
-5. **Parity test** — Add entry in `test/indicators/test_all_parity.py`: ~10 lines using `make_parity_test_class()`
-6. **Live indicator** — `strategy/strategies/{name}/indicator.py`: Dual-mode wrapper with `enable_live_mode()`, passes filter params to core
-7. **Live strategy** — `strategy/strategies/{name}/live.py`: Inherit `BaseQuantStrategy`, implement `on_start()` and `_format_log_line()`. Override hooks as needed (`_process_signal`, `_pre_signal_hook`, `_get_signal`, etc.)
+3. **Registration** — `strategy/strategies/{name}/registration.py`: Register with `BaseSignalGenerator` + `LiveConfig` for generic runner
+4. **Package init** — `strategy/strategies/{name}/__init__.py`: Docstring only (auto-discovered)
+5. **Parity test** — Add entry in `test/indicators/test_all_parity.py`: ~10 lines
 
-No need to create signal.py, no manual import in `__init__.py`, no per-strategy test file.
+No need to create indicator.py, live.py, configs.py, or signal.py. The generic runner handles everything.
+
+Run with: `uv run python -m strategy.runner -S {name} --mesa 0`
+
+#### Custom (for complex strategies needing on_kline override):
+
+Add steps 6-7 only if the strategy needs tick-level stop checks, trailing stops, funding rate subscriptions, or completely custom logic:
+
+6. **Live indicator** — `strategy/strategies/{name}/indicator.py`: Dual-mode wrapper
+7. **Live strategy** — `strategy/strategies/{name}/live.py`: Custom `on_kline()` override
+
+Currently custom: momentum (trailing stops), funding_rate (funding subscription), grid_trading (tick-based grid logic).
 
 ### Design Patterns
 
@@ -360,7 +375,7 @@ No need to create signal.py, no manual import in `__init__.py`, no per-strategy 
 - **Bar confirmation**: Live indicators use timestamp change detection to confirm the previous bar is complete before processing
 - **Signal mapping**: Live indicators use `_SIGNAL_MAP` dict to convert int signals to exchange-specific enum values
 - **Dual-mode indicators**: Live indicators start in warmup mode (`update_indicators_only()`) and switch to live mode (`core.update()`) via `enable_live_mode()`, ensuring no false position state during historical kline replay
-- **BaseQuantStrategy**: Shared base class (`strategy/strategies/_base/base_strategy.py`) for all 8 live trading strategies. Provides position tracking, order management, circuit breaker, performance tracking, signal filtering (confirmation, cooldown, min holding), stale data guard, and a template `on_kline()`. Requires `account_type` (keyword-only) parameter for exchange-agnostic balance lookups. Subclasses implement `on_start()` and `_format_log_line()`, and optionally override hooks:
+- **BaseQuantStrategy**: Shared base class (`strategy/strategies/_base/base_strategy.py`) for all live trading strategies. Provides position tracking, order management, circuit breaker, performance tracking, signal filtering (confirmation, cooldown, min holding), stale data guard, and a template `on_kline()`. Requires `account_type` (keyword-only) parameter for exchange-agnostic balance lookups. Subclasses implement `on_start()` and `_format_log_line()`, and optionally override hooks:
   - `_get_signal(symbol, indicator)` — customize signal arguments (e.g., funding_rate passes timing args)
   - `_check_stop_loss(symbol, indicator, price)` — customize stop loss check signature
   - `_pre_signal_hook(symbol, signal, price, indicator, current_bar)` — return True to skip `_process_signal` (e.g., regime filter)
@@ -368,6 +383,7 @@ No need to create signal.py, no manual import in `__init__.py`, no per-strategy 
   - `_on_live_activated(symbol, indicator, current_bar)` — called once when live trading activates (e.g., `enable_live_mode()`)
   - Class-level opt-in: `_ENABLE_STALE_GUARD = True`, `_MAX_KLINE_AGE_S = 120.0` for stale data burst detection
   - Complex strategies (momentum, grid) override `on_kline` entirely for bar detection or tick-based logic
+- **GenericStrategy + GenericIndicator**: Generic runner system (`strategy/strategies/_base/generic_strategy.py`, `generic_indicator.py`) that eliminates per-strategy `live.py`/`indicator.py`/`configs.py` for simple-to-moderate strategies. Configured via `LiveConfig` on `StrategyRegistration`. GenericIndicator uses `inspect.signature()` to auto-detect signal core method signatures and map kline fields to parameters. LiveConfig hooks (`process_signal_fn`, `pre_signal_hook_fn`, `on_live_activated_fn`, `pre_update_hook`) inject strategy-specific behavior without custom subclasses. CLI: `uv run python -m strategy.runner -S {name} --mesa 0 --exchange bitget`
 
 ### Running Parity Tests
 
@@ -394,9 +410,14 @@ uv run python -m strategy.backtest -S hurst_kalman -X bitget -p 1y --full
 uv run python -m strategy.backtest -S ema_crossover -X binance --heatmap
 uv run python -m strategy.backtest -S bollinger_band -X okx --optimize
 
-# Live trading:
-uv run python -m strategy.strategies.hurst_kalman.live --mesa 0
+# Live trading (generic runner — works for most strategies):
+uv run python -m strategy.runner -S ema_crossover --mesa 0
+uv run python -m strategy.runner -S hurst_kalman --mesa 0 --exchange binance
+uv run python -m strategy.runner --list  # show available strategies
+
+# Live trading (custom — for complex strategies):
 uv run python -m strategy.strategies.momentum.live --mesa 3
+uv run python -m strategy.strategies.funding_rate.live --mesa 0
 ```
 
 ### CLI Arguments

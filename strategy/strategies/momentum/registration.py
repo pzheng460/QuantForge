@@ -3,6 +3,7 @@
 from nexustrader.constants import KlineInterval
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -86,6 +87,22 @@ register_strategy(
             TradeFilterConfig,
             "strategy.strategies.momentum.core",
             "strategy.strategies._base.signal_generator",
+        ),
+        live_config=LiveConfig(
+            core_cls=MomentumSignalCore,
+            update_columns=COLUMNS_CLOSE_HIGH_LOW_VOLUME,
+            warmup_fn=lambda cfg: (
+                max(
+                    cfg.ema_trend,
+                    cfg.roc_period,
+                    cfg.atr_period + 1,
+                    cfg.volume_sma_period,
+                    cfg.adx_period * 2 + 1,
+                )
+                + 10
+            ),
+            enable_stale_guard=True,
+            max_kline_age_s=120.0,
         ),
     )
 )

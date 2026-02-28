@@ -6,6 +6,7 @@ from typing import Dict
 from strategy.backtest.config import StrategyConfig
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -152,5 +153,11 @@ register_strategy(
         split_params_fn=make_split_params_fn(EMAConfig),
         mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=_export_config,
+        live_config=LiveConfig(
+            core_cls=EMASignalCore,
+            update_columns=COLUMNS_CLOSE,
+            warmup_fn=lambda cfg: cfg.slow_period + 10,
+            use_dual_mode=True,
+        ),
     )
 )

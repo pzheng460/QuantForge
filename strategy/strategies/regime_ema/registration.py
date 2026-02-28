@@ -3,6 +3,7 @@
 from nexustrader.constants import KlineInterval
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -28,6 +29,32 @@ def _make_generator(config, filter_config):
         core_cls=RegimeEMASignalCore,
         update_columns=COLUMNS_CLOSE_HIGH_LOW,
     )
+
+
+def _regime_ema_pre_signal_hook(
+    strategy, symbol, signal, price, indicator, current_bar
+):
+    """Close positions in ranging/high-vol regime, skip signal processing."""
+    if not hasattr(indicator, "core"):
+        return False
+    core = indicator.core
+    if not getattr(core, "is_trending", True):
+        position = strategy._positions.get(symbol)
+        regime_val = getattr(core, "regime", None)
+        regime_str = (
+            regime_val.value if hasattr(regime_val, "value") else str(regime_val)
+        )
+        if position and position.side is not None:
+            strategy.log.info(
+                f"REGIME: {regime_str.upper()} - skipping trades, "
+                f"closing position for {symbol}"
+            )
+            strategy._close_position(symbol, f"Regime={regime_str}", force=True)
+        else:
+            if current_bar % 6 == 0:
+                strategy.log.info(f"REGIME: {regime_str.upper()} - skipping trades")
+        return True
+    return False
 
 
 _mesa_dict_to_config = make_mesa_dict_to_config(
@@ -90,6 +117,21 @@ register_strategy(
             TradeFilterConfig,
             "strategy.strategies.regime_ema.core",
             "strategy.strategies._base.signal_generator",
+        ),
+        live_config=LiveConfig(
+            core_cls=RegimeEMASignalCore,
+            update_columns=COLUMNS_CLOSE_HIGH_LOW,
+            warmup_fn=lambda cfg: (
+                max(
+                    cfg.slow_period,
+                    cfg.adx_period * 2,
+                    getattr(cfg, "regime_lookback", 50),
+                )
+                + 20
+            ),
+            enable_stale_guard=True,
+            max_kline_age_s=120.0,
+            pre_signal_hook_fn=_regime_ema_pre_signal_hook,
         ),
     )
 )

@@ -6,6 +6,7 @@ from typing import Dict
 
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -99,6 +100,26 @@ OPTIMIZED_CONFIG = StrategyConfig(
     return code
 
 
+def _hk_process_signal(strategy, symbol, signal, price, current_bar):
+    """Process signal with only_mean_reversion regime filter."""
+    if getattr(strategy._filter, "only_mean_reversion", True):
+        indicator = strategy._indicators.get(symbol)
+        if indicator and hasattr(indicator, "core"):
+            if indicator.core.market_state != "mean_reverting":
+                position = strategy._positions.get(symbol)
+                if (
+                    position
+                    and position.side is not None
+                    and strategy._can_close_position(symbol)
+                ):
+                    strategy._close_position(symbol, "Left mean-reversion regime")
+                return
+    # Fall back to default process_signal
+    from strategy.strategies._base.base_strategy import BaseQuantStrategy
+
+    BaseQuantStrategy._process_signal(strategy, symbol, signal, price, current_bar)
+
+
 # Pre-build helpers for use in registration and external imports (e.g. configs.py)
 _mesa_dict_to_config = make_mesa_dict_to_config(
     HurstKalmanConfig,
@@ -155,5 +176,17 @@ register_strategy(
         split_params_fn=make_split_params_fn(HurstKalmanConfig),
         mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=_export_config,
+        live_config=LiveConfig(
+            core_cls=HurstKalmanSignalCore,
+            update_columns=COLUMNS_CLOSE,
+            warmup_fn=lambda cfg: (
+                max(
+                    getattr(cfg, "hurst_window", 100),
+                    getattr(cfg, "zscore_window", 60),
+                )
+                + 20
+            ),
+            process_signal_fn=_hk_process_signal,
+        ),
     )
 )

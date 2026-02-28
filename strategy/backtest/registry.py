@@ -29,6 +29,29 @@ class HeatmapConfig:
 
 
 @dataclass
+class LiveConfig:
+    """Live trading configuration for the generic runner.
+
+    When present on a StrategyRegistration, the generic runner
+    (``strategy.runner``) can launch the strategy without a custom live.py.
+    """
+
+    core_cls: Type  # SignalCore class (e.g. EMASignalCore)
+    update_columns: Tuple[
+        str, ...
+    ]  # columns to pass to core.update/update_indicators_only
+    warmup_fn: Optional[Callable] = None  # (config) -> int warmup_period_bars
+    use_dual_mode: bool = False  # if True, enables enable_live_mode() pattern
+    pre_update_hook: Optional[Callable] = None  # (core, kline) -> dict of extra kwargs
+    process_signal_fn: Optional[Callable] = None  # override _process_signal
+    pre_signal_hook_fn: Optional[Callable] = None  # override _pre_signal_hook
+    on_live_activated_fn: Optional[Callable] = None  # override _on_live_activated
+    enable_stale_guard: bool = False
+    max_kline_age_s: float = 120.0
+    default_symbol: str = "BTCUSDT-PERP.BITGET"
+
+
+@dataclass
 class StrategyRegistration:
     """Complete registration for a backtestable strategy."""
 
@@ -48,6 +71,7 @@ class StrategyRegistration:
         None  # convert Mesa JSON -> StrategyConfig
     )
     export_config_fn: Optional[Callable] = None  # generate Python config code
+    live_config: Optional[LiveConfig] = None  # generic runner configuration
 
 
 # ---------------------------------------------------------------------------

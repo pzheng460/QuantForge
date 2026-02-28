@@ -2,6 +2,7 @@
 
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -79,6 +80,13 @@ register_strategy(
             TradeFilterConfig,
             "strategy.strategies.bollinger_band.core",
             "strategy.strategies._base.signal_generator",
+        ),
+        live_config=LiveConfig(
+            core_cls=BBSignalCore,
+            update_columns=COLUMNS_CLOSE,
+            warmup_fn=lambda cfg: (
+                max(cfg.bb_period, cfg.bb_period * cfg.trend_sma_multiplier) + 10
+            ),
         ),
     )
 )

@@ -3,6 +3,7 @@
 from nexustrader.constants import KlineInterval
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -91,6 +92,12 @@ register_strategy(
             TradeFilterConfig,
             "strategy.strategies.dual_regime.core",
             "strategy.strategies._base.signal_generator",
+        ),
+        live_config=LiveConfig(
+            core_cls=DualRegimeSignalCore,
+            update_columns=COLUMNS_CLOSE_HIGH_LOW_VOLUME,
+            enable_stale_guard=True,
+            max_kline_age_s=120.0,
         ),
     )
 )

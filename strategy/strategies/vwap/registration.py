@@ -3,8 +3,11 @@
 import pandas as pd
 
 from nexustrader.constants import KlineInterval
+from datetime import datetime, timezone
+
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -64,6 +67,17 @@ def _vwap_filter_config_factory(xv, yv, params):
     )
 
 
+def _vwap_pre_update_hook(core, kline):
+    """Inject ``day`` parameter for VWAP daily boundary detection in live mode."""
+    ts = kline.timestamp
+    if hasattr(ts, "date"):
+        day = ts.date()
+    else:
+        dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+        day = dt.date()
+    return {"day": day}
+
+
 _mesa_dict_to_config = make_mesa_dict_to_config(
     VWAPConfig,
     TradeFilterConfig,
@@ -118,6 +132,14 @@ register_strategy(
             TradeFilterConfig,
             "strategy.strategies.vwap.core",
             "strategy.strategies._base.signal_generator",
+        ),
+        live_config=LiveConfig(
+            core_cls=VWAPSignalCore,
+            update_columns=COLUMNS_CLOSE_HIGH_LOW_VOLUME,
+            warmup_fn=lambda cfg: cfg.std_window + getattr(cfg, "rsi_period", 14),
+            enable_stale_guard=True,
+            max_kline_age_s=60.0,
+            pre_update_hook=_vwap_pre_update_hook,
         ),
     )
 )
