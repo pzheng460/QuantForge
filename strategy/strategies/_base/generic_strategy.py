@@ -2,10 +2,7 @@
 Generic live trading strategy that works with any registered strategy.
 
 Uses the registration system's LiveConfig to configure itself, eliminating
-the need for per-strategy live.py files for simple/moderate strategies.
-
-Complex strategies (momentum, grid_trading, funding_rate) that override
-on_kline entirely should continue using their custom live.py files.
+the need for per-strategy live.py files. All 9 strategies are supported.
 
 Usage:
     from strategy.strategies._base.generic_strategy import GenericStrategy
@@ -23,6 +20,7 @@ import dataclasses
 from typing import Any, List, Optional
 
 from nexustrader.indicator import Indicator
+from nexustrader.schema import FundingRate
 
 from strategy.backtest.registry import LiveConfig, get_strategy
 from strategy.strategies._base.base_strategy import BaseQuantStrategy, PositionState
@@ -131,6 +129,10 @@ class GenericStrategy(BaseQuantStrategy):
                 pre_update_hook=lc.pre_update_hook,
             )
             self._register_symbol(symbol, indicator, interval)
+
+            if lc.subscribe_funding_rate:
+                self.subscribe_funding_rate(symbols=symbol)
+
             self.log.info(f"Initialized tracking for {symbol}")
 
     # ---------- Hook overrides ----------
@@ -171,6 +173,11 @@ class GenericStrategy(BaseQuantStrategy):
                 self, symbol, signal, price, indicator, current_bar
             )
         return False
+
+    def on_funding_rate(self, funding_rate: FundingRate) -> None:
+        """Delegate funding rate events to LiveConfig callback."""
+        if self._live_config.on_funding_rate_fn:
+            self._live_config.on_funding_rate_fn(self, funding_rate)
 
     def _format_log_line(
         self,

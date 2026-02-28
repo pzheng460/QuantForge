@@ -121,11 +121,18 @@ class GenericIndicator(Indicator):
 
         # Introspect method signatures for later use
         self._update_params = _introspect_params(self._core.update_indicators_only)
-        if hasattr(self._core, "get_raw_signal"):
-            self._signal_params = _introspect_params(self._core.get_raw_signal)
-        else:
-            self._signal_params = ()
         self._update_method_params = _introspect_params(self._core.update)
+
+        # Resolve signal method: get_raw_signal → get_signal → None
+        if hasattr(self._core, "get_raw_signal"):
+            self._signal_method = self._core.get_raw_signal
+        elif hasattr(self._core, "get_signal"):
+            self._signal_method = self._core.get_signal
+        else:
+            self._signal_method = None
+        self._signal_params = (
+            _introspect_params(self._signal_method) if self._signal_method else ()
+        )
 
         # Update columns (for building kwargs from kline)
         self._update_columns = update_columns
@@ -181,16 +188,27 @@ class GenericIndicator(Indicator):
         if self._live_mode and self._use_dual_mode:
             # Live mode: core.update() returns signal and manages position state
             update_args = _get_kline_kwargs(kline, self._update_method_params)
-            update_args.update(extra_kwargs)
+            # Only pass extra_kwargs whose keys match the method's parameters
+            for k, v in extra_kwargs.items():
+                if k in self._update_method_params:
+                    update_args[k] = v
             raw = self._core.update(**update_args)
         else:
             # Warmup mode: update indicators only, compute raw signal separately
             update_args = _get_kline_kwargs(kline, self._update_params)
-            update_args.update(extra_kwargs)
+            for k, v in extra_kwargs.items():
+                if k in self._update_params:
+                    update_args[k] = v
             self._core.update_indicators_only(**update_args)
 
-            signal_args = _get_kline_kwargs(kline, self._signal_params)
-            raw = self._core.get_raw_signal(**signal_args)
+            if self._signal_method is not None:
+                signal_args = _get_kline_kwargs(kline, self._signal_params)
+                for k, v in extra_kwargs.items():
+                    if k in self._signal_params:
+                        signal_args[k] = v
+                raw = self._signal_method(**signal_args)
+            else:
+                raw = 0  # HOLD — no signal method (e.g. GridSignalCore)
 
         self._signal = _SIGNAL_MAP.get(raw, Signal.HOLD)
 

@@ -7,6 +7,7 @@ from nexustrader.constants import KlineInterval
 from strategy.backtest.config import StrategyConfig
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -196,5 +197,12 @@ register_strategy(
         split_params_fn=make_split_params_fn(GridConfig),
         mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=_export_config,
+        live_config=LiveConfig(
+            core_cls=GridSignalCore,
+            update_columns=COLUMNS_CLOSE_HIGH_LOW,
+            warmup_fn=lambda cfg: max(cfg.sma_period, cfg.atr_period) + 10,
+            use_dual_mode=True,
+            enable_stale_guard=True,
+        ),
     )
 )

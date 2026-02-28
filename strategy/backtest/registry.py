@@ -49,6 +49,8 @@ class LiveConfig:
     enable_stale_guard: bool = False
     max_kline_age_s: float = 120.0
     default_symbol: str = "BTCUSDT-PERP.BITGET"
+    subscribe_funding_rate: bool = False
+    on_funding_rate_fn: Optional[Callable] = None  # (strategy, funding_rate) -> None
 
 
 @dataclass

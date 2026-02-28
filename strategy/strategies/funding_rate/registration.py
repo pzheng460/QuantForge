@@ -1,14 +1,16 @@
 """Register Funding Rate Arbitrage strategy with the backtest framework."""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 
-from nexustrader.constants import KlineInterval
+from nexustrader.constants import KlineInterval, OrderSide
 from strategy.backtest.registry import (
     HeatmapConfig,
+    LiveConfig,
     StrategyRegistration,
     register_strategy,
 )
@@ -162,6 +164,73 @@ def _fr_min_hold_from_mesa(mesa, extra):
     return int(extra.get("min_holding_bars", 1))
 
 
+# ---------------------------------------------------------------------------
+# Live trading helpers (for GenericStrategy / GenericIndicator)
+# ---------------------------------------------------------------------------
+
+
+def _hours_until_next_settlement_utc(now_utc: datetime) -> float:
+    """Calculate hours until next 8h funding settlement (datetime version)."""
+    hour = now_utc.hour + now_utc.minute / 60.0
+    for settle_h in FUNDING_SETTLEMENT_HOURS:
+        if settle_h > hour:
+            return settle_h - hour
+    return 24.0 - hour
+
+
+def _hours_since_last_settlement_utc(now_utc: datetime) -> float:
+    """Calculate hours since most recent 8h funding settlement (datetime version)."""
+    hour = now_utc.hour + now_utc.minute / 60.0
+    for settle_h in reversed(FUNDING_SETTLEMENT_HOURS):
+        if settle_h <= hour:
+            return hour - settle_h
+    return hour + 8.0
+
+
+def _fr_live_pre_update_hook(core, kline):
+    """Inject settlement timing kwargs for funding rate core methods."""
+    now_utc = datetime.now(timezone.utc)
+    return {
+        "hours_to_next": _hours_until_next_settlement_utc(now_utc),
+        "hours_since_last": _hours_since_last_settlement_utc(now_utc),
+    }
+
+
+def _fr_on_funding_rate(strategy, funding_rate):
+    """Handle funding rate events: update the signal core's funding rate."""
+    symbol = funding_rate.symbol
+    indicator = strategy._indicators.get(symbol)
+    if indicator:
+        indicator.core.set_funding_rate(funding_rate.rate)
+        strategy.log.info(
+            f"{symbol} | Funding rate update: {funding_rate.rate * 100:.6f}% "
+            f"(avg: {indicator.core.avg_funding_rate * 100:.6f}%)"
+        )
+
+
+def _fr_process_signal(strategy, symbol, signal, price, current_bar):
+    """Short-only signal processing: only SELL and CLOSE, no BUY, no confirmation."""
+    from strategy.strategies._base.base_strategy import _CLOSE, _SELL
+
+    position = strategy._positions.get(symbol)
+    if not position:
+        return
+
+    if strategy._is_in_cooldown(symbol):
+        return
+
+    sig = signal.value
+
+    if sig == _CLOSE:
+        if position.side is not None and strategy._can_close_position(symbol):
+            strategy._close_position(symbol, "Post-settlement close")
+        return
+
+    if sig == _SELL:
+        if position.side is None:
+            strategy._open_position(symbol, OrderSide.SELL, price, current_bar)
+
+
 _mesa_dict_to_config = make_mesa_dict_to_config(
     FundingRateConfig,
     FundingRateFilterConfig,
@@ -217,6 +286,18 @@ register_strategy(
             FundingRateFilterConfig,
             "strategy.strategies.funding_rate.core",
             "strategy.strategies.funding_rate.registration",
+        ),
+        live_config=LiveConfig(
+            core_cls=FundingRateSignalCore,
+            update_columns=COLUMNS_CLOSE,
+            warmup_fn=lambda cfg: cfg.price_sma_period + 10,
+            use_dual_mode=False,
+            pre_update_hook=_fr_live_pre_update_hook,
+            process_signal_fn=_fr_process_signal,
+            enable_stale_guard=True,
+            max_kline_age_s=120.0,
+            subscribe_funding_rate=True,
+            on_funding_rate_fn=_fr_on_funding_rate,
         ),
     )
 )
