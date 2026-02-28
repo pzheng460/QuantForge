@@ -63,7 +63,7 @@ def import_local_module(module_name: str, file_path: Path, register_as: str = No
         module_name: Internal module name for importlib.
         file_path: Absolute path to the .py file.
         register_as: Optional dotted name to register in sys.modules (e.g.
-            ``"strategy.live.hurst_kalman.core"``).
+            ``"strategy.strategies.hurst_kalman.core"``).
 
     Returns:
         The imported module object.

@@ -1,1 +1,0 @@
-"""Grid Trading Strategy for Bitget."""

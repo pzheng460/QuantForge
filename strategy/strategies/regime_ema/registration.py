@@ -30,6 +30,15 @@ def _make_generator(config, filter_config):
     )
 
 
+_mesa_dict_to_config = make_mesa_dict_to_config(
+    RegimeEMAConfig,
+    TradeFilterConfig,
+    "fast_period",
+    "slow_period",
+    x_label="Fast",
+    y_label="Slow",
+)
+
 register_strategy(
     StrategyRegistration(
         name="regime_ema",
@@ -74,14 +83,7 @@ register_strategy(
         ),
         default_filter_kwargs={},
         split_params_fn=make_split_params_fn(RegimeEMAConfig),
-        mesa_dict_to_config_fn=make_mesa_dict_to_config(
-            RegimeEMAConfig,
-            TradeFilterConfig,
-            "fast_period",
-            "slow_period",
-            x_label="Fast",
-            y_label="Slow",
-        ),
+        mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=make_export_config(
             "regime_ema",
             RegimeEMAConfig,

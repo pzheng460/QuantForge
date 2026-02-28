@@ -64,6 +64,15 @@ def _vwap_filter_config_factory(xv, yv, params):
     )
 
 
+_mesa_dict_to_config = make_mesa_dict_to_config(
+    VWAPConfig,
+    TradeFilterConfig,
+    "zscore_entry",
+    "std_window",
+    x_label="Z-Entry",
+    y_label="StdWin",
+)
+
 register_strategy(
     StrategyRegistration(
         name="vwap",
@@ -102,14 +111,7 @@ register_strategy(
         ),
         default_filter_kwargs={},
         split_params_fn=make_split_params_fn(VWAPConfig),
-        mesa_dict_to_config_fn=make_mesa_dict_to_config(
-            VWAPConfig,
-            TradeFilterConfig,
-            "zscore_entry",
-            "std_window",
-            x_label="Z-Entry",
-            y_label="StdWin",
-        ),
+        mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=make_export_config(
             "vwap",
             VWAPConfig,

@@ -29,6 +29,15 @@ def _make_generator(config, filter_config):
     )
 
 
+_mesa_dict_to_config = make_mesa_dict_to_config(
+    BBConfig,
+    TradeFilterConfig,
+    "bb_multiplier",
+    "bb_period",
+    x_label="Multiplier",
+    y_label="Period",
+)
+
 register_strategy(
     StrategyRegistration(
         name="bollinger_band",
@@ -63,14 +72,7 @@ register_strategy(
         ),
         default_filter_kwargs={},
         split_params_fn=make_split_params_fn(BBConfig),
-        mesa_dict_to_config_fn=make_mesa_dict_to_config(
-            BBConfig,
-            TradeFilterConfig,
-            "bb_multiplier",
-            "bb_period",
-            x_label="Multiplier",
-            y_label="Period",
-        ),
+        mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=make_export_config(
             "bollinger_band",
             BBConfig,

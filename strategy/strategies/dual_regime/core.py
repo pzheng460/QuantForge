@@ -17,13 +17,6 @@ from typing import List
 import numpy as np
 
 # Import calculation functions from existing strategies
-from strategy.strategies.momentum.core import (
-    calculate_adx,
-    calculate_atr,
-    calculate_ema,
-    calculate_roc,
-    calculate_sma,
-)
 
 
 def calculate_bollinger_bands(

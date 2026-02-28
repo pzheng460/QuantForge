@@ -1,1 +1,1 @@
-"""Base classes and utilities for strategy registration."""
+"""Base classes and utilities for strategy registration and live trading."""

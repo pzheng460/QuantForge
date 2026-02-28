@@ -162,6 +162,16 @@ def _fr_min_hold_from_mesa(mesa, extra):
     return int(extra.get("min_holding_bars", 1))
 
 
+_mesa_dict_to_config = make_mesa_dict_to_config(
+    FundingRateConfig,
+    FundingRateFilterConfig,
+    "hours_before_funding",
+    "price_sma_period",
+    x_label="HrsBefore",
+    y_label="SMA",
+    min_hold_from_mesa=_fr_min_hold_from_mesa,
+)
+
 register_strategy(
     StrategyRegistration(
         name="funding_rate",
@@ -200,15 +210,7 @@ register_strategy(
         ),
         default_filter_kwargs={},
         split_params_fn=make_split_params_fn(FundingRateConfig),
-        mesa_dict_to_config_fn=make_mesa_dict_to_config(
-            FundingRateConfig,
-            FundingRateFilterConfig,
-            "hours_before_funding",
-            "price_sma_period",
-            x_label="HrsBefore",
-            y_label="SMA",
-            min_hold_from_mesa=_fr_min_hold_from_mesa,
-        ),
+        mesa_dict_to_config_fn=_mesa_dict_to_config,
         export_config_fn=make_export_config(
             "funding_rate",
             FundingRateConfig,
