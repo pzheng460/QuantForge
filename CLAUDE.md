@@ -238,8 +238,8 @@ strategy/strategies/{name}/
 ├── configs.py           # (OPTIONAL) Custom config loader (generic_configs.py replaces this)
 
 strategy/backtest/registry.py          # StrategyRegistration, ParityTestConfig, LiveConfig, HeatmapConfig
-test/indicators/parity_factory.py      # Test factory: make_parity_test_class()
-test/indicators/test_all_parity.py     # Auto-discovers all strategies via registry (no manual edits needed)
+test/strategy/parity_factory.py        # Test factory: make_parity_test_class()
+test/strategy/test_all_parity.py       # Auto-discovers all strategies via registry (no manual edits needed)
 ```
 
 ### Signal Constants
@@ -345,7 +345,7 @@ Four factory functions auto-generate boilerplate from dataclass introspection:
 3. **Registration** — `strategy/strategies/{name}/registration.py`: Register with `BaseSignalGenerator` + `LiveConfig` + `ParityTestConfig`
 4. **Package init** — `strategy/strategies/{name}/__init__.py`: Docstring only (auto-discovered)
 
-No need to touch `test/indicators/test_all_parity.py` — it auto-discovers all strategies via `ParityTestConfig` in the registry.
+No need to touch `test/strategy/test_all_parity.py` — it auto-discovers all strategies via `ParityTestConfig` in the registry.
 No need to create indicator.py, live.py, configs.py, or signal.py. The generic runner handles everything.
 
 Run with: `uv run python -m strategy.runner -S {name} --mesa 0`
@@ -381,13 +381,13 @@ Currently custom: momentum (trailing stops), funding_rate (funding subscription)
 
 ```bash
 # Run all parity tests (87 tests: 68 strategy parity + 19 streaming primitive)
-uv run pytest test/indicators/ -v
+uv run pytest test/strategy/ -v
 
 # Run only strategy parity tests
-uv run pytest test/indicators/test_all_parity.py -v
+uv run pytest test/strategy/test_all_parity.py -v
 
 # Run streaming primitive parity tests
-uv run pytest test/indicators/test_streaming_parity.py -v
+uv run pytest test/strategy/test_streaming_parity.py -v
 ```
 
 ## Unified Backtest Framework

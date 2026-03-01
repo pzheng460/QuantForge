@@ -238,8 +238,8 @@ strategy/strategies/{name}/
 ├── configs.py           # （可选）自定义配置加载器（generic_configs.py 可替代此文件）
 
 strategy/backtest/registry.py          # StrategyRegistration、ParityTestConfig、LiveConfig、HeatmapConfig
-test/indicators/parity_factory.py      # 测试工厂：make_parity_test_class()
-test/indicators/test_all_parity.py     # 通过注册表自动发现所有策略（无需手动编辑）
+test/strategy/parity_factory.py        # 测试工厂：make_parity_test_class()
+test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略（无需手动编辑）
 ```
 
 ### 信号常量
@@ -345,7 +345,7 @@ class TradeFilterConfig:
 3. **注册** — `strategy/strategies/{name}/registration.py`：使用 `BaseSignalGenerator` + `LiveConfig` + `ParityTestConfig` 进行注册
 4. **包初始化** — `strategy/strategies/{name}/__init__.py`：仅需 docstring（自动发现，无需手动导入）
 
-**无需修改** `test/indicators/test_all_parity.py`——它通过 `ParityTestConfig` 自动发现所有策略。
+**无需修改** `test/strategy/test_all_parity.py`——它通过 `ParityTestConfig` 自动发现所有策略。
 无需创建 indicator.py、live.py、configs.py 或 signal.py。通用运行器处理一切。
 
 运行方式：`uv run python -m strategy.runner -S {name} --mesa 0`
@@ -374,13 +374,13 @@ class TradeFilterConfig:
 
 ```bash
 # 运行所有指标测试（87 个：68 策略一致性 + 19 流式原语）
-uv run pytest test/indicators/ -v
+uv run pytest test/strategy/ -v
 
 # 仅运行策略一致性测试（自动发现，无需手动维护）
-uv run pytest test/indicators/test_all_parity.py -v
+uv run pytest test/strategy/test_all_parity.py -v
 
 # 运行流式原语一致性测试
-uv run pytest test/indicators/test_streaming_parity.py -v
+uv run pytest test/strategy/test_streaming_parity.py -v
 ```
 
 ## 统一回测框架

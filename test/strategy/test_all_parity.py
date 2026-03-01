@@ -10,7 +10,7 @@ import strategy.strategies  # noqa: F401 — triggers auto-discovery of all regi
 
 from strategy.backtest.registry import get_strategy, list_strategies
 from strategy.strategies._base.test_data import generate_trending_ohlcv
-from test.indicators.parity_factory import make_parity_test_class
+from test.strategy.parity_factory import make_parity_test_class
 
 for _name in list_strategies():
     _reg = get_strategy(_name)
