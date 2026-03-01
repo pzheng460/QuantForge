@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from strategy.indicators.base import StreamingEMA
+from strategy.strategies._base.streaming import StreamingEMA
 
 if TYPE_CHECKING:
     from strategy.strategies.ema_crossover.core import EMAConfig

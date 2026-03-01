@@ -5,9 +5,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.regime_ema import RegimeEMASignalCore
+from strategy.strategies.regime_ema.signal_core import RegimeEMASignalCore
 from strategy.strategies._base.registration_helpers import (
     make_export_config,
     make_filter_config_factory,
@@ -132,6 +133,30 @@ register_strategy(
             enable_stale_guard=True,
             max_kline_age_s=120.0,
             pre_signal_hook_fn=_regime_ema_pre_signal_hook,
+        ),
+    
+        parity_config=ParityTestConfig(
+            custom_config_kwargs={
+                "fast_period": 10,
+                "slow_period": 30,
+                "atr_period": 10,
+                "adx_period": 10,
+                "adx_trend_threshold": 20.0,
+                "stop_loss_pct": 0.05,
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 3,
+                "cooldown_bars": 1,
+                "signal_confirmation": 2,
+            },
+            trades_config_kwargs={
+                "fast_period": 10,
+                "slow_period": 25,
+                "adx_period": 10,
+                "adx_trend_threshold": 15.0,
+                "trend_atr_threshold": 0.8,
+            },
+            trades_data_size=3000,
         ),
     )
 )

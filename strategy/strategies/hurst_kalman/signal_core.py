@@ -9,19 +9,15 @@ delegate to this class, guaranteeing 100% code parity.
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from strategy.strategies.hurst_kalman.core import HurstKalmanConfig
-
-
-def _lazy_hurst_imports():
-    """Lazy import to avoid circular dependency with strategy.strategies.__init__."""
-    from strategy.strategies.hurst_kalman.core import KalmanFilter1D, calculate_hurst
-
-    return KalmanFilter1D, calculate_hurst
+from strategy.strategies.hurst_kalman.core import (
+    HurstKalmanConfig,
+    KalmanFilter1D,
+    calculate_hurst,
+)
 
 
 # Signal constants
@@ -55,7 +51,6 @@ class HurstKalmanSignalCore:
         self._only_mean_reversion = only_mean_reversion
 
         # Kalman filter
-        KalmanFilter1D, _ = _lazy_hurst_imports()
         self._kalman = KalmanFilter1D(R=config.kalman_R, Q=config.kalman_Q)
         self._kalman_prices: list[float] = []
 
@@ -86,7 +81,6 @@ class HurstKalmanSignalCore:
         self.bar_index += 1
 
         if len(self._price_history) >= self._config.hurst_window:
-            _, calculate_hurst = _lazy_hurst_imports()
             self._hurst = calculate_hurst(
                 np.array(self._price_history), self._config.hurst_window
             )
@@ -132,7 +126,6 @@ class HurstKalmanSignalCore:
             return HOLD
 
         # Calculate Hurst
-        _, calculate_hurst = _lazy_hurst_imports()
         self._hurst = calculate_hurst(
             np.array(self._price_history), self._config.hurst_window
         )

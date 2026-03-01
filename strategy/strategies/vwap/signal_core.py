@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from strategy.indicators.base import StreamingRSI
+from strategy.strategies._base.streaming import StreamingRSI
 
 if TYPE_CHECKING:
     from strategy.strategies.vwap.core import VWAPConfig

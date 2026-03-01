@@ -5,9 +5,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.momentum import MomentumSignalCore
+from strategy.strategies.momentum.signal_core import MomentumSignalCore
 from strategy.strategies._base.registration_helpers import (
     make_export_config,
     make_filter_config_factory,
@@ -103,6 +104,28 @@ register_strategy(
             ),
             enable_stale_guard=True,
             max_kline_age_s=120.0,
+        ),
+    
+        parity_config=ParityTestConfig(
+            custom_config_kwargs={
+                "roc_period": 10,
+                "roc_threshold": 0.01,
+                "ema_fast": 5,
+                "ema_slow": 15,
+                "ema_trend": 34,
+                "atr_period": 10,
+                "atr_multiplier": 2.0,
+                "volume_sma_period": 15,
+                "volume_threshold": 1.0,
+                "adx_period": 10,
+                "adx_trend_threshold": 20.0,
+                "stop_loss_pct": 0.05,
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 3,
+                "cooldown_bars": 1,
+                "signal_confirmation": 2,
+            },
         ),
     )
 )

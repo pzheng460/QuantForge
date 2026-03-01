@@ -31,11 +31,17 @@ from nexustrader.constants import KlineInterval
 
 # Period options (3 months to 2 years)
 PERIODS = {
+    "1w": 7,
+    "1m": 30,
     "3m": 90,
     "6m": 180,
     "1y": 365,
     "2y": 730,
+    "3y": 1095,
 }
+
+# Periods too short for optimization / WFO — only suitable for single run
+SHORT_PERIODS = {"1w", "1m", "3m"}
 
 # Default period for backtesting
 DEFAULT_PERIOD = "1y"
@@ -46,8 +52,8 @@ THREE_STAGE_CONFIG = {
     "stage2_name": "Walk-Forward Validation",
     "stage3_name": "Holdout Test + Regime Analysis",
     "train_ratio": 0.8,
-    "wf_train_days": 30,
-    "wf_test_days": 7,
+    "wf_train_days": 90,
+    "wf_test_days": 30,
 }
 
 

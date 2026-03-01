@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from strategy.indicators.base import StreamingBB, StreamingSMA
+from strategy.strategies._base.streaming import StreamingBB, StreamingSMA
 
 if TYPE_CHECKING:
     from strategy.strategies.bollinger_band.core import BBConfig

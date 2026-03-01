@@ -8,7 +8,7 @@ calculate_xxx() functions in strategy/strategies/momentum/core.py.
 import numpy as np
 import pytest
 
-from strategy.indicators.base import (
+from strategy.strategies._base.streaming import (
     StreamingADX,
     StreamingATR,
     StreamingEMA,

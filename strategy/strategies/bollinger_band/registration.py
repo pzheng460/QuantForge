@@ -4,9 +4,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.bollinger_band import BBSignalCore
+from strategy.strategies.bollinger_band.signal_core import BBSignalCore
 from strategy.strategies._base.registration_helpers import (
     make_export_config,
     make_filter_config_factory,
@@ -18,6 +19,7 @@ from strategy.strategies._base.signal_generator import (
     BaseSignalGenerator,
     TradeFilterConfig,
 )
+from strategy.strategies._base.test_data import generate_mean_reverting_ohlcv
 from strategy.strategies.bollinger_band.core import BBConfig
 
 
@@ -87,6 +89,22 @@ register_strategy(
             warmup_fn=lambda cfg: (
                 max(cfg.bb_period, cfg.bb_period * cfg.trend_sma_multiplier) + 10
             ),
+        ),
+    
+        parity_config=ParityTestConfig(
+            data_generator=generate_mean_reverting_ohlcv,
+            custom_config_kwargs={
+                "bb_period": 15,
+                "bb_multiplier": 1.5,
+                "exit_threshold": 0.2,
+                "stop_loss_pct": 0.03,
+                "trend_bias": "auto",
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 3,
+                "cooldown_bars": 1,
+                "signal_confirmation": 2,
+            },
         ),
     )
 )

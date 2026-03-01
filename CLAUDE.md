@@ -109,8 +109,8 @@ Each exchange directory contains:
 - `rest_api.py` - REST API client
 
 ### Strategy Signal Layer
-- `strategy/indicators/base.py` - Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
-- `strategy/indicators/{name}.py` - Signal cores (single source of truth for each strategy)
+- `strategy/strategies/_base/streaming.py` - Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
+- `strategy/strategies/{name}/signal_core.py` - Signal cores (single source of truth for each strategy)
 - `strategy/strategies/_base/` - BaseSignalGenerator, TradeFilterConfig, registration helpers, BaseQuantStrategy, PerformanceTracker, GenericStrategy, GenericIndicator, generic configs
 - `strategy/strategies/{name}/` - Self-contained strategy: core.py, registration.py (minimal); indicator.py, live.py, configs.py (optional, for complex strategies)
 - `strategy/runner.py` - Generic CLI runner for any strategy with LiveConfig
@@ -214,19 +214,9 @@ All trading strategies share a **SignalCore** pattern that guarantees 100% code 
 ### Directory Layout
 
 ```
-strategy/indicators/
-├── base.py              # Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
-├── momentum.py          # MomentumSignalCore
-├── ema_crossover.py     # EMASignalCore
-├── bollinger_band.py    # BBSignalCore
-├── regime_ema.py        # RegimeEMASignalCore
-├── hurst_kalman.py      # HurstKalmanSignalCore
-├── vwap.py              # VWAPSignalCore
-├── funding_rate.py      # FundingRateSignalCore
-├── dual_regime.py       # DualRegimeSignalCore
-├── grid_trading.py      # GridSignalCore
-
 strategy/strategies/_base/
+├── streaming.py             # Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
+├── test_data.py             # Synthetic OHLCV data generators (shared by registration.py + tests)
 ├── __init__.py
 ├── signal_generator.py      # BaseSignalGenerator, TradeFilterConfig, column constants
 ├── registration_helpers.py  # Factory functions: make_split_params_fn, make_mesa_dict_to_config, etc.
@@ -240,14 +230,16 @@ strategy/strategies/_base/
 strategy/runner.py               # Generic CLI runner for any strategy with LiveConfig
 
 strategy/strategies/{name}/
+├── signal_core.py       # SignalCore class (single source of truth for signal logic)
 ├── core.py              # Strategy config dataclass
-├── registration.py      # Strategy registration (auto-discovered via __init__.py) + LiveConfig
+├── registration.py      # Strategy registration (auto-discovered) + LiveConfig + ParityTestConfig
 ├── indicator.py         # (OPTIONAL) Custom indicator for complex strategies
 ├── live.py              # (OPTIONAL) Custom live strategy for complex strategies
 ├── configs.py           # (OPTIONAL) Custom config loader (generic_configs.py replaces this)
 
+strategy/backtest/registry.py          # StrategyRegistration, ParityTestConfig, LiveConfig, HeatmapConfig
 test/indicators/parity_factory.py      # Test factory: make_parity_test_class()
-test/indicators/test_all_parity.py     # Unified parity tests for all 9 strategies
+test/indicators/test_all_parity.py     # Auto-discovers all strategies via registry (no manual edits needed)
 ```
 
 ### Signal Constants
@@ -270,7 +262,7 @@ Each `SignalCore` class exposes three methods:
 
 Live indicators operate in **dual mode**: during warmup they use `update_indicators_only()` + `get_raw_signal()` to avoid false position state; after warmup settles they switch to `core.update()` via `enable_live_mode()` for unified position management.
 
-### Streaming Indicator Primitives (`base.py`)
+### Streaming Indicator Primitives (`streaming.py`)
 
 | Class | Description |
 |-------|-------------|
@@ -348,12 +340,12 @@ Four factory functions auto-generate boilerplate from dataclass introspection:
 
 #### Minimal (generic runner — only 2 files needed):
 
-1. **Signal core** — `strategy/indicators/{name}.py`: Implement `{Name}SignalCore` with `update()`, `update_indicators_only()`, `get_raw_signal()`
+1. **Signal core** — `strategy/strategies/{name}/signal_core.py`: Implement `{Name}SignalCore` with `update()`, `update_indicators_only()`, `get_raw_signal()`
 2. **Config** — `strategy/strategies/{name}/core.py`: Define `{Name}Config` dataclass
-3. **Registration** — `strategy/strategies/{name}/registration.py`: Register with `BaseSignalGenerator` + `LiveConfig` for generic runner
+3. **Registration** — `strategy/strategies/{name}/registration.py`: Register with `BaseSignalGenerator` + `LiveConfig` + `ParityTestConfig`
 4. **Package init** — `strategy/strategies/{name}/__init__.py`: Docstring only (auto-discovered)
-5. **Parity test** — Add entry in `test/indicators/test_all_parity.py`: ~10 lines
 
+No need to touch `test/indicators/test_all_parity.py` — it auto-discovers all strategies via `ParityTestConfig` in the registry.
 No need to create indicator.py, live.py, configs.py, or signal.py. The generic runner handles everything.
 
 Run with: `uv run python -m strategy.runner -S {name} --mesa 0`
@@ -369,7 +361,7 @@ Currently custom: momentum (trailing stops), funding_rate (funding subscription)
 
 ### Design Patterns
 
-- **Lazy imports**: `regime_ema.py` and `hurst_kalman.py` use lazy import functions (e.g., `_lazy_regime_imports()`) to break circular dependencies between `strategy/indicators/` and `strategy/strategies/`
+- **No circular imports**: signal cores live inside `strategy/strategies/{name}/signal_core.py` and import directly from `.core` within the same package — no lazy import hacks needed
 - **Config override**: Signal generators use `dataclasses.replace()` to apply parameter overrides from backtest optimization
 - **Auto-discovery**: `strategy/strategies/__init__.py` uses `pkgutil.iter_modules()` to automatically import `registration.py` from all strategy subdirectories
 - **Bar confirmation**: Live indicators use timestamp change detection to confirm the previous bar is complete before processing
@@ -427,7 +419,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-S, --strategy` | Strategy name: `hurst_kalman`, `ema_crossover`, `bollinger_band` |
 | `-X, --exchange` | Exchange: `bitget`, `binance`, `okx`, `bybit`, `hyperliquid` |
 | `--symbol` | Trading pair (default: exchange-specific BTC/USDT perpetual) |
-| `-p, --period` | Data period: `3m`, `6m`, `1y`, `2y` |
+| `-p, --period` | Data period: `1w`, `1m`, `3m`, `6m`, `1y`, `2y`, `3y` (short periods warn when used with analysis flags) |
 | `-m, --mesa` | Mesa config index (0 = best) |
 | `--heatmap` | Run heatmap parameter scan |
 | `--heatmap-resolution` | Heatmap grid resolution (default: 15) |
@@ -442,10 +434,9 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 
 ### Architecture
 
-- `strategy/indicators/` — Shared signal cores and streaming primitives (single source of truth)
+- `strategy/strategies/` — All strategy code: signal cores, registrations, live/indicator/configs (self-contained per strategy)
+- `strategy/strategies/_base/` — Shared base classes (BaseSignalGenerator, BaseQuantStrategy, streaming primitives, test data)
 - `strategy/backtest/` — Unified framework (runner, CLI, registry, exchange profiles, heatmap, utils)
-- `strategy/strategies/` — Self-contained strategy packages (core, registration, indicator, live, configs)
-- `strategy/strategies/_base/` — Shared base classes (BaseSignalGenerator, BaseQuantStrategy, PerformanceTracker)
 - `examples/` — Exchange API usage examples (binance, okx, bybit, hyperliquid, bitget)
 
 ### Supported Exchanges
@@ -467,8 +458,8 @@ Signals generated from bar i are executed at bar i+1 (`_apply_signal_delay()` in
 
 **Walk-Forward Window Scaling**
 WFO window sizes scale with bar interval via `_bars_per_day(interval)`:
-- 15m strategies: 2880 bars train / 672 bars test (30d / 7d)
-- 1h strategies: 720 bars train / 168 bars test (30d / 7d)
+- 15m strategies: 8640 bars train / 2880 bars test (90d / 30d)
+- 1h strategies: 2160 bars train / 720 bars test (90d / 30d)
 - Standalone `--walk-forward` re-optimises in each window using `default_grid`; when called from `--full` it uses fixed params for stability checking.
 
 **position_size_pct Passthrough**

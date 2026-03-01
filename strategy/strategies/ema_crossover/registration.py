@@ -8,9 +8,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.ema_crossover import EMASignalCore
+from strategy.strategies.ema_crossover.signal_core import EMASignalCore
 from strategy.strategies._base.registration_helpers import (
     make_filter_config_factory,
     make_split_params_fn,
@@ -158,6 +159,19 @@ register_strategy(
             update_columns=COLUMNS_CLOSE,
             warmup_fn=lambda cfg: cfg.slow_period + 10,
             use_dual_mode=True,
+        ),
+    
+        parity_config=ParityTestConfig(
+            custom_config_kwargs={
+                "fast_period": 8,
+                "slow_period": 21,
+                "stop_loss_pct": 0.03,
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 3,
+                "cooldown_bars": 1,
+                "signal_confirmation": 2,
+            },
         ),
     )
 )

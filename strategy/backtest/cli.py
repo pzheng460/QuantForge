@@ -21,6 +21,7 @@ from strategy.backtest.runner import BacktestRunner
 from strategy.backtest.utils import (
     DEFAULT_PERIOD,
     PERIODS,
+    SHORT_PERIODS,
     fetch_data,
     fetch_funding_rates,
     print_results_table,
@@ -186,6 +187,14 @@ async def async_main(args: argparse.Namespace) -> None:
         end_date=end_date,
         exchange=profile.ccxt_id,
     )
+
+    # Warn if short period is used with analysis modes that need sufficient data
+    if args.period in SHORT_PERIODS and (args.full or args.optimize or args.walk_forward or args.heatmap):
+        print(
+            f"[WARNING] Period '{args.period}' is too short for meaningful optimization / "
+            "walk-forward analysis. Results will not be reliable. "
+            "Use -p 1y or longer, or drop analysis flags to run a simple single backtest."
+        )
 
     # Dispatch to the appropriate mode
     if args.heatmap:

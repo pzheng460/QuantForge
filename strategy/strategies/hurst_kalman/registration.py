@@ -8,9 +8,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.hurst_kalman import HurstKalmanSignalCore
+from strategy.strategies.hurst_kalman.signal_core import HurstKalmanSignalCore
 from strategy.strategies._base.registration_helpers import (
     make_filter_config_factory,
     make_mesa_dict_to_config,
@@ -21,6 +22,7 @@ from strategy.strategies._base.signal_generator import (
     BaseSignalGenerator,
     TradeFilterConfig,
 )
+from strategy.strategies._base.test_data import generate_strong_mean_reverting_ohlcv
 from strategy.strategies.hurst_kalman.core import HurstKalmanConfig
 
 
@@ -187,6 +189,36 @@ register_strategy(
                 + 20
             ),
             process_signal_fn=_hk_process_signal,
+        ),
+    
+        parity_config=ParityTestConfig(
+            data_generator=generate_strong_mean_reverting_ohlcv,
+            core_filter_fields=("signal_confirmation", "only_mean_reversion"),
+            core_extra_kwargs={"only_mean_reversion": False},
+            custom_config_kwargs={
+                "hurst_window": 80,
+                "kalman_R": 0.3,
+                "kalman_Q": 1e-4,
+                "zscore_window": 40,
+                "zscore_entry": 1.5,
+                "zscore_stop": 3.0,
+                "stop_loss_pct": 0.05,
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 4,
+                "cooldown_bars": 2,
+                "only_mean_reversion": False,
+            },
+            trades_config_kwargs={
+                "hurst_window": 60,
+                "zscore_window": 30,
+                "zscore_entry": 1.5,
+            },
+            trades_filter_kwargs={
+                "min_holding_bars": 4,
+                "cooldown_bars": 2,
+                "only_mean_reversion": False,
+            },
         ),
     )
 )

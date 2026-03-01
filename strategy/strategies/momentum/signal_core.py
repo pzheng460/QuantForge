@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from strategy.indicators.base import (
+from strategy.strategies._base.streaming import (
     StreamingADX,
     StreamingATR,
     StreamingEMA,

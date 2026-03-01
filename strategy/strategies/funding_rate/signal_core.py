@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from strategy.indicators.base import StreamingSMA
+from strategy.strategies._base.streaming import StreamingSMA
 
 if TYPE_CHECKING:
     from strategy.strategies.funding_rate.core import FundingRateConfig

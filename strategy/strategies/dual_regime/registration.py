@@ -5,9 +5,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.dual_regime import DualRegimeSignalCore
+from strategy.strategies.dual_regime.signal_core import DualRegimeSignalCore
 from strategy.strategies._base.registration_helpers import (
     make_export_config,
     make_filter_config_factory,
@@ -19,6 +20,7 @@ from strategy.strategies._base.signal_generator import (
     BaseSignalGenerator,
     TradeFilterConfig,
 )
+from strategy.strategies._base.test_data import generate_dual_regime_ohlcv
 from strategy.strategies.dual_regime.core import DualRegimeConfig
 
 
@@ -98,6 +100,27 @@ register_strategy(
             update_columns=COLUMNS_CLOSE_HIGH_LOW_VOLUME,
             enable_stale_guard=True,
             max_kline_age_s=120.0,
+        ),
+    
+        parity_config=ParityTestConfig(
+            data_generator=generate_dual_regime_ohlcv,
+            custom_config_kwargs={
+                "adx_period": 10,
+                "adx_trend_threshold": 20.0,
+                "roc_period": 8,
+                "roc_threshold": 0.01,
+                "ema_fast": 5,
+                "ema_slow": 20,
+                "ema_trend": 40,
+                "bb_period": 15,
+                "bb_std": 1.5,
+                "stop_loss_pct": 0.05,
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 3,
+                "cooldown_bars": 1,
+                "signal_confirmation": 2,
+            },
         ),
     )
 )

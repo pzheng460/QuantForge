@@ -54,6 +54,30 @@ class LiveConfig:
 
 
 @dataclass
+class ParityTestConfig:
+    """Parity test configuration — populated by registration.py, consumed by test suite.
+
+    Keeps test-specific metadata alongside the strategy it belongs to, so
+    test_all_parity.py can auto-discover test classes without manual edits.
+    core_cls and update_columns are inferred from live_config at test time.
+    """
+
+    data_generator: Optional[Callable] = None  # defaults to generate_trending_ohlcv
+    data_size: int = 1500
+    random_seeds: Tuple[int, ...] = (1, 17, 99, 123, 456)
+    custom_config_kwargs: Optional[Dict[str, Any]] = None
+    custom_filter_kwargs: Optional[Dict[str, Any]] = None
+    core_filter_fields: Tuple[str, ...] = ("signal_confirmation",)
+    core_extra_kwargs: Optional[Dict[str, Any]] = None
+    trades_config_kwargs: Optional[Dict[str, Any]] = None
+    trades_filter_kwargs: Optional[Dict[str, Any]] = None
+    trades_data_size: Optional[int] = None
+    pre_generate_hook: Optional[Callable] = None
+    core_bar_hook: Optional[Callable] = None
+    pre_core_hook: Optional[Callable] = None
+
+
+@dataclass
 class StrategyRegistration:
     """Complete registration for a backtestable strategy."""
 
@@ -74,6 +98,7 @@ class StrategyRegistration:
     )
     export_config_fn: Optional[Callable] = None  # generate Python config code
     live_config: Optional[LiveConfig] = None  # generic runner configuration
+    parity_config: Optional[ParityTestConfig] = None  # parity test metadata
 
 
 # ---------------------------------------------------------------------------

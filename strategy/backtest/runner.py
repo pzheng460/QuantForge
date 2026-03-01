@@ -326,8 +326,8 @@ class BacktestRunner:
         signal_fn = self._make_signal_fn(base_config, base_filter, params)
 
         bpd = _bars_per_day(self.reg.default_interval)
-        train_periods = bpd * 30   # 30 calendar days
-        test_periods = bpd * 7     # 7 calendar days
+        train_periods = bpd * 90   # 90 calendar days
+        test_periods = bpd * 30    # 30 calendar days
 
         if len(data) < train_periods + test_periods:
             print(

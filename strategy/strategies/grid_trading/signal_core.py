@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from strategy.indicators.base import StreamingATR, StreamingSMA
+from strategy.strategies._base.streaming import StreamingATR, StreamingSMA
 
 if TYPE_CHECKING:
     from strategy.strategies.grid_trading.core import GridConfig

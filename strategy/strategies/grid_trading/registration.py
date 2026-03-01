@@ -9,15 +9,17 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.grid_trading import GridSignalCore
+from strategy.strategies.grid_trading.signal_core import GridSignalCore
 from strategy.strategies._base.registration_helpers import make_split_params_fn
 from strategy.strategies._base.signal_generator import (
     COLUMNS_CLOSE_HIGH_LOW,
     BaseSignalGenerator,
     TradeFilterConfig,
 )
+from strategy.strategies._base.test_data import generate_range_bound_ohlcv
 from strategy.strategies.grid_trading.core import GridConfig
 
 
@@ -203,6 +205,22 @@ register_strategy(
             warmup_fn=lambda cfg: max(cfg.sma_period, cfg.atr_period) + 10,
             use_dual_mode=True,
             enable_stale_guard=True,
+        ),
+    
+        parity_config=ParityTestConfig(
+            data_generator=generate_range_bound_ohlcv,
+            core_filter_fields=(),
+            custom_config_kwargs={
+                "grid_count": 10,
+                "atr_multiplier": 3.0,
+                "sma_period": 30,
+                "atr_period": 10,
+                "recalc_period": 48,
+                "entry_lines": 1,
+                "profit_lines": 2,
+                "stop_loss_pct": 0.03,
+            },
+            custom_filter_kwargs={"min_holding_bars": 2, "cooldown_bars": 1},
         ),
     )
 )

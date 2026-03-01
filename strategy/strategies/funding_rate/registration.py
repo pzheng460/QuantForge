@@ -12,9 +12,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.funding_rate import FundingRateSignalCore
+from strategy.strategies.funding_rate.signal_core import FundingRateSignalCore
 from strategy.strategies._base.registration_helpers import (
     make_export_config,
     make_mesa_dict_to_config,
@@ -25,6 +26,7 @@ from strategy.strategies._base.signal_generator import (
     BaseSignalGenerator,
     TradeFilterConfig,
 )
+from strategy.strategies._base.test_data import generate_funding_ohlcv, generate_funding_rates
 from strategy.strategies.funding_rate.core import FundingRateConfig
 
 
@@ -126,6 +128,29 @@ def _fr_bar_hook(bar_kwargs, core, data, index, generator, **_kw):
         "hours_since_last": _hours_since_last_settlement(ts),
     }
 
+
+
+def _parity_fr_pre_generate_hook(generator, data, seed):
+    """Inject synthetic funding rates before generator.generate() in parity tests."""
+    generator.funding_rates = generate_funding_rates(data.index, seed=seed)
+
+
+def _parity_fr_pre_core_hook(core, data, seed):
+    """Build and store funding rate series for direct core loop in parity tests."""
+    fr_data = generate_funding_rates(data.index, seed=seed)
+    config = core._config
+    avg_funding = _build_funding_rate_series(data.index, fr_data, config.funding_lookback)
+    core._test_avg_funding = avg_funding
+
+
+def _parity_fr_core_bar_hook(core, data, index):
+    """Supply funding rate and timing args for direct core.update() calls in parity tests."""
+    core.set_funding_rate(core._test_avg_funding[index])
+    ts = data.index[index]
+    return {
+        "hours_to_next": _hours_until_next_settlement(ts),
+        "hours_since_last": _hours_since_last_settlement(ts),
+    }
 
 def _make_generator(config, filter_config):
     return BaseSignalGenerator(
@@ -298,6 +323,16 @@ register_strategy(
             max_kline_age_s=120.0,
             subscribe_funding_rate=True,
             on_funding_rate_fn=_fr_on_funding_rate,
+        ),
+    
+        parity_config=ParityTestConfig(
+            data_generator=generate_funding_ohlcv,
+            data_size=500,
+            random_seeds=(1, 17, 99),
+            core_filter_fields=(),
+            pre_generate_hook=_parity_fr_pre_generate_hook,
+            pre_core_hook=_parity_fr_pre_core_hook,
+            core_bar_hook=_parity_fr_core_bar_hook,
         ),
     )
 )

@@ -9,9 +9,10 @@ from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,
     StrategyRegistration,
+        ParityTestConfig,
     register_strategy,
 )
-from strategy.indicators.vwap import VWAPSignalCore
+from strategy.strategies.vwap.signal_core import VWAPSignalCore
 from strategy.strategies._base.registration_helpers import (
     make_export_config,
     make_mesa_dict_to_config,
@@ -22,6 +23,7 @@ from strategy.strategies._base.signal_generator import (
     BaseSignalGenerator,
     TradeFilterConfig,
 )
+from strategy.strategies._base.test_data import generate_vwap_ohlcv
 from strategy.strategies.vwap.core import VWAPConfig
 
 
@@ -77,6 +79,15 @@ def _vwap_pre_update_hook(core, kline):
         day = dt.date()
     return {"day": day}
 
+
+
+def _parity_vwap_core_bar_hook(core, data, index):
+    """Supply the day argument for direct core.update() calls in parity tests."""
+    import pandas as pd
+    timestamps = data.index if isinstance(data.index, pd.DatetimeIndex) else None
+    if timestamps is not None:
+        return {"day": timestamps[index].date()}
+    return {"day": None}
 
 _mesa_dict_to_config = make_mesa_dict_to_config(
     VWAPConfig,
@@ -140,6 +151,27 @@ register_strategy(
             enable_stale_guard=True,
             max_kline_age_s=60.0,
             pre_update_hook=_vwap_pre_update_hook,
+        ),
+    
+        parity_config=ParityTestConfig(
+            data_generator=generate_vwap_ohlcv,
+            random_seeds=(1, 17, 99),
+            core_bar_hook=_parity_vwap_core_bar_hook,
+            custom_config_kwargs={
+                "std_window": 100,
+                "rsi_period": 10,
+                "zscore_entry": 1.5,
+                "zscore_exit": 0.5,
+                "zscore_stop": 3.0,
+                "rsi_oversold": 25.0,
+                "rsi_overbought": 75.0,
+                "stop_loss_pct": 0.05,
+            },
+            custom_filter_kwargs={
+                "min_holding_bars": 3,
+                "cooldown_bars": 1,
+                "signal_confirmation": 2,
+            },
         ),
     )
 )

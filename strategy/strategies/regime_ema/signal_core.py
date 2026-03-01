@@ -9,14 +9,12 @@ delegate to this class, guaranteeing 100% code parity.
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import numpy as np
 
-from strategy.indicators.base import StreamingADX, StreamingATR, StreamingEMA
-
-if TYPE_CHECKING:
-    from strategy.strategies.regime_ema.core import MarketRegime, RegimeEMAConfig
+from strategy.strategies._base.streaming import StreamingADX, StreamingATR, StreamingEMA
+from strategy.strategies.regime_ema.core import MarketRegime, RegimeEMAConfig, classify_regime
 
 
 # Signal constants
@@ -24,13 +22,6 @@ HOLD = 0
 BUY = 1
 SELL = -1
 CLOSE = 2
-
-
-def _lazy_regime_imports():
-    """Lazy import to avoid circular dependency with strategy.strategies.__init__."""
-    from strategy.strategies.regime_ema.core import MarketRegime, classify_regime
-
-    return MarketRegime, classify_regime
 
 
 class RegimeEMASignalCore:
@@ -49,8 +40,6 @@ class RegimeEMASignalCore:
         cooldown_bars: int = 2,
         signal_confirmation: int = 1,
     ):
-        MarketRegime, _ = _lazy_regime_imports()
-
         self._config = config
 
         # Filter params
@@ -95,8 +84,6 @@ class RegimeEMASignalCore:
 
     def _update_regime(self) -> None:
         """Classify the current market regime."""
-        MarketRegime, classify_regime = _lazy_regime_imports()
-
         atr_val = self._atr.value
         adx_val = self._adx.value
         ema_f = self._ema_fast.value
@@ -130,8 +117,6 @@ class RegimeEMASignalCore:
         Returns:
             Signal value: HOLD(0), BUY(1), SELL(-1), or CLOSE(2).
         """
-        MarketRegime, classify_regime = _lazy_regime_imports()
-
         # Save previous EMA values
         self._prev_ema_fast = self._ema_fast.value
         self._prev_ema_slow = self._ema_slow.value
@@ -271,8 +256,6 @@ class RegimeEMASignalCore:
 
     def reset(self):
         """Reset all state."""
-        MarketRegime, _ = _lazy_regime_imports()
-
         self._ema_fast.reset()
         self._ema_slow.reset()
         self._atr.reset()
@@ -312,7 +295,6 @@ class RegimeEMASignalCore:
 
     @property
     def is_trending(self) -> bool:
-        MarketRegime, _ = _lazy_regime_imports()
         return self._regime in (MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN)
 
     def get_raw_signal(self) -> int:
