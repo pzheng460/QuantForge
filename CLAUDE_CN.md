@@ -475,13 +475,12 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 
 ## Claude Code 记忆
 
+### 工作规范
+- 每次代码变更后同步更新 CLAUDE.md 和 CLAUDE_CN.md，然后 commit 并 push 到 dev 分支
+
 ### CLI 使用注意事项
 - 不要在 Claude Code 中运行 nexustrader-cli moniter
 
 ### Ruff 使用
 - 使用 `uvx ruff check` 检查当前目录所有文件
 - 使用 `uvx ruff format` 格式化当前目录所有文件
-
-### 文档维护规范
-- 每次代码变更后同步更新 CLAUDE.md 和 CLAUDE_CN.md
-- 提交并推送到远程仓库
