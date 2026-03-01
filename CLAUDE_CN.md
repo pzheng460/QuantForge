@@ -367,6 +367,9 @@ class TradeFilterConfig:
 - **K 线确认**：实盘指标使用时间戳变化检测来确认前一根 K 线已完成后再处理
 - **信号映射**：实盘指标使用 `_SIGNAL_MAP` 字典将整数信号转换为交易所专用枚举值
 - **双模式指标**：实盘指标启动时处于预热模式（`update_indicators_only()`），预热稳定后通过 `enable_live_mode()` 切换到实盘模式（`core.update()`），确保历史 K 线回放期间不产生虚假仓位状态
+- **仓位状态同步（`sync_position`）**：全部 9 个信号核心均暴露 `sync_position(pos_int, entry_price=0.0)` 方法，用于从外部原子性地设置 `core.position` 和 `core.entry_price`。用于两个安全机制：
+  1. **订单失败回滚**（`base_strategy.py` 中的 `on_failed_order`）：`_open_position`/`_close_position` 在下单前将状态快照写入 `_pre_order_snapshots[symbol]`；订单失败时同时回滚 `_positions[symbol]`（策略侧）和 `core.position`（核心侧）
+  2. **重启幽灵仓位同步**（`generic_strategy.py` 中的 `_sync_startup_positions`）：在 `on_start()` 中对每个 symbol 查询 `self.cache.get_position(symbol)`，若交易所已有持仓则恢复策略和核心的仓位状态
 - **BaseQuantStrategy**：所有实盘交易策略的共享基类（`strategy/strategies/_base/base_strategy.py`），提供仓位跟踪、订单管理、熔断器、性能追踪、信号过滤（确认、冷却、最小持仓）、过时数据保护和模板 `on_kline()`。子类实现 `on_start()` 和 `_format_log_line()`，并可选覆盖各类钩子（`_get_signal`、`_check_stop_loss`、`_pre_signal_hook`、`_process_signal`、`_on_live_activated`）
 - **GenericStrategy + GenericIndicator**：通用运行器系统（`strategy/strategies/_base/generic_strategy.py`、`generic_indicator.py`），通过 `LiveConfig` 配置消除简单到中等策略各自的 `live.py`/`indicator.py`/`configs.py` 需求。`GenericIndicator` 使用 `inspect.signature()` 自动检测信号核心方法签名并将 K 线字段映射到参数。CLI：`uv run python -m strategy.runner -S {name} --mesa 0 --exchange bitget`
 
