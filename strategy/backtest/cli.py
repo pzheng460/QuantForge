@@ -145,6 +145,22 @@ def build_parser() -> argparse.ArgumentParser:
             "1 = sequential (default). -1 = all CPU cores."
         ),
     )
+    parser.add_argument(
+        "-R",
+        "--rolling-optimize",
+        action="store_true",
+        help=(
+            "Run rolling optimize (day-forward test): re-optimize every day "
+            "on a rolling training window, then test on the next day."
+        ),
+    )
+    parser.add_argument(
+        "--train-days",
+        type=int,
+        default=7,
+        metavar="N",
+        help="Training window size in days for --rolling-optimize (default: 7).",
+    )
 
     return parser
 
@@ -189,7 +205,9 @@ async def async_main(args: argparse.Namespace) -> None:
     )
 
     # Warn if short period is used with analysis modes that need sufficient data
-    if args.period in SHORT_PERIODS and (args.full or args.optimize or args.walk_forward or args.heatmap):
+    if args.period in SHORT_PERIODS and (
+        args.full or args.optimize or args.walk_forward or args.heatmap
+    ):
         print(
             f"[WARNING] Period '{args.period}' is too short for meaningful optimization / "
             "walk-forward analysis. Results will not be reliable. "
@@ -212,6 +230,17 @@ async def async_main(args: argparse.Namespace) -> None:
             funding_rates=funding_rates,
             period=args.period,
             export_config_flag=args.export_config,
+        )
+        return
+
+    if args.rolling_optimize:
+        from strategy.backtest.rolling_optimize import run_rolling_optimize
+
+        run_rolling_optimize(
+            runner=runner,
+            data=data,
+            funding_rates=funding_rates,
+            train_days=args.train_days,
         )
         return
 
