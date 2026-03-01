@@ -482,6 +482,9 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 
 ## Claude Code Memories
 
+### Workflow Rules
+- After every code change: update CLAUDE.md and CLAUDE_CN.md, then commit and push to dev branch
+
 ### CLI Usage Warnings
 - Do not run nexustrader-cli moniter in claude code
 
