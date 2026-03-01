@@ -430,12 +430,15 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-p, --period` | Data period: `3m`, `6m`, `1y`, `2y` |
 | `-m, --mesa` | Mesa config index (0 = best) |
 | `--heatmap` | Run heatmap parameter scan |
+| `--heatmap-resolution` | Heatmap grid resolution (default: 15) |
 | `-o, --optimize` | Grid search optimization |
 | `-w, --walk-forward` | Walk-forward validation |
 | `-r, --regime` | Market regime analysis |
 | `-f, --full` | Three-stage complete validation |
 | `-s, --show-results` | Show saved results |
 | `-e, --export-config` | Export config for paper trading |
+| `-j, --jobs` | Parallel workers: `1`=sequential (default), `-1`=all CPU cores |
+| `-L, --leverage` | Leverage multiplier (default: 1.0) |
 
 ### Architecture
 
@@ -454,6 +457,37 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | OKX | `okx` | 0.02% | 0.05% |
 | Bybit | `bybit` | 0.02% | 0.05% |
 | Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
+
+### Backtest Methodology
+
+The backtest engine applies several corrections to ensure simulated results match live trading behaviour:
+
+**Signal Delay (1-bar execution lag)**
+Signals generated from bar i are executed at bar i+1 (`_apply_signal_delay()` in `runner.py` and `heatmap.py`). This prevents look-ahead bias where a bar-close signal is filled at the same bar's close price.
+
+**Walk-Forward Window Scaling**
+WFO window sizes scale with bar interval via `_bars_per_day(interval)`:
+- 15m strategies: 2880 bars train / 672 bars test (30d / 7d)
+- 1h strategies: 720 bars train / 168 bars test (30d / 7d)
+- Standalone `--walk-forward` re-optimises in each window using `default_grid`; when called from `--full` it uses fixed params for stability checking.
+
+**position_size_pct Passthrough**
+Strategies with `position_size_pct < 1.0` (e.g. `funding_rate=0.30`, `grid_trading=0.20`) correctly size positions in all backtest paths: single run, grid search, walk-forward, heatmap.
+
+**Intrabar Stop Loss**
+`BaseSignalGenerator.generate()` checks bar `low`/`high` against `entry_price * stop_loss_pct` after each `core.update()` call. If triggered, the signal is overridden to CLOSE and core state is reset. Parity tests mirror this logic in `_run_core` so all 87 tests still pass.
+
+**Funding Rate Data Quality**
+When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostConfig` and a warning is printed. The fallback in `_build_funding_rate_series` uses `0.0` (no cost modelled) instead of the previous misleading `0.000014` constant.
+
+**Sharpe Annualisation (Auto-Inferred)**
+`PerformanceAnalyzer` and `VectorizedBacktest._calculate_metrics()` infer `periods_per_year` from the equity curve's DatetimeIndex via `infer_periods_per_year()` (`nexustrader/backtest/analysis/performance.py`). No manual configuration needed — 1h strategies automatically use ~8766 instead of the incorrect 15m constant 35040.
+
+**Parallel Scan / Optimise**
+`HeatmapScanner` and `GridSearchOptimizer` accept `n_jobs` (also exposed as `--jobs/-j` in the CLI):
+- HeatmapScanner: full parallel — each `_run_single()` creates a fresh generator (thread-safe)
+- GridSearchOptimizer: signal generation stays sequential (shared closure), only `VectorizedBacktest.run()` is parallelised
+- `n_jobs=-1` uses all available CPU cores
 
 ## Claude Code Memories
 
