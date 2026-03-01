@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 
+from nexustrader.backtest.analysis.performance import infer_periods_per_year
 from nexustrader.backtest.engine.cost_model import CostConfig, CostModel
 from nexustrader.backtest.result import BacktestConfig, BacktestResult, TradeRecord
 
@@ -356,11 +357,11 @@ class VectorizedBacktest:
         winning_trades = [t for t in closing_trades if t.pnl > 0]
         win_rate = len(winning_trades) / total_trades * 100 if total_trades > 0 else 0
 
-        # Sharpe ratio (simplified, assuming 15-min bars)
+        # Sharpe ratio — annualisation factor inferred from bar interval
         returns = equity_curve.pct_change().dropna()
         if len(returns) > 1 and returns.std() > 0:
-            # Annualize: 4 bars/hour * 24 hours * 365 days
-            sharpe = returns.mean() / returns.std() * np.sqrt(4 * 24 * 365)
+            ppy = infer_periods_per_year(equity_curve.index)
+            sharpe = returns.mean() / returns.std() * np.sqrt(ppy)
         else:
             sharpe = 0.0
 

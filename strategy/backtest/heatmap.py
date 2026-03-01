@@ -10,8 +10,11 @@ All original classes and the ``run_heatmap_scan()`` entry point are preserved.
 
 import dataclasses as _dc
 import json
+import os
+import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -127,6 +130,7 @@ class HeatmapScanner:
         interval: KlineInterval = KlineInterval.MINUTE_15,
         initial_capital: float = 10000.0,
         leverage: float = 1.0,
+        n_jobs: int = 1,
     ):
         self._data = data
         self._signal_generator_cls = signal_generator_cls
@@ -146,6 +150,7 @@ class HeatmapScanner:
         self._interval = interval
         self._initial_capital = initial_capital
         self._leverage = leverage
+        self._n_jobs = n_jobs
 
     def scan(
         self,
@@ -164,8 +169,31 @@ class HeatmapScanner:
             tp_values = [None]
 
         total = len(x_values) * len(y_values) * len(tp_values)
-        done = 0
         t0 = time.time()
+
+        # Thread-safe progress counter
+        _done = [0]
+        _lock = threading.Lock()
+
+        def _tick() -> None:
+            with _lock:
+                _done[0] += 1
+                done = _done[0]
+            if done % 25 == 0 or done == total:
+                elapsed = time.time() - t0
+                pct = done / total * 100
+                print(
+                    f"\r  Scanning... [{done}/{total}] {pct:.0f}%  ({elapsed:.1f}s)",
+                    end="",
+                    flush=True,
+                )
+
+        workers = (
+            None  # ThreadPoolExecutor default = min(32, cpu_count + 4)
+            if self._n_jobs == -1
+            else (self._n_jobs if self._n_jobs > 1 else None)
+        )
+        parallel = self._n_jobs != 1
 
         for tp_val in tp_values:
             panel_label = (
@@ -183,8 +211,9 @@ class HeatmapScanner:
                     "profit_factor",
                 ]
             }
-            cells: List[CellResult] = []
 
+            # Build (yi, xi, params) work list for this panel
+            work = []
             for yi, yv in enumerate(y_values):
                 for xi, xv in enumerate(x_values):
                     params = {
@@ -194,32 +223,45 @@ class HeatmapScanner:
                     }
                     if tp_val is not None:
                         params[third_param_name] = tp_val
+                    work.append((yi, xi, params))
 
+            def _fill(grid, metrics_grid, yi, xi, cell):
+                if cell.total_trades > 0:
+                    grid[yi, xi] = cell.sharpe_ratio
+                    metrics_grid["sharpe"][yi, xi] = cell.sharpe_ratio
+                    metrics_grid["ann_return"][yi, xi] = cell.annualized_return_pct
+                    metrics_grid["max_dd"][yi, xi] = cell.max_drawdown_pct
+                    metrics_grid["win_rate"][yi, xi] = cell.win_rate_pct
+                    metrics_grid["ann_trades"][yi, xi] = cell.annualized_trades
+                    metrics_grid["profit_factor"][yi, xi] = cell.profit_factor
+
+            if parallel:
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    future_map = {
+                        ex.submit(self._run_single, p): (yi, xi)
+                        for yi, xi, p in work
+                    }
+                    cells_by_pos: Dict[Tuple[int, int], CellResult] = {}
+                    for future in as_completed(future_map):
+                        yi, xi = future_map[future]
+                        cell = future.result()
+                        cells_by_pos[(yi, xi)] = cell
+                        _fill(grid, metrics_grid, yi, xi, cell)
+                        _tick()
+                # Restore row-major order
+                cells: List[CellResult] = [
+                    cells_by_pos[(yi, xi)]
+                    for yi, xi, _ in work
+                ]
+            else:
+                cells = []
+                for yi, xi, params in work:
                     cell = self._run_single(params)
                     cells.append(cell)
-                    all_cells.append(cell)
+                    _fill(grid, metrics_grid, yi, xi, cell)
+                    _tick()
 
-                    if cell.total_trades == 0:
-                        pass  # leave as NaN
-                    else:
-                        grid[yi, xi] = cell.sharpe_ratio
-                        metrics_grid["sharpe"][yi, xi] = cell.sharpe_ratio
-                        metrics_grid["ann_return"][yi, xi] = cell.annualized_return_pct
-                        metrics_grid["max_dd"][yi, xi] = cell.max_drawdown_pct
-                        metrics_grid["win_rate"][yi, xi] = cell.win_rate_pct
-                        metrics_grid["ann_trades"][yi, xi] = cell.annualized_trades
-                        metrics_grid["profit_factor"][yi, xi] = cell.profit_factor
-
-                    done += 1
-                    if done % 25 == 0 or done == total:
-                        elapsed = time.time() - t0
-                        pct = done / total * 100
-                        print(
-                            f"\r  Scanning... [{done}/{total}] {pct:.0f}%  ({elapsed:.1f}s)",
-                            end="",
-                            flush=True,
-                        )
-
+            all_cells.extend(cells)
             panels_data.append(
                 {
                     "label": panel_label,
@@ -1017,6 +1059,7 @@ def run_heatmap_scan(
     interval: KlineInterval = KlineInterval.MINUTE_15,
     initial_capital: float = 10000.0,
     leverage: float = 1.0,
+    n_jobs: int = 1,
 ) -> None:
     """
     Run complete heatmap scan pipeline.
@@ -1057,6 +1100,9 @@ def run_heatmap_scan(
     print(f"Data: {data.index[0].date()} to {data.index[-1].date()} ({len(data)} bars)")
 
     # Scan
+    if n_jobs != 1:
+        effective_jobs = os.cpu_count() if n_jobs == -1 else n_jobs
+        print(f"Parallel scan: {effective_jobs} workers")
     scanner = HeatmapScanner(
         data=data,
         signal_generator_cls=signal_generator_cls,
@@ -1071,6 +1117,7 @@ def run_heatmap_scan(
         interval=interval,
         initial_capital=initial_capital,
         leverage=leverage,
+        n_jobs=n_jobs,
     )
     results = scanner.scan(
         x_values=x_values,

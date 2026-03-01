@@ -133,6 +133,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Custom output directory for results",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Parallel workers for grid search / heatmap scan. "
+            "1 = sequential (default). -1 = all CPU cores."
+        ),
+    )
 
     return parser
 
@@ -146,6 +157,7 @@ async def async_main(args: argparse.Namespace) -> None:
         symbol=args.symbol,
         output_dir=output_dir,
         leverage=args.leverage,
+        n_jobs=args.jobs,
     )
 
     # Show results and exit

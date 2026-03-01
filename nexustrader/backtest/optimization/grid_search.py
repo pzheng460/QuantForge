@@ -5,9 +5,10 @@ Supports exhaustive search over parameter combinations
 with parallel execution support.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import product
-from typing import Callable, Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -84,6 +85,7 @@ class GridSearchOptimizer:
         signal_generator: Callable[[pd.DataFrame, Dict], np.ndarray],
         cost_config: Optional[CostConfig] = None,
         position_size_pct: float = 1.0,
+        n_jobs: int = 1,
     ):
         """
         Initialize grid search optimizer.
@@ -94,12 +96,18 @@ class GridSearchOptimizer:
             signal_generator: Function that generates signals from data and params
             cost_config: Trading cost configuration
             position_size_pct: Fraction of capital to use per trade
+            n_jobs: Number of parallel workers for backtest runs.
+                1  = sequential (default).
+                -1 = use all CPU cores.
+                Signal generation is always sequential because the shared
+                signal_fn closure may not be thread-safe.
         """
         self.data = data
         self.config = config
         self.signal_generator = signal_generator
         self.cost_config = cost_config or CostConfig()
         self.position_size_pct = position_size_pct
+        self.n_jobs = n_jobs
 
     def optimize(
         self,
@@ -110,6 +118,10 @@ class GridSearchOptimizer:
         """
         Run optimization over parameter grid.
 
+        Signal generation is always sequential (the shared signal_fn closure
+        may contain mutable generator state).  VectorizedBacktest runs are
+        parallelised with ThreadPoolExecutor when ``n_jobs != 1``.
+
         Args:
             grid: Parameter grid to search
             target_metric: Metric to optimize (for sorting results)
@@ -118,46 +130,54 @@ class GridSearchOptimizer:
         Returns:
             List of OptimizationResult sorted by target metric
         """
-        results = []
+        params_list = list(grid)
 
-        for params in grid:
-            result = self._run_single(params, store_equity)
-            results.append(result)
+        # Step 1: generate all signals sequentially (preserves thread safety)
+        signal_pairs: List[Tuple[Dict, np.ndarray]] = [
+            (p, self.signal_generator(self.data, p)) for p in params_list
+        ]
 
-        # Sort by target metric (descending)
+        # Step 2: run stateless backtests — parallelise when n_jobs != 1
+        if self.n_jobs == 1 or len(signal_pairs) <= 1:
+            results = [
+                self._run_backtest(p, s, store_equity) for p, s in signal_pairs
+            ]
+        else:
+            workers = self.n_jobs if self.n_jobs > 0 else None
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {
+                    ex.submit(self._run_backtest, p, s, store_equity): idx
+                    for idx, (p, s) in enumerate(signal_pairs)
+                }
+                # Preserve submission order so results are deterministic
+                ordered: List[OptimizationResult] = [None] * len(signal_pairs)  # type: ignore[list-item]
+                for future in as_completed(futures):
+                    ordered[futures[future]] = future.result()
+            results = ordered
+
         results.sort(
             key=lambda r: r.metrics.get(target_metric, float("-inf")),
             reverse=True,
         )
-
         return results
 
-    def _run_single(
+    def _run_backtest(
         self,
         params: Dict,
+        signals: np.ndarray,
         store_equity: bool = False,
     ) -> OptimizationResult:
+        """Run a single VectorizedBacktest for pre-computed signals.
+
+        This method is thread-safe: it creates a fresh VectorizedBacktest
+        instance and only reads from shared immutable data.
         """
-        Run backtest for a single parameter combination.
-
-        Args:
-            params: Parameter dictionary
-            store_equity: Whether to store equity curve
-
-        Returns:
-            OptimizationResult
-        """
-        # Generate signals
-        signals = self.signal_generator(self.data, params)
-
-        # Run backtest
         backtest = VectorizedBacktest(
             config=self.config,
             cost_config=self.cost_config,
             position_size_pct=self.position_size_pct,
         )
         result = backtest.run(data=self.data, signals=signals)
-
         return OptimizationResult(
             params=params,
             metrics=result.metrics,

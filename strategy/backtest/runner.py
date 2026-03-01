@@ -80,11 +80,13 @@ class BacktestRunner:
         symbol: str = None,
         output_dir: Path = None,
         leverage: float = 1.0,
+        n_jobs: int = 1,
     ):
         self.reg = get_strategy(strategy_name)
         self.profile = get_profile(exchange)
         self.symbol = symbol or self.profile.default_symbol
         self.leverage = leverage
+        self.n_jobs = n_jobs
         self.output_dir = output_dir or Path(
             f"strategy/results/{strategy_name}/{exchange}"
         )
@@ -272,6 +274,7 @@ class BacktestRunner:
             signal_generator=signal_fn,
             cost_config=cost_config,
             position_size_pct=psp,
+            n_jobs=self.n_jobs,
         )
 
         grid = ParameterGrid(**self.reg.default_grid)
@@ -693,6 +696,7 @@ class BacktestRunner:
             symbol=self.symbol,
             cost_config=cost_config,
             leverage=self.leverage,
+            n_jobs=self.n_jobs,
         )
 
     def generate_report(self, result, output_path: Path = None):

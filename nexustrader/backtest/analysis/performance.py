@@ -8,12 +8,33 @@ Calculates comprehensive trading performance metrics including:
 - Time-based analysis (daily, monthly returns)
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 from nexustrader.backtest.result import TradeRecord
+
+
+def infer_periods_per_year(index: pd.DatetimeIndex) -> int:
+    """Infer annualisation factor from a DatetimeIndex.
+
+    Computes the median bar duration from the index and converts it to
+    the number of bars per year, so Sharpe / Sortino / Calmar ratios
+    are correct for any bar interval (15m, 1h, 4h, 1d, …).
+
+    Falls back to 35 040 (15-minute bars) when the index has fewer than
+    2 elements or yields a non-positive duration.
+    """
+    _FALLBACK = 4 * 24 * 365  # 15-min bars
+    if len(index) < 2:
+        return _FALLBACK
+    diffs = pd.Series(index.asi8).diff().dropna()
+    median_ns = diffs.median()
+    if median_ns <= 0:
+        return _FALLBACK
+    median_seconds = median_ns / 1e9
+    return max(1, round(365.25 * 86400 / median_seconds))
 
 
 class PerformanceAnalyzer:
@@ -32,7 +53,7 @@ class PerformanceAnalyzer:
         trades: List[TradeRecord],
         initial_capital: float,
         risk_free_rate: float = 0.0,
-        periods_per_year: int = 4 * 24 * 365,  # 15-min bars
+        periods_per_year: Optional[int] = None,
     ):
         """
         Initialize performance analyzer.
@@ -42,13 +63,19 @@ class PerformanceAnalyzer:
             trades: List of trade records
             initial_capital: Starting capital
             risk_free_rate: Annual risk-free rate (default 0)
-            periods_per_year: Number of trading periods per year
+            periods_per_year: Bars per year for annualisation.  When *None*
+                (default) the value is inferred automatically from the
+                equity curve's DatetimeIndex, so 1-hour or daily strategies
+                are annualised correctly without any extra configuration.
         """
         self.equity_curve = equity_curve
         self.trades = trades
         self.initial_capital = initial_capital
         self.risk_free_rate = risk_free_rate
-        self.periods_per_year = periods_per_year
+        if periods_per_year is None:
+            self.periods_per_year = infer_periods_per_year(equity_curve.index)
+        else:
+            self.periods_per_year = periods_per_year
 
         # Calculate returns
         self.returns = equity_curve.pct_change().dropna()
