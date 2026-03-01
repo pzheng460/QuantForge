@@ -431,6 +431,8 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-e, --export-config` | Export config for paper trading |
 | `-j, --jobs` | Parallel workers: `1`=sequential (default), `-1`=all CPU cores |
 | `-L, --leverage` | Leverage multiplier (default: 1.0) |
+| `-R, --rolling-optimize` | Rolling optimize (day-forward test): re-optimize on rolling training window, test next day |
+| `--train-days` | Training window size in days for `--rolling-optimize` (default: 7) |
 
 ### Architecture
 

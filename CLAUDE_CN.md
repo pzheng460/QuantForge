@@ -424,6 +424,8 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-e, --export-config` | 导出模拟交易配置 |
 | `-j, --jobs` | 并行 worker 数：`1`=顺序执行（默认），`-1`=所有 CPU 核心 |
 | `-L, --leverage` | 杠杆倍数（默认：1.0） |
+| `-R, --rolling-optimize` | 滚动优化（日前向测试）：在滚动训练窗口上重新优化，测试下一天 |
+| `--train-days` | `--rolling-optimize` 的训练窗口天数（默认：7） |
 
 ### 架构
 
