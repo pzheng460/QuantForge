@@ -56,6 +56,7 @@ class WalkForwardAnalyzer:
         test_periods: int,
         window_type: WindowType = WindowType.ROLLING,
         cost_config: Optional[CostConfig] = None,
+        position_size_pct: float = 1.0,
     ):
         """
         Initialize walk-forward analyzer.
@@ -68,6 +69,7 @@ class WalkForwardAnalyzer:
             test_periods: Number of periods for test window
             window_type: Rolling or anchored window
             cost_config: Trading cost configuration
+            position_size_pct: Fraction of capital to use per trade
         """
         self.data = data
         self.config = config
@@ -76,6 +78,7 @@ class WalkForwardAnalyzer:
         self.test_periods = test_periods
         self.window_type = window_type
         self.cost_config = cost_config or CostConfig()
+        self.position_size_pct = position_size_pct
 
     def run(
         self,
@@ -139,6 +142,7 @@ class WalkForwardAnalyzer:
                 config=train_config,
                 signal_generator=self.signal_generator,
                 cost_config=self.cost_config,
+                position_size_pct=self.position_size_pct,
             )
 
             opt_results = optimizer.optimize(grid, target_metric=target_metric)
@@ -159,6 +163,7 @@ class WalkForwardAnalyzer:
             backtest = VectorizedBacktest(
                 config=test_config,
                 cost_config=self.cost_config,
+                position_size_pct=self.position_size_pct,
             )
             test_result = backtest.run(data=test_data, signals=test_signals)
 

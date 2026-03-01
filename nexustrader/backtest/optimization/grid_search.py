@@ -83,6 +83,7 @@ class GridSearchOptimizer:
         config: BacktestConfig,
         signal_generator: Callable[[pd.DataFrame, Dict], np.ndarray],
         cost_config: Optional[CostConfig] = None,
+        position_size_pct: float = 1.0,
     ):
         """
         Initialize grid search optimizer.
@@ -92,11 +93,13 @@ class GridSearchOptimizer:
             config: Backtest configuration
             signal_generator: Function that generates signals from data and params
             cost_config: Trading cost configuration
+            position_size_pct: Fraction of capital to use per trade
         """
         self.data = data
         self.config = config
         self.signal_generator = signal_generator
         self.cost_config = cost_config or CostConfig()
+        self.position_size_pct = position_size_pct
 
     def optimize(
         self,
@@ -151,6 +154,7 @@ class GridSearchOptimizer:
         backtest = VectorizedBacktest(
             config=self.config,
             cost_config=self.cost_config,
+            position_size_pct=self.position_size_pct,
         )
         result = backtest.run(data=self.data, signals=signals)
 

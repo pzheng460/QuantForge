@@ -76,7 +76,7 @@ def _build_funding_rate_series(
     avg_funding = np.full(n, 0.00001)
 
     if funding_rates is None or funding_rates.empty:
-        avg_funding[:] = 0.000014
+        avg_funding[:] = 0.0  # No data -> no funding cost modeled
         return avg_funding
 
     fr_values = []

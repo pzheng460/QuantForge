@@ -308,11 +308,37 @@ def make_parity_test_class(
 
         n = len(data)
         signals = np.zeros(n)
+        intrabar_low = data["low"].values if "low" in data.columns else None
+        intrabar_high = data["high"].values if "high" in data.columns else None
+        stop_loss_pct = getattr(getattr(core, "_config", None), "stop_loss_pct", None)
+
         for i in range(n):
             bar_kw = {col: data[col].values[i] for col in update_columns}
             if core_bar_hook:
                 bar_kw.update(core_bar_hook(core, data, i))
             signals[i] = core.update(**bar_kw)
+
+            # Mirror intrabar stop logic from BaseSignalGenerator.generate()
+            if (
+                stop_loss_pct
+                and signals[i] != 2
+                and core.position != 0
+                and intrabar_low is not None
+            ):
+                entry = core.entry_price
+                if entry > 0:
+                    cooldown = getattr(core, "_cooldown_bars", 0)
+                    if core.position == 1 and intrabar_low[i] <= entry * (1 - stop_loss_pct):
+                        signals[i] = 2
+                        core.position = 0
+                        core.entry_price = 0.0
+                        core.cooldown_until = core.bar_index + cooldown
+                    elif core.position == -1 and intrabar_high[i] >= entry * (1 + stop_loss_pct):
+                        signals[i] = 2
+                        core.position = 0
+                        core.entry_price = 0.0
+                        core.cooldown_until = core.bar_index + cooldown
+
         return signals
 
     def _run_generator(data, config, filter_config, seed=42):

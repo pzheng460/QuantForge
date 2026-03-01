@@ -8,6 +8,7 @@ BacktestRunner can thread exchange profile through it.
 All original classes and the ``run_heatmap_scan()`` entry point are preserved.
 """
 
+import dataclasses as _dc
 import json
 import time
 from collections import deque
@@ -26,6 +27,14 @@ from nexustrader.backtest import (
     VectorizedBacktest,
 )
 from nexustrader.constants import KlineInterval
+
+def _apply_signal_delay(signals: np.ndarray) -> np.ndarray:
+    """Shift signals right by 1 bar: signal from bar i executes at bar i+1."""
+    delayed = np.empty_like(signals)
+    delayed[0] = 0
+    delayed[1:] = signals[:-1]
+    return delayed
+
 
 # ---------------------------------------------------------------------------
 # Frequency bands (trades per year)
@@ -248,8 +257,6 @@ class HeatmapScanner:
             params[self._x_param_name] = int(xv)
 
         # Build strategy config — only pass fields that the config class accepts
-        import dataclasses as _dc
-
         if _dc.is_dataclass(self._config_cls):
             valid_fields = {f.name for f in _dc.fields(self._config_cls)}
             config_params = {k: v for k, v in params.items() if k in valid_fields}
@@ -279,7 +286,7 @@ class HeatmapScanner:
         # Inject funding rate data if the generator supports it
         if hasattr(gen, "funding_rates") and self._funding_rates is not None:
             gen.funding_rates = self._funding_rates
-        signals = gen.generate(self._data, params)
+        signals = _apply_signal_delay(gen.generate(self._data, params))
 
         bt_config = BacktestConfig(
             symbol=self._symbol,
@@ -290,7 +297,8 @@ class HeatmapScanner:
             leverage=self._leverage,
         )
 
-        bt = VectorizedBacktest(config=bt_config, cost_config=self._cost_config)
+        psp = float(getattr(config, "position_size_pct", 1.0))
+        bt = VectorizedBacktest(config=bt_config, cost_config=self._cost_config, position_size_pct=psp)
         result = bt.run(
             data=self._data, signals=signals, funding_rates=self._funding_rates
         )

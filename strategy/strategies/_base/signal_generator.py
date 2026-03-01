@@ -135,6 +135,11 @@ class BaseSignalGenerator:
         signals = np.zeros(n)
         col_arrays = {col: data[col].values for col in self._update_columns}
 
+        # Extract high/low for intrabar stop checking (always available in OHLCV)
+        intrabar_low = data["low"].values if "low" in data.columns else None
+        intrabar_high = data["high"].values if "high" in data.columns else None
+        stop_loss_pct = getattr(getattr(core, "_config", None), "stop_loss_pct", None)
+
         # Step 5: Optional pre-loop hook
         if self._pre_loop_hook:
             self._pre_loop_hook(
@@ -161,5 +166,27 @@ class BaseSignalGenerator:
                 )
 
             signals[i] = core.update(**bar_kwargs)
+
+            # Intrabar stop loss: check if high/low would have stopped out the
+            # position before the close price was reached.
+            if (
+                stop_loss_pct
+                and signals[i] != 2  # 2 = CLOSE (already closing)
+                and core.position != 0
+                and intrabar_low is not None
+            ):
+                entry = core.entry_price
+                if entry > 0:
+                    cooldown = getattr(core, "_cooldown_bars", 0)
+                    if core.position == 1 and intrabar_low[i] <= entry * (1 - stop_loss_pct):
+                        signals[i] = 2
+                        core.position = 0
+                        core.entry_price = 0.0
+                        core.cooldown_until = core.bar_index + cooldown
+                    elif core.position == -1 and intrabar_high[i] >= entry * (1 + stop_loss_pct):
+                        signals[i] = 2
+                        core.position = 0
+                        core.entry_price = 0.0
+                        core.cooldown_until = core.bar_index + cooldown
 
         return signals

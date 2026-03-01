@@ -25,6 +25,7 @@ from nexustrader.backtest import (
     WalkForwardAnalyzer,
     WindowType,
 )
+from nexustrader.constants import KlineInterval
 from strategy.backtest.exchange_profiles import get_profile
 from strategy.backtest.registry import get_strategy
 
@@ -35,6 +36,38 @@ from strategy.backtest.utils import (
     load_results as _load_results,
     save_results as _save_results,
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _apply_signal_delay(signals: np.ndarray) -> np.ndarray:
+    """Shift signals right by 1 bar: signal from bar i executes at bar i+1."""
+    delayed = np.empty_like(signals)
+    delayed[0] = 0  # No trade on first bar
+    delayed[1:] = signals[:-1]
+    return delayed
+
+
+def _bars_per_day(interval: KlineInterval) -> int:
+    """Return number of bars per calendar day for the given interval."""
+    _MINUTES = {
+        KlineInterval.MINUTE_1: 1,
+        KlineInterval.MINUTE_5: 5,
+        KlineInterval.MINUTE_15: 15,
+        KlineInterval.MINUTE_30: 30,
+        KlineInterval.HOUR_1: 60,
+        KlineInterval.HOUR_4: 240,
+        KlineInterval.HOUR_8: 480,
+        KlineInterval.DAY_1: 1440,
+    }
+    mins = _MINUTES.get(interval, 15)
+    return max(1, 1440 // mins)
+
+
+def _get_position_size_pct(config) -> float:
+    return float(getattr(config, "position_size_pct", 1.0))
 
 
 class BacktestRunner:
@@ -110,7 +143,7 @@ class BacktestRunner:
 
         def signal_fn(df: pd.DataFrame, params: Dict) -> np.ndarray:
             merged = {**(extra_params or {}), **params}
-            return gen.generate(df, merged)
+            return _apply_signal_delay(gen.generate(df, merged))
 
         return signal_fn
 
@@ -144,15 +177,20 @@ class BacktestRunner:
             return {}
 
         bt_config = self._create_bt_config(data)
-        cost_config = self.profile.cost_config()
+        has_funding_data = funding_rates is not None and not funding_rates.empty
+        if not has_funding_data and self.reg.name == "funding_rate":
+            print("WARNING: No funding rate data. Funding costs will not be modeled.")
+        cost_config = self.profile.cost_config(use_funding_rate=has_funding_data)
 
         gen = self.reg.signal_generator_cls(cfg, filt)
         # Inject funding rate data if the generator supports it
         if hasattr(gen, "funding_rates") and funding_rates is not None:
             gen.funding_rates = funding_rates
         signals = gen.generate(data)
+        signals = _apply_signal_delay(signals)
 
-        bt = VectorizedBacktest(config=bt_config, cost_config=cost_config)
+        psp = _get_position_size_pct(cfg)
+        bt = VectorizedBacktest(config=bt_config, cost_config=cost_config, position_size_pct=psp)
         result = bt.run(data=data, signals=signals, funding_rates=funding_rates)
 
         analyzer = PerformanceAnalyzer(
@@ -227,11 +265,13 @@ class BacktestRunner:
         base_filter = self.reg.filter_config_cls(**self.reg.default_filter_kwargs)
         signal_fn = self._make_signal_fn(base_config, base_filter)
 
+        psp = _get_position_size_pct(base_config)
         optimizer = GridSearchOptimizer(
             data=train_data,
             config=bt_config,
             signal_generator=signal_fn,
             cost_config=cost_config,
+            position_size_pct=psp,
         )
 
         grid = ParameterGrid(**self.reg.default_grid)
@@ -282,8 +322,9 @@ class BacktestRunner:
         )
         signal_fn = self._make_signal_fn(base_config, base_filter, params)
 
-        train_periods = 96 * 30
-        test_periods = 96 * 7
+        bpd = _bars_per_day(self.reg.default_interval)
+        train_periods = bpd * 30   # 30 calendar days
+        test_periods = bpd * 7     # 7 calendar days
 
         if len(data) < train_periods + test_periods:
             print(
@@ -293,6 +334,7 @@ class BacktestRunner:
             train_periods = min(train_periods, len(data) * 2 // 3)
             test_periods = min(test_periods, len(data) // 3)
 
+        psp = _get_position_size_pct(base_config)
         wf_analyzer = WalkForwardAnalyzer(
             data=data,
             config=bt_config,
@@ -301,9 +343,16 @@ class BacktestRunner:
             test_periods=test_periods,
             window_type=WindowType.ROLLING,
             cost_config=cost_config,
+            position_size_pct=psp,
         )
 
-        param_grid = ParameterGrid(dummy=[1])
+        if params:
+            # Called from three-stage (stability check with fixed params)
+            param_grid = ParameterGrid(dummy=[1])
+        else:
+            # Standalone --walk-forward: re-optimize in each window
+            print(f"Note: true WFO with {len(ParameterGrid(**self.reg.default_grid))} param combinations per window.")
+            param_grid = ParameterGrid(**self.reg.default_grid)
         results = wf_analyzer.run(param_grid)
         summary = wf_analyzer.get_summary(results)
 
@@ -462,7 +511,8 @@ class BacktestRunner:
         print("=" * 80)
 
         bt_config = self._create_bt_config(holdout_data)
-        cost_config = self.profile.cost_config()
+        has_funding_data = funding_rates is not None and not funding_rates.empty
+        cost_config = self.profile.cost_config(use_funding_rate=has_funding_data)
 
         cfg_kw, filt_kw = self._split_params(best_params)
         base_config = self.reg.config_cls(**cfg_kw)
@@ -481,8 +531,10 @@ class BacktestRunner:
                 & (funding_rates.index <= holdout_end_ts)
             ] if not funding_rates.empty else funding_rates
         signals = gen.generate(holdout_data, best_params)
+        signals = _apply_signal_delay(signals)
 
-        bt = VectorizedBacktest(config=bt_config, cost_config=cost_config)
+        psp = _get_position_size_pct(base_config)
+        bt = VectorizedBacktest(config=bt_config, cost_config=cost_config, position_size_pct=psp)
 
         holdout_funding = None
         if funding_rates is not None and not funding_rates.empty:
@@ -612,7 +664,10 @@ class BacktestRunner:
         hc = self.reg.heatmap_config
         fixed_params = dict(hc.fixed_params)
 
-        cost_config = self.profile.cost_config()
+        has_funding_data = funding_rates is not None and not funding_rates.empty
+        if not has_funding_data and self.reg.name == "funding_rate":
+            print("WARNING: No funding rate data. Funding costs will not be modeled.")
+        cost_config = self.profile.cost_config(use_funding_rate=has_funding_data)
 
         run_heatmap_scan(
             data=data,
