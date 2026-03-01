@@ -111,9 +111,9 @@ pm2 start ecosystem.config.js
 ### 策略信号层
 - `strategy/indicators/base.py` - 流式指标原语（EMA、SMA、ATR、ADX、ROC、BB、RSI）
 - `strategy/indicators/{name}.py` - 信号核心（每个策略的唯一真实来源）
-- `strategy/strategies/_base/` - BaseSignalGenerator、TradeFilterConfig、注册辅助工厂
-- `strategy/strategies/{name}/` - 回测配置和注册（通过 __init__.py 自动发现）
-- `strategy/live/{name}/` - 实盘交易指标和交易所专用包装器
+- `strategy/strategies/_base/` - BaseSignalGenerator、TradeFilterConfig、注册辅助工厂、BaseQuantStrategy、PerformanceTracker、GenericStrategy、GenericIndicator、通用配置
+- `strategy/strategies/{name}/` - 自包含策略包：core.py、registration.py（必须）；indicator.py、live.py、configs.py（可选，用于复杂策略）
+- `strategy/runner.py` - 支持 LiveConfig 的任意策略通用 CLI 运行器
 
 ### 配置与数据
 - `nexustrader/constants.py` - 枚举和常量
@@ -228,14 +228,23 @@ strategy/indicators/
 
 strategy/strategies/_base/
 ├── __init__.py
-├── signal_generator.py  # BaseSignalGenerator、TradeFilterConfig、列常量
+├── signal_generator.py      # BaseSignalGenerator、TradeFilterConfig、列常量
 ├── registration_helpers.py  # 工厂函数：make_split_params_fn、make_mesa_dict_to_config 等
+├── base_strategy.py         # BaseQuantStrategy：实盘策略共享基类
+├── generic_indicator.py     # GenericIndicator：将任意 SignalCore 包装用于实盘交易
+├── generic_strategy.py      # GenericStrategy：使用 LiveConfig 的通用实盘策略
+├── generic_configs.py       # 通用配置加载器（替代各策略的 configs.py）
+├── performance.py           # 实盘/模拟交易的 PerformanceTracker
+├── paper_validate.py        # 模拟交易验证工具
+
+strategy/runner.py               # 支持 LiveConfig 的任意策略通用 CLI 运行器
 
 strategy/strategies/{name}/
 ├── core.py              # 策略配置 dataclass
-├── registration.py      # 策略注册（通过 __init__.py 自动发现）
-
-strategy/live/{name}/indicator.py    # 实盘：委托给 core.update_indicators_only() + get_raw_signal()
+├── registration.py      # 策略注册（通过 __init__.py 自动发现）+ LiveConfig
+├── indicator.py         # （可选）用于复杂策略的自定义指标
+├── live.py              # （可选）需要 on_kline 覆盖的自定义实盘策略
+├── configs.py           # （可选）自定义配置加载器（generic_configs.py 可替代此文件）
 
 test/indicators/parity_factory.py      # 测试工厂：make_parity_test_class()
 test/indicators/test_all_parity.py     # 所有 9 个策略的统一一致性测试
@@ -255,9 +264,9 @@ test/indicators/test_all_parity.py     # 所有 9 个策略的统一一致性测
 
 | 方法 | 使用者 | 描述 |
 |------|--------|------|
-| `update(close, high, low, ...)` | 回测 | 更新指标 + 返回包含完整仓位管理的信号 |
-| `update_indicators_only(close, high, low, ...)` | 实盘 | 仅更新指标，不涉及信号/仓位逻辑 |
-| `get_raw_signal()` | 实盘 | 基于当前指标值的无状态信号计算 |
+| `update(close, high, low, ...)` | 回测 + 实盘（实盘模式） | 更新指标 + 返回包含完整仓位管理的信号 |
+| `update_indicators_only(close, high, low, ...)` | 实盘（预热模式） | 仅更新指标，不涉及信号/仓位逻辑 |
+| `get_raw_signal()` | 实盘（预热模式） | 基于当前指标值的无状态信号计算 |
 
 ### 流式指标原语（`base.py`）
 
@@ -335,15 +344,26 @@ class TradeFilterConfig:
 
 ### 新增策略流程
 
-新增一个策略的最简步骤（仅需编写真正的逻辑代码，约 350-550 行）：
+#### 最简版（通用运行器 — 仅需 2 个文件）：
 
 1. **信号核心** — `strategy/indicators/{name}.py`：实现 `{Name}SignalCore`，包含 `update()`、`update_indicators_only()`、`get_raw_signal()`
 2. **配置** — `strategy/strategies/{name}/core.py`：定义 `{Name}Config` dataclass
-3. **注册** — `strategy/strategies/{name}/registration.py`：约 50 行声明式注册，使用 `BaseSignalGenerator` + 辅助工厂
+3. **注册** — `strategy/strategies/{name}/registration.py`：使用 `BaseSignalGenerator` + `LiveConfig` 进行通用运行器注册
 4. **包初始化** — `strategy/strategies/{name}/__init__.py`：仅需 docstring（自动发现，无需手动导入）
 5. **一致性测试** — 在 `test/indicators/test_all_parity.py` 中添加条目：约 10 行，使用 `make_parity_test_class()`
 
-无需创建 signal.py，无需在 `__init__.py` 中手动导入，无需编写独立的测试文件。
+无需创建 indicator.py、live.py、configs.py 或 signal.py。通用运行器处理一切。
+
+运行方式：`uv run python -m strategy.runner -S {name} --mesa 0`
+
+#### 自定义版（用于需要 on_kline 覆盖的复杂策略）：
+
+仅在策略需要逐 tick 止损检查、追踪止损、资金费率订阅或完全自定义逻辑时才添加步骤 6-7：
+
+6. **实盘指标** — `strategy/strategies/{name}/indicator.py`：双模式包装器
+7. **实盘策略** — `strategy/strategies/{name}/live.py`：自定义 `on_kline()` 覆盖
+
+目前自定义的策略：momentum（追踪止损）、funding_rate（资金费率订阅）、grid_trading（基于 tick 的网格逻辑）。
 
 ### 设计模式
 
@@ -352,11 +372,14 @@ class TradeFilterConfig:
 - **自动发现**：`strategy/strategies/__init__.py` 使用 `pkgutil.iter_modules()` 自动导入所有策略子目录中的 `registration.py`
 - **K 线确认**：实盘指标使用时间戳变化检测来确认前一根 K 线已完成后再处理
 - **信号映射**：实盘指标使用 `_SIGNAL_MAP` 字典将整数信号转换为交易所专用枚举值
+- **双模式指标**：实盘指标启动时处于预热模式（`update_indicators_only()`），预热稳定后通过 `enable_live_mode()` 切换到实盘模式（`core.update()`），确保历史 K 线回放期间不产生虚假仓位状态
+- **BaseQuantStrategy**：所有实盘交易策略的共享基类（`strategy/strategies/_base/base_strategy.py`），提供仓位跟踪、订单管理、熔断器、性能追踪、信号过滤（确认、冷却、最小持仓）、过时数据保护和模板 `on_kline()`。子类实现 `on_start()` 和 `_format_log_line()`，并可选覆盖各类钩子（`_get_signal`、`_check_stop_loss`、`_pre_signal_hook`、`_process_signal`、`_on_live_activated`）
+- **GenericStrategy + GenericIndicator**：通用运行器系统（`strategy/strategies/_base/generic_strategy.py`、`generic_indicator.py`），通过 `LiveConfig` 配置消除简单到中等策略各自的 `live.py`/`indicator.py`/`configs.py` 需求。`GenericIndicator` 使用 `inspect.signature()` 自动检测信号核心方法签名并将 K 线字段映射到参数。CLI：`uv run python -m strategy.runner -S {name} --mesa 0 --exchange bitget`
 
 ### 运行一致性测试
 
 ```bash
-# 运行所有一致性测试（87 个测试：68 策略一致性 + 19 流式原语）
+# 运行所有一致性测试（121 个测试：87 一致性（68 策略 + 19 流式原语）+ 34 策略测试）
 uv run pytest test/indicators/ -v
 
 # 仅运行策略一致性测试
@@ -378,9 +401,14 @@ uv run python -m strategy.backtest -S hurst_kalman -X bitget -p 1y --full
 uv run python -m strategy.backtest -S ema_crossover -X binance --heatmap
 uv run python -m strategy.backtest -S bollinger_band -X okx --optimize
 
-# 向后兼容（旧入口仍可使用）：
-uv run python strategy/live/hurst_kalman/backtest.py --full
-uv run python strategy/live/ema_crossover/backtest.py --heatmap
+# 实盘交易（通用运行器 — 适用于大多数策略）：
+uv run python -m strategy.runner -S ema_crossover --mesa 0
+uv run python -m strategy.runner -S hurst_kalman --mesa 0 --exchange binance
+uv run python -m strategy.runner --list  # 显示可用策略
+
+# 实盘交易（自定义 — 用于复杂策略）：
+uv run python -m strategy.strategies.momentum.live --mesa 3
+uv run python -m strategy.strategies.funding_rate.live --mesa 0
 ```
 
 ### CLI 参数
@@ -399,14 +427,32 @@ uv run python strategy/live/ema_crossover/backtest.py --heatmap
 | `-f, --full` | 三阶段完整验证 |
 | `-s, --show-results` | 显示已保存的结果 |
 | `-e, --export-config` | 导出模拟交易配置 |
+| `-L, --leverage` | 杠杆倍数（默认：1.0，例如 5 表示 5 倍杠杆） |
+| `--heatmap-resolution` | 热力图网格分辨率（默认：15） |
+| `-j, --jobs` | 网格搜索/热力图的并行 worker 数（1=顺序执行，-1=所有 CPU 核心） |
 
 ### 架构
 
 - `strategy/indicators/` — 共享信号核心和流式原语（唯一真实来源）
 - `strategy/backtest/` — 统一框架（运行器、CLI、注册表、交易所配置、热力图、工具函数）
-- `strategy/strategies/` — 与交易所无关的策略定义（配置、信号生成器委托给核心）
-- `strategy/live/` — 实盘交易指标（委托给信号核心以保证一致性）
+- `strategy/strategies/` — 自包含策略包（core、registration、indicator、live、configs）
+- `strategy/strategies/_base/` — 共享基类（BaseSignalGenerator、BaseQuantStrategy、PerformanceTracker）
 - `examples/` — 交易所 API 使用示例（binance、okx、bybit、hyperliquid、bitget）
+
+### 回测方法论
+
+回测框架应用了八项系统性修正，以确保与实盘交易表现的真实对等：
+
+| 修正项 | 描述 |
+|--------|------|
+| **信号延迟（1 bar 执行滞后）** | 第 i 根 K 线产生的信号在第 i+1 根 K 线执行，与实盘行为保持一致 |
+| **WFO 窗口按 bar 间隔缩放** | 前推验证（WFO）窗口尺寸根据 K 线间隔动态调整（30 天训练/7 天测试），不再硬编码为 15 分钟 bar |
+| **真实的逐窗口 WFO** | 独立的 `--walk-forward` 模式在每个窗口内使用 `default_grid` 重新优化参数 |
+| **position_size_pct 传递** | 资金费率策略（0.30）、网格策略（0.20）的仓位比例正确传递至所有回测路径 |
+| **bar 内止损** | 使用 bar 的最低/最高价检查止损触发，而非仅在收盘价检查 |
+| **资金费率数据质量** | 无资金费率数据时禁用资金成本模型，不再使用误导性的默认常量值 |
+| **Sharpe 年化自动推断** | 年化周期数从 DatetimeIndex 的中位 bar 间隔自动推断，不再硬编码为 15 分钟 bar |
+| **并行扫描/优化** | 通过 `-j/--jobs` 标志支持多 CPU 并行执行热力图和网格搜索 |
 
 ### 支持的交易所
 
