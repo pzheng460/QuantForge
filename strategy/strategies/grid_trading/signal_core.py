@@ -205,6 +205,11 @@ class GridSignalCore:
         self.bar_index = 0
         self._last_recalc = 0
 
+    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
+        """Sync position state from external source (rollback or startup sync)."""
+        self.position = pos_int
+        self.entry_price = entry_price if pos_int != 0 else 0.0
+
     # ---- Indicator value properties ----
 
     @property

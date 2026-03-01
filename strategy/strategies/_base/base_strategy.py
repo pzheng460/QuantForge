@@ -154,6 +154,9 @@ class BaseQuantStrategy(Strategy):
         self._positions: Dict[str, PositionState] = {}
         self._bar_count: Dict[str, int] = {}
 
+        # Pre-order state snapshots for rollback on order failure
+        self._pre_order_snapshots: Dict[str, dict] = {}
+
         # Signal filtering state
         self._cooldown_until: Dict[str, int] = {}
         self._signal_history: Dict[str, List] = {}
@@ -367,6 +370,13 @@ class BaseQuantStrategy(Strategy):
         amount = position_value / price
         return self.amount_to_precision(symbol, Decimal(str(amount)))
 
+    def _get_core_position(self, symbol: str) -> int:
+        """Return the core's internal position int (0/1/-1), or 0 if not applicable."""
+        indicator = self._indicators.get(symbol)
+        if indicator and hasattr(indicator, "core") and hasattr(indicator.core, "position"):
+            return indicator.core.position
+        return 0
+
     # ---------- Order operations ----------
 
     def _open_position(
@@ -383,6 +393,17 @@ class BaseQuantStrategy(Strategy):
             self.log.warning(f"Cannot open {side.value} position: amount too small")
             return
 
+        # Snapshot state before firing order (for rollback on failure)
+        position = self._positions[symbol]
+        self._pre_order_snapshots[symbol] = {
+            "side": position.side,
+            "entry_price": position.entry_price,
+            "amount": position.amount,
+            "entry_time": position.entry_time,
+            "entry_bar": position.entry_bar,
+            "core_pos": self._get_core_position(symbol),
+        }
+
         self.log.info(
             f">>> OPENING {side.value} position: {symbol} @ {price:.2f}, size={amount}"
         )
@@ -394,7 +415,6 @@ class BaseQuantStrategy(Strategy):
             amount=amount,
         )
 
-        position = self._positions[symbol]
         position.side = side
         position.entry_price = price
         position.amount = amount
@@ -415,6 +435,16 @@ class BaseQuantStrategy(Strategy):
 
         if not force and not self._can_close_position(symbol):
             return
+
+        # Snapshot state before firing order (for rollback on failure)
+        self._pre_order_snapshots[symbol] = {
+            "side": position.side,
+            "entry_price": position.entry_price,
+            "amount": position.amount,
+            "entry_time": position.entry_time,
+            "entry_bar": position.entry_bar,
+            "core_pos": self._get_core_position(symbol),
+        }
 
         self.log.info(f"<<< CLOSING position: {symbol}, reason={reason}")
 
@@ -688,6 +718,8 @@ class BaseQuantStrategy(Strategy):
             f"Order FILLED: {order.symbol} {order.side} {order.amount} @ {order.price}"
         )
         self._daily_stats.trade_count += 1
+        # Clear snapshot — order succeeded, no rollback needed
+        self._pre_order_snapshots.pop(order.symbol, None)
 
     def on_partially_filled_order(self, order: Order) -> None:
         self.log.info(f"Order partially filled: {order}")
@@ -697,3 +729,29 @@ class BaseQuantStrategy(Strategy):
 
     def on_failed_order(self, order: Order) -> None:
         self.log.error(f"Order FAILED: {order}")
+        symbol = order.symbol
+        snapshot = self._pre_order_snapshots.pop(symbol, None)
+        if snapshot is None:
+            return
+
+        # Rollback strategy position state
+        position = self._positions.get(symbol)
+        if position:
+            position.side = snapshot["side"]
+            position.entry_price = snapshot["entry_price"]
+            position.amount = snapshot["amount"]
+            position.entry_time = snapshot["entry_time"]
+            position.entry_bar = snapshot["entry_bar"]
+            self.log.warning(
+                f"{symbol} | Order failed — rolled back position state to {snapshot['side']}"
+            )
+
+        # Rollback core position state (dual-mode strategies)
+        indicator = self._indicators.get(symbol)
+        if indicator and hasattr(indicator, "core"):
+            core = indicator.core
+            if hasattr(core, "sync_position"):
+                core.sync_position(snapshot["core_pos"], snapshot["entry_price"])
+                self.log.warning(
+                    f"{symbol} | Order failed — rolled back core.position to {snapshot['core_pos']}"
+                )

@@ -19,6 +19,7 @@ Usage:
 import dataclasses
 from typing import Any, List, Optional
 
+from nexustrader.constants import OrderSide, PositionSide
 from nexustrader.indicator import Indicator
 from nexustrader.schema import FundingRate
 
@@ -134,6 +135,60 @@ class GenericStrategy(BaseQuantStrategy):
                 self.subscribe_funding_rate(symbols=symbol)
 
             self.log.info(f"Initialized tracking for {symbol}")
+
+        # Sync any existing exchange positions (handles restart ghost positions)
+        self._sync_startup_positions()
+
+    # ---------- Startup position sync ----------
+
+    def _sync_startup_positions(self) -> None:
+        """Sync strategy and core state from live exchange positions on startup.
+
+        Handles process restarts where the exchange still has open positions
+        but the core's self.position has reset to 0 (ghost position risk).
+        Also syncs the strategy's _positions[symbol] so it knows the real state.
+        """
+        for symbol in self._symbols:
+            try:
+                cached_pos = self.cache.get_position(symbol).value_or(None)
+            except Exception:
+                cached_pos = None
+
+            if cached_pos is None or not cached_pos.is_opened:
+                continue
+
+            if cached_pos.side == PositionSide.LONG:
+                strategy_side = OrderSide.BUY
+                core_pos = 1
+            elif cached_pos.side == PositionSide.SHORT:
+                strategy_side = OrderSide.SELL
+                core_pos = -1
+            else:
+                continue
+
+            entry_price = cached_pos.entry_price
+            amount = cached_pos.amount
+
+            # Sync strategy position state
+            position = self._positions.get(symbol)
+            if position:
+                position.side = strategy_side
+                position.entry_price = entry_price
+                position.amount = amount
+                self.log.warning(
+                    f"STARTUP SYNC: {symbol} restored {strategy_side.value} "
+                    f"position {amount} @ {entry_price:.2f} from exchange"
+                )
+
+            # Sync core position state (dual-mode strategies only)
+            indicator = self._indicators.get(symbol)
+            if indicator and hasattr(indicator, "core"):
+                core = indicator.core
+                if hasattr(core, "sync_position"):
+                    core.sync_position(core_pos, entry_price)
+                    self.log.warning(
+                        f"STARTUP SYNC: {symbol} synced core.position={core_pos}"
+                    )
 
     # ---------- Hook overrides ----------
 
