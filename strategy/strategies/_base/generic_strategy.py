@@ -17,6 +17,7 @@ Usage:
 """
 
 import dataclasses
+from decimal import Decimal
 from typing import Any, List, Optional
 
 from nexustrader.constants import OrderSide, PositionSide
@@ -228,6 +229,11 @@ class GenericStrategy(BaseQuantStrategy):
                 self, symbol, signal, price, indicator, current_bar
             )
         return False
+
+    def _calculate_position_size(self, symbol: str, price: float) -> Decimal:
+        if self._live_config.calculate_position_size_fn:
+            return self._live_config.calculate_position_size_fn(self, symbol, price)
+        return super()._calculate_position_size(symbol, price)
 
     def on_funding_rate(self, funding_rate: FundingRate) -> None:
         """Delegate funding rate events to LiveConfig callback."""

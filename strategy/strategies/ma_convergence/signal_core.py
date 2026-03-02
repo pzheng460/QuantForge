@@ -34,8 +34,8 @@ CLOSE = 2
 # State machine for entry Method 1 (convergence breakout)
 _STATE_IDLE = 0  # no convergence detected
 _STATE_CONVERGED = 1  # convergence zone active, watching for breakout
-_STATE_BROKE_UP = 2  # price broke above zone, waiting for pullback
-_STATE_BROKE_DOWN = 3  # price broke below zone, waiting for bounce
+_STATE_BROKE_UP = 2  # price broke above zone, waiting for pullback confirmation
+_STATE_BROKE_DOWN = 3  # price broke below zone, waiting for bounce confirmation
 
 # State machine for entry Method 2 (MA20 retest)
 _RETEST_IDLE = 0  # waiting for divergence
@@ -100,8 +100,12 @@ class MAConvergenceSignalCore:
         self._m1_zone_bar: int = 0
         self._m1_breakout_bar: int = 0
         self._m1_breakout_extreme: float = (
-            0.0  # high of down-break bar or low of up-break bar
+            0.0  # lowest low after up-break, or highest high after down-break
         )
+        # High of the deepest-pullback candle (BROKE_UP) or
+        # low of the highest-bounce candle (BROKE_DOWN).
+        # Entry fires when close crosses this level.
+        self._m1_pullback_candle_extreme: float = 0.0
 
         # Track recent convergence for minimum bar requirement before trading
         self._converged_bars: int = 0  # consecutive bars in convergence
@@ -115,6 +119,12 @@ class MAConvergenceSignalCore:
         )
         self._m2_diverge_bar: int = 0
         self._m2_retest_used: bool = False  # only use first retest per divergence event
+
+        # Entry method tracking for correct stop loss calculation
+        # 1 = Method 1 (breakout), 2 = Method 2 (MA20 retest)
+        self._pending_entry_method: int = 1
+        self._m2_retest_low: float = 0.0  # low of the MA20 retest candle (long stop)
+        self._m2_retest_high: float = float("inf")  # high of the MA20 retest candle (short stop)
 
         # Swing tracking for fibonacci exit
         self._swing_high: float = 0.0
@@ -392,27 +402,38 @@ class MAConvergenceSignalCore:
                 self._m1_state = _STATE_BROKE_UP
                 self._m1_breakout_bar = i
                 self._m1_breakout_extreme = low  # track pullback low
+                # Track the high of the initial breakout candle as first pullback candle
+                self._m1_pullback_candle_extreme = high
 
             elif close < zone * (1 - self._config.stop_loss_buffer_pct):
                 # Price broke below — monitor for bounce confirmation
                 self._m1_state = _STATE_BROKE_DOWN
                 self._m1_breakout_bar = i
                 self._m1_breakout_extreme = high  # track bounce high
+                # Track the low of the initial breakout candle as first bounce candle
+                self._m1_pullback_candle_extreme = low
 
         elif self._m1_state == _STATE_BROKE_UP:
             zone = self._m1_zone_center
-            # Update pullback low (track how far it retraced)
+            # Update pullback tracking: find the deepest pullback candle.
+            # _m1_breakout_extreme tracks the lowest low seen after breakout.
+            # _m1_pullback_candle_extreme tracks the HIGH of that deepest candle.
             if low < self._m1_breakout_extreme:
                 self._m1_breakout_extreme = low
+                self._m1_pullback_candle_extreme = high  # high of the deepest pullback candle
 
-            # Confirm uptrend: price above zone, close above previous pullback low → BUY
-            # Logic: at least 1 bar has passed, close shows continued strength above zone
+            # Confirm uptrend:
+            # - At least 2 bars after breakout (allow pullback to develop)
+            # - Close still above zone (no close below zone)
+            # - Close breaks above the HIGH of the deepest pullback candle (momentum confirmed)
             if (
-                i - self._m1_breakout_bar >= 1
+                i - self._m1_breakout_bar >= 2
                 and close > zone
-                and close > self._m1_breakout_extreme
+                and self._m1_pullback_candle_extreme > 0
+                and close > self._m1_pullback_candle_extreme
             ):
                 raw_signal = BUY
+                self._pending_entry_method = 1
                 # Reset so we don't retrigger the same zone
                 self._m1_state = _STATE_IDLE
 
@@ -422,17 +443,25 @@ class MAConvergenceSignalCore:
 
         elif self._m1_state == _STATE_BROKE_DOWN:
             zone = self._m1_zone_center
-            # Update bounce high
+            # Update bounce tracking: find the highest bounce candle.
+            # _m1_breakout_extreme tracks the highest high seen after breakout.
+            # _m1_pullback_candle_extreme tracks the LOW of that highest candle.
             if high > self._m1_breakout_extreme:
                 self._m1_breakout_extreme = high
+                self._m1_pullback_candle_extreme = low  # low of the highest bounce candle
 
-            # Confirm downtrend: price below zone, close below previous bounce high → SELL
+            # Confirm downtrend:
+            # - At least 2 bars after breakout (allow bounce to develop)
+            # - Close still below zone (no close above zone)
+            # - Close breaks below the LOW of the highest bounce candle (momentum confirmed)
             if (
-                i - self._m1_breakout_bar >= 1
+                i - self._m1_breakout_bar >= 2
                 and close < zone
-                and close < self._m1_breakout_extreme
+                and self._m1_pullback_candle_extreme > 0
+                and close < self._m1_pullback_candle_extreme
             ):
                 raw_signal = SELL
+                self._pending_entry_method = 1
                 self._m1_state = _STATE_IDLE
 
             # Invalidate if price closes well above zone
@@ -460,6 +489,9 @@ class MAConvergenceSignalCore:
                     if touching_ma20 and close > ma20_avg:
                         # Price touched MA20 from above and is holding → BUY
                         raw_signal = BUY
+                        self._pending_entry_method = 2
+                        self._m2_retest_low = low    # stop: low of the retest candle
+                        self._m2_retest_high = high  # stored for symmetry
                         self._m2_retest_used = True
 
                 elif self._m2_direction == -1:
@@ -469,6 +501,9 @@ class MAConvergenceSignalCore:
                     if touching_ma20 and close < ma20_avg:
                         # Price touched MA20 from below and is holding → SELL
                         raw_signal = SELL
+                        self._pending_entry_method = 2
+                        self._m2_retest_low = low    # stored for symmetry
+                        self._m2_retest_high = high  # stop: high of the retest candle
                         self._m2_retest_used = True
 
         # ---- 5. Signal confirmation ----
@@ -491,12 +526,19 @@ class MAConvergenceSignalCore:
         # ---- 6. Position management ----
         if confirmed_signal == BUY:
             entry = close
-            stop = (
-                self._m1_zone_center * (1 - self._config.stop_loss_buffer_pct)
-                if self._m1_zone_center > 0
-                else entry * (1 - self._config.stop_loss_pct)
-            )
-            # Fall back to ATR-based stop if zone not available
+            if self._pending_entry_method == 2:
+                # Method 2 (MA20 retest): stop at retest candle low or below MA20
+                stop_from_candle = self._m2_retest_low
+                stop_from_ma = ma20_avg * (1 - self._config.stop_loss_buffer_pct)
+                stop = min(stop_from_candle, stop_from_ma)
+            else:
+                # Method 1 (breakout): stop below convergence zone
+                stop = (
+                    self._m1_zone_center * (1 - self._config.stop_loss_buffer_pct)
+                    if self._m1_zone_center > 0
+                    else entry * (1 - self._config.stop_loss_pct)
+                )
+            # Fall back to ATR-based stop if computed stop is invalid
             if stop <= 0 or stop >= entry:
                 stop = entry - atr * 1.5
             tp = self._calc_take_profit(1, entry, stop, self._m1_zone_center, i)
@@ -509,11 +551,19 @@ class MAConvergenceSignalCore:
 
         elif confirmed_signal == SELL:
             entry = close
-            stop = (
-                self._m1_zone_center * (1 + self._config.stop_loss_buffer_pct)
-                if self._m1_zone_center > 0
-                else entry * (1 + self._config.stop_loss_pct)
-            )
+            if self._pending_entry_method == 2:
+                # Method 2 (MA20 retest): stop at retest candle high or above MA20
+                stop_from_candle = self._m2_retest_high
+                stop_from_ma = ma20_avg * (1 + self._config.stop_loss_buffer_pct)
+                stop = max(stop_from_candle, stop_from_ma)
+            else:
+                # Method 1 (breakout): stop above convergence zone
+                stop = (
+                    self._m1_zone_center * (1 + self._config.stop_loss_buffer_pct)
+                    if self._m1_zone_center > 0
+                    else entry * (1 + self._config.stop_loss_pct)
+                )
+            # Fall back to ATR-based stop if computed stop is invalid
             if stop <= 0 or stop <= entry:
                 stop = entry + atr * 1.5
             tp = self._calc_take_profit(-1, entry, stop, self._m1_zone_center, i)
@@ -543,12 +593,16 @@ class MAConvergenceSignalCore:
         self._m1_zone_bar = 0
         self._m1_breakout_bar = 0
         self._m1_breakout_extreme = 0.0
+        self._m1_pullback_candle_extreme = 0.0
         self._converged_bars = 0
 
         self._m2_state = _RETEST_IDLE
         self._m2_direction = 0
         self._m2_diverge_bar = 0
         self._m2_retest_used = False
+        self._pending_entry_method = 1
+        self._m2_retest_low = 0.0
+        self._m2_retest_high = float("inf")
 
         self._high_window.clear()
         self._low_window.clear()
@@ -586,18 +640,22 @@ class MAConvergenceSignalCore:
         zone = self._m1_zone_center
 
         # Method 1 state check
+        # BROKE_UP: need close above zone AND above the high of the deepest pullback candle
         if (
             self._m1_state == _STATE_BROKE_UP
             and zone > 0
             and close > zone
-            and close > self._m1_breakout_extreme
+            and self._m1_pullback_candle_extreme > 0
+            and close > self._m1_pullback_candle_extreme
         ):
             return BUY
+        # BROKE_DOWN: need close below zone AND below the low of the highest bounce candle
         if (
             self._m1_state == _STATE_BROKE_DOWN
             and zone > 0
             and close < zone
-            and close < self._m1_breakout_extreme
+            and self._m1_pullback_candle_extreme > 0
+            and close < self._m1_pullback_candle_extreme
         ):
             return SELL
 
@@ -613,6 +671,34 @@ class MAConvergenceSignalCore:
                     return SELL
 
         return HOLD
+
+    @staticmethod
+    def calc_position_size(
+        equity: float,
+        entry_price: float,
+        stop_price: float,
+        risk_pct: float = 0.20,
+    ) -> float:
+        """Calculate dynamic position size based on risk per trade.
+
+        Formula: position_size = (equity * risk_pct) / abs(entry_price - stop_price)
+
+        Tight stop → larger position.  Wide stop → smaller position.
+
+        Args:
+            equity: Total account equity
+            entry_price: Entry price for the position
+            stop_price: Stop loss price level
+            risk_pct: Maximum risk as fraction of equity (default: 20%)
+
+        Returns:
+            Position size in base currency units, or 0.0 if stop is invalid.
+        """
+        max_loss = equity * risk_pct
+        risk_per_unit = abs(entry_price - stop_price)
+        if risk_per_unit <= 0:
+            return 0.0
+        return max_loss / risk_per_unit
 
     # ---- Indicator value properties (for live indicator wrapper) ----
 

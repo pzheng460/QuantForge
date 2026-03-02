@@ -51,6 +51,7 @@ class LiveConfig:
     default_symbol: str = "BTCUSDT-PERP.BITGET"
     subscribe_funding_rate: bool = False
     on_funding_rate_fn: Optional[Callable] = None  # (strategy, funding_rate) -> None
+    calculate_position_size_fn: Optional[Callable] = None  # (strategy, symbol, price) -> Decimal
 
 
 @dataclass
