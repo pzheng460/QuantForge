@@ -30,6 +30,16 @@ class CCXTDataProvider(DataProvider):
         KlineInterval.DAY_1: "1d",
     }
 
+    # Map KlineInterval to milliseconds (for correct pagination)
+    INTERVAL_MS = {
+        KlineInterval.MINUTE_1: 60_000,
+        KlineInterval.MINUTE_5: 300_000,
+        KlineInterval.MINUTE_15: 900_000,
+        KlineInterval.HOUR_1: 3_600_000,
+        KlineInterval.HOUR_4: 14_400_000,
+        KlineInterval.DAY_1: 86_400_000,
+    }
+
     def __init__(
         self,
         exchange: str,
@@ -50,9 +60,11 @@ class CCXTDataProvider(DataProvider):
         """Get or create CCXT exchange instance."""
         if self._exchange is None:
             exchange_class = getattr(ccxt, self.exchange_name)
-            self._exchange = exchange_class({
-                "enableRateLimit": self.rate_limit,
-            })
+            self._exchange = exchange_class(
+                {
+                    "enableRateLimit": self.rate_limit,
+                }
+            )
         return self._exchange
 
     async def _close_exchange(self):
@@ -90,6 +102,10 @@ class CCXTDataProvider(DataProvider):
             if timeframe is None:
                 raise ValueError(f"Unsupported interval: {interval}")
 
+            interval_ms = self.INTERVAL_MS.get(interval)
+            if interval_ms is None:
+                raise ValueError(f"Unsupported interval: {interval}")
+
             # Convert datetimes to timestamps
             since = int(start.timestamp() * 1000)
             end_ts = int(end.timestamp() * 1000)
@@ -114,8 +130,10 @@ class CCXTDataProvider(DataProvider):
                     if candle[0] <= end_ts:
                         all_candles.append(candle)
 
-                # Move to next batch
-                current_since = candles[-1][0] + 1
+                # Advance by one full interval to avoid confusing exchanges (e.g.
+                # Bitget) that return only 200 bars and jump forward 8 days when
+                # given since = last_ts + 1ms.
+                current_since = candles[-1][0] + interval_ms
 
                 # Check if we've reached the end
                 if candles[-1][0] >= end_ts:
@@ -134,6 +152,10 @@ class CCXTDataProvider(DataProvider):
                 all_candles,
                 columns=["timestamp", "open", "high", "low", "close", "volume"],
             )
+
+            # Deduplicate by timestamp (overlapping batches can occur when
+            # exchanges return fewer bars than requested)
+            df.drop_duplicates(subset="timestamp", keep="first", inplace=True)
 
             # Convert timestamp to datetime
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
