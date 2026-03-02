@@ -289,6 +289,7 @@ test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略
 | `FundingRateSignalCore` | `FundingRateConfig` | SMA、资金费率队列 | 资金费率套利（仅做空） |
 | `DualRegimeSignalCore` | `DualRegimeConfig` | ADX、ROC、EMA×3、ATR、SMA、BB | 自适应状态切换 |
 | `GridSignalCore` | `GridConfig` | SMA、ATR、动态网格层级 | 网格交易 |
+| `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3、EMA×3、ATR | 均线密集突破 |
 
 ### 仓位管理状态
 

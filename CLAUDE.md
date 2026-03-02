@@ -289,6 +289,7 @@ All primitives share: `.value` property, `.update()` returning `Optional[float]`
 | `FundingRateSignalCore` | `FundingRateConfig` | SMA, funding rate deque | Funding arb (short-only) |
 | `DualRegimeSignalCore` | `DualRegimeConfig` | ADX, ROC, EMA×3, ATR, SMA, BB | Adaptive regime switch |
 | `GridSignalCore` | `GridConfig` | SMA, ATR, dynamic grid levels | Grid trading |
+| `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3, EMA×3, ATR | MA convergence breakout |
 
 ### Position Management State
 
