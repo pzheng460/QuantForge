@@ -35,8 +35,9 @@ from strategy.strategies.sma_trend.signal_core import SMATrendSignalCore
 def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
     """Resample 1h closes to daily, compute rolling SMA, forward-fill to 1h index.
 
-    The runner already applies a 1-bar signal delay via _apply_signal_delay(),
-    so no additional shift is needed here.
+    Also builds a boolean array marking which 1h bars are daily closes
+    (the last bar of each calendar day).  Signal evaluation is gated to
+    these bars only, preventing intraday noise from creating false crossovers.
     """
     sma_period = effective_config.sma_period
 
@@ -55,13 +56,23 @@ def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
     sma_at_1h = daily_sma.reindex(idx, method="ffill")
     generator._daily_sma = sma_at_1h.values
 
+    # Build is_daily_close mask: True for the last 1h bar of each day
+    dates = idx.date
+    is_daily = np.zeros(len(idx), dtype=bool)
+    for i in range(len(dates) - 1):
+        if dates[i] != dates[i + 1]:
+            is_daily[i] = True
+    is_daily[-1] = True  # Last bar is always a daily close
+    generator._is_daily_close = is_daily
+
 
 def _sma_bar_hook(bar_kwargs, core, data, index, generator, **_kw):
-    """Inject daily SMA value into each 1h bar."""
+    """Inject daily SMA value and daily-close flag into each 1h bar."""
     sma_val = generator._daily_sma[index]
     return {
         "close": bar_kwargs["close"],
         "sma_value": sma_val if not np.isnan(sma_val) else None,
+        "is_daily_close": bool(generator._is_daily_close[index]),
     }
 
 
@@ -76,7 +87,7 @@ def _parity_sma_pre_generate_hook(generator, data, seed):
 
 
 def _parity_sma_pre_core_hook(core, data, seed):
-    """Pre-compute daily SMA array for direct core loop in parity tests."""
+    """Pre-compute daily SMA array and daily-close mask for direct core loop."""
     sma_period = core._config.sma_period
 
     if data.index.tz is None:
@@ -91,12 +102,22 @@ def _parity_sma_pre_core_hook(core, data, seed):
     sma_at_1h = daily_sma.reindex(idx, method="ffill")
     core._test_daily_sma = sma_at_1h.values
 
+    # Build is_daily_close mask (same logic as pre_loop_hook)
+    dates = idx.date
+    is_daily = np.zeros(len(idx), dtype=bool)
+    for i in range(len(dates) - 1):
+        if dates[i] != dates[i + 1]:
+            is_daily[i] = True
+    is_daily[-1] = True
+    core._test_is_daily_close = is_daily
+
 
 def _parity_sma_core_bar_hook(core, data, index):
-    """Supply pre-computed daily SMA for direct core.update() calls."""
+    """Supply pre-computed daily SMA and daily-close flag for direct core.update()."""
     sma_val = core._test_daily_sma[index]
     return {
         "sma_value": sma_val if not np.isnan(sma_val) else None,
+        "is_daily_close": bool(core._test_is_daily_close[index]),
     }
 
 

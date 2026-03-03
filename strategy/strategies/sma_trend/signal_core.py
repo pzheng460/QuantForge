@@ -6,7 +6,8 @@ backtest signal generator and the live indicator wrapper delegate to this
 class, guaranteeing 100% code parity.
 
 Backtest mode: Daily SMA values are pre-computed via pre_loop_hook and
-injected per bar via bar_hook (sma_value kwarg).
+injected per bar via bar_hook (sma_value kwarg).  Signal evaluation only
+occurs on daily-close bars (is_daily_close=True) to avoid intraday noise.
 
 Live mode: Uses StreamingSMA on daily kline closes to compute SMA in
 real-time, then maps 1h bars against the latest daily SMA.
@@ -31,9 +32,9 @@ CLOSE = 2
 class SMATrendSignalCore:
     """Shared signal logic for SMA Trend (long-only).
 
-    Long when close > daily SMA, flat otherwise.
-    No shorting, no stop loss, no signal confirmation.
-    Raw signal directly drives position changes.
+    Long when daily close > daily SMA, flat otherwise.
+    No shorting, no stop loss. Signal only evaluated on daily-close bars
+    to prevent intraday noise from generating false crossovers.
     """
 
     def __init__(
@@ -58,19 +59,26 @@ class SMATrendSignalCore:
         self.cooldown_until = 0
         self.bar_index = 0
 
-    def update_indicators_only(self, close: float, sma_value: float = None) -> None:
+    def update_indicators_only(
+        self, close: float, sma_value: float = None, is_daily_close: bool = True
+    ) -> None:
         """Update indicators without generating a signal (warmup mode)."""
         if sma_value is None:
             self._sma.update(close)
         self.bar_index += 1
 
-    def update(self, close: float, sma_value: float = None) -> int:
+    def update(
+        self, close: float, sma_value: float = None, is_daily_close: bool = True
+    ) -> int:
         """Process one bar and return a trading signal.
 
         Args:
             close: Close price of the current bar.
             sma_value: Pre-computed daily SMA value (backtest mode).
                 If None, uses the internal StreamingSMA (live mode).
+            is_daily_close: Whether this bar is a daily close (end of day).
+                Signal evaluation only happens on daily-close bars to avoid
+                intraday noise generating false crossovers.
 
         Returns:
             Signal value: HOLD(0), BUY(1), or CLOSE(2).
@@ -88,13 +96,17 @@ class SMATrendSignalCore:
         if sma is None:
             return HOLD
 
+        # Only evaluate signal on daily-close bars
+        if not is_daily_close:
+            return HOLD
+
         price = close
 
         # ---- 1. Cooldown check ----
         if i < self.cooldown_until:
             return HOLD
 
-        # ---- 2. Position management (long-only, no confirmation) ----
+        # ---- 2. Position management (long-only) ----
         if price > sma:
             if self.position == 0:
                 self.position = 1
