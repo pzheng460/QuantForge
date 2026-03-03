@@ -29,7 +29,7 @@ from nexustrader.constants import KlineInterval
 # CONSTANTS
 # =============================================================================
 
-# Period options (3 months to 2 years)
+# Period options (1 week to 5 years)
 PERIODS = {
     "1w": 7,
     "1m": 30,
@@ -38,6 +38,7 @@ PERIODS = {
     "1y": 365,
     "2y": 730,
     "3y": 1095,
+    "5y": 1825,
 }
 
 # Periods too short for optimization / WFO — only suitable for single run

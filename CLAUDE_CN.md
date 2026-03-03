@@ -290,6 +290,8 @@ test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略
 | `DualRegimeSignalCore` | `DualRegimeConfig` | ADX、ROC、EMA×3、ATR、SMA、BB | 自适应状态切换 |
 | `GridSignalCore` | `GridConfig` | SMA、ATR、动态网格层级 | 网格交易 |
 | `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3、EMA×3、ATR | 均线密集突破 |
+| `SMATrendSignalCore` | `SMATrendConfig` | SMA（日线重采样） | 仅做多趋势跟踪 |
+| `FundingArbSignalCore` | `FundingArbConfig` | 资金费率队列 | 德尔塔中性资金费率套利 |
 
 ### 仓位管理状态
 
@@ -368,7 +370,7 @@ class TradeFilterConfig:
 - **K 线确认**：实盘指标使用时间戳变化检测来确认前一根 K 线已完成后再处理
 - **信号映射**：实盘指标使用 `_SIGNAL_MAP` 字典将整数信号转换为交易所专用枚举值
 - **双模式指标**：实盘指标启动时处于预热模式（`update_indicators_only()`），预热稳定后通过 `enable_live_mode()` 切换到实盘模式（`core.update()`），确保历史 K 线回放期间不产生虚假仓位状态
-- **仓位状态同步（`sync_position`）**：全部 9 个信号核心均暴露 `sync_position(pos_int, entry_price=0.0)` 方法，用于从外部原子性地设置 `core.position` 和 `core.entry_price`。用于两个安全机制：
+- **仓位状态同步（`sync_position`）**：全部 12 个信号核心均暴露 `sync_position(pos_int, entry_price=0.0)` 方法，用于从外部原子性地设置 `core.position` 和 `core.entry_price`。用于两个安全机制：
   1. **订单失败回滚**（`base_strategy.py` 中的 `on_failed_order`）：`_open_position`/`_close_position` 在下单前将状态快照写入 `_pre_order_snapshots[symbol]`；订单失败时同时回滚 `_positions[symbol]`（策略侧）和 `core.position`（核心侧）
   2. **重启幽灵仓位同步**（`generic_strategy.py` 中的 `_sync_startup_positions`）：在 `on_start()` 中对每个 symbol 查询 `self.cache.get_position(symbol)`，若交易所已有持仓则恢复策略和核心的仓位状态
 - **BaseQuantStrategy**：所有实盘交易策略的共享基类（`strategy/strategies/_base/base_strategy.py`），提供仓位跟踪、订单管理、熔断器、性能追踪、信号过滤（确认、冷却、最小持仓）、过时数据保护和模板 `on_kline()`。子类实现 `on_start()` 和 `_format_log_line()`，并可选覆盖各类钩子（`_get_signal`、`_check_stop_loss`、`_pre_signal_hook`、`_process_signal`、`_on_live_activated`）
@@ -377,7 +379,7 @@ class TradeFilterConfig:
 ### 运行一致性测试
 
 ```bash
-# 运行所有指标测试（87 个：68 策略一致性 + 19 流式原语）
+# 运行所有指标测试（107 个：88 策略一致性 + 19 流式原语）
 uv run pytest test/strategy/ -v
 
 # 仅运行策略一致性测试（自动发现，无需手动维护）
@@ -416,7 +418,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-S, --strategy` | 策略名称：`hurst_kalman`、`ema_crossover`、`bollinger_band` 等 |
 | `-X, --exchange` | 交易所：`bitget`、`binance`、`okx`、`bybit`、`hyperliquid` |
 | `--symbol` | 交易对（默认：交易所对应的 BTC/USDT 永续合约） |
-| `-p, --period` | 数据周期：`1w`、`1m`、`3m`、`6m`、`1y`、`2y`、`3y`（短周期与分析标志同用时会警告） |
+| `-p, --period` | 数据周期：`1w`、`1m`、`3m`、`6m`、`1y`、`2y`、`3y`、`5y`（短周期与分析标志同用时会警告） |
 | `-m, --mesa` | Mesa 配置索引（0 = 最优） |
 | `--heatmap` | 运行热力图参数扫描 |
 | `--heatmap-resolution` | 热力图网格分辨率（默认：15） |
@@ -468,7 +470,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 资金费率策略（0.30）、网格策略（0.20）等的仓位比例正确传递至所有回测路径：单次运行、网格搜索、前推验证、热力图。
 
 **bar 内止损**
-`BaseSignalGenerator.generate()` 在每次 `core.update()` 调用后用 bar 的最低/最高价检查止损。触发时信号覆盖为 CLOSE 并重置核心状态。一致性测试在 `_run_core` 中镜像此逻辑，确保所有 87 个测试仍通过。
+`BaseSignalGenerator.generate()` 在每次 `core.update()` 调用后用 bar 的最低/最高价检查止损。触发时信号覆盖为 CLOSE 并重置核心状态。一致性测试在 `_run_core` 中镜像此逻辑，确保所有 107 个测试仍通过。
 
 **资金费率数据质量**
 当 `funding_rates` 为空/None 时，`use_funding_rate=False` 传递给 `CostConfig` 并打印警告。`_build_funding_rate_series` 的回退值使用 `0.0`（不建模资金成本），而非之前误导性的 `0.000014` 常量。

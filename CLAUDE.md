@@ -290,6 +290,8 @@ All primitives share: `.value` property, `.update()` returning `Optional[float]`
 | `DualRegimeSignalCore` | `DualRegimeConfig` | ADX, ROC, EMA×3, ATR, SMA, BB | Adaptive regime switch |
 | `GridSignalCore` | `GridConfig` | SMA, ATR, dynamic grid levels | Grid trading |
 | `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3, EMA×3, ATR | MA convergence breakout |
+| `SMATrendSignalCore` | `SMATrendConfig` | SMA (daily resampled) | Long-only trend following |
+| `FundingArbSignalCore` | `FundingArbConfig` | Funding rate deque | Delta-neutral funding arb |
 
 ### Position Management State
 
@@ -368,7 +370,7 @@ Currently custom: momentum (trailing stops), funding_rate (funding subscription)
 - **Bar confirmation**: Live indicators use timestamp change detection to confirm the previous bar is complete before processing
 - **Signal mapping**: Live indicators use `_SIGNAL_MAP` dict to convert int signals to exchange-specific enum values
 - **Dual-mode indicators**: Live indicators start in warmup mode (`update_indicators_only()`) and switch to live mode (`core.update()`) via `enable_live_mode()`, ensuring no false position state during historical kline replay
-- **Position state sync (`sync_position`)**: All 9 signal cores expose `sync_position(pos_int, entry_price=0.0)` to atomically set `core.position` + `core.entry_price` from an external source. Used for two safety mechanisms:
+- **Position state sync (`sync_position`)**: All 12 signal cores expose `sync_position(pos_int, entry_price=0.0)` to atomically set `core.position` + `core.entry_price` from an external source. Used for two safety mechanisms:
   1. **Order failure rollback** (`on_failed_order` in `base_strategy.py`): `_open_position`/`_close_position` snapshot pre-order state into `_pre_order_snapshots[symbol]`; on failure, both `_positions[symbol]` (strategy side) and `core.position` (core side) are rolled back
   2. **Restart ghost position sync** (`_sync_startup_positions` in `generic_strategy.py`): on `on_start()`, queries `self.cache.get_position(symbol)` for each symbol and restores both strategy and core state if the exchange already has an open position
 - **BaseQuantStrategy**: Shared base class (`strategy/strategies/_base/base_strategy.py`) for all live trading strategies. Provides position tracking, order management, circuit breaker, performance tracking, signal filtering (confirmation, cooldown, min holding), stale data guard, and a template `on_kline()`. Requires `account_type` (keyword-only) parameter for exchange-agnostic balance lookups. Subclasses implement `on_start()` and `_format_log_line()`, and optionally override hooks:
@@ -384,7 +386,7 @@ Currently custom: momentum (trailing stops), funding_rate (funding subscription)
 ### Running Parity Tests
 
 ```bash
-# Run all parity tests (87 tests: 68 strategy parity + 19 streaming primitive)
+# Run all parity tests (107 tests: 88 strategy parity + 19 streaming primitive)
 uv run pytest test/strategy/ -v
 
 # Run only strategy parity tests
@@ -423,7 +425,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-S, --strategy` | Strategy name: `hurst_kalman`, `ema_crossover`, `bollinger_band` |
 | `-X, --exchange` | Exchange: `bitget`, `binance`, `okx`, `bybit`, `hyperliquid` |
 | `--symbol` | Trading pair (default: exchange-specific BTC/USDT perpetual) |
-| `-p, --period` | Data period: `1w`, `1m`, `3m`, `6m`, `1y`, `2y`, `3y` (short periods warn when used with analysis flags) |
+| `-p, --period` | Data period: `1w`, `1m`, `3m`, `6m`, `1y`, `2y`, `3y`, `5y` (short periods warn when used with analysis flags) |
 | `-m, --mesa` | Mesa config index (0 = best) |
 | `--heatmap` | Run heatmap parameter scan |
 | `--heatmap-resolution` | Heatmap grid resolution (default: 15) |
@@ -475,7 +477,7 @@ WFO window sizes scale with bar interval via `_bars_per_day(interval)`:
 Strategies with `position_size_pct < 1.0` (e.g. `funding_rate=0.30`, `grid_trading=0.20`) correctly size positions in all backtest paths: single run, grid search, walk-forward, heatmap.
 
 **Intrabar Stop Loss**
-`BaseSignalGenerator.generate()` checks bar `low`/`high` against `entry_price * stop_loss_pct` after each `core.update()` call. If triggered, the signal is overridden to CLOSE and core state is reset. Parity tests mirror this logic in `_run_core` so all 87 tests still pass.
+`BaseSignalGenerator.generate()` checks bar `low`/`high` against `entry_price * stop_loss_pct` after each `core.update()` call. If triggered, the signal is overridden to CLOSE and core state is reset. Parity tests mirror this logic in `_run_core` so all 107 tests still pass.
 
 **Funding Rate Data Quality**
 When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostConfig` and a warning is printed. The fallback in `_build_funding_rate_series` uses `0.0` (no cost modelled) instead of the previous misleading `0.000014` constant.
