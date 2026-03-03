@@ -431,7 +431,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-R, --rolling-optimize` | 滚动优化（日前向测试）：在滚动训练窗口上重新优化，测试下一天 |
 | `--train-days` | `--rolling-optimize` 的训练窗口天数（默认：7） |
 | `--no-cache` | 跳过本地 SQLite 缓存，直接从交易所拉取 |
-| `--validate` | 多源交叉验证数据（可指定交易所） |
+| `--no-validate` | 跳过新数据的自动交叉验证 |
 | `--db-stats` | 显示本地 K 线数据库统计信息 |
 
 ### 架构
@@ -476,6 +476,9 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 **Sharpe 年化自动推断**
 `PerformanceAnalyzer` 和 `VectorizedBacktest._calculate_metrics()` 通过 `infer_periods_per_year()`（`nexustrader/backtest/analysis/performance.py`）从权益曲线的 DatetimeIndex 中位数推断每年周期数。无需手动配置——1h 策略自动使用约 8766，而非错误的 15m 常量 35040。
 
+**UTC 时间约定**
+`strategy/backtest/utils.py` 和 `cli.py` 使用 `datetime.now(timezone.utc).replace(tzinfo=None)` 代替 `datetime.now()`。因为 `calendar.timegm()` 将无时区 datetime 当作 UTC 处理，若使用本地时间会产生偏移（如 UTC+8 偏移 8 小时），导致交易所 API 因未来时间戳拒绝请求。
+
 **并行扫描/优化**
 `HeatmapScanner` 和 `GridSearchOptimizer` 接受 `n_jobs`（也通过 `--jobs/-j` CLI 暴露）：
 - HeatmapScanner：完全并行——每个 `_run_single()` 创建新生成器（线程安全）
@@ -495,7 +498,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 - **ValidatedData**: `fetch_and_validate()` 跨交易所对比数据
 - 返回: `primary_data`, `validation_report`, `anomalies`, `is_valid`
 
-`strategy/backtest/utils.py` — `fetch_data()` 默认使用缓存（`no_cache=False`）；`validate_data()` 多源交叉验证。
+`strategy/backtest/utils.py` — `fetch_data()` 默认使用缓存（`no_cache=False`），并对新拉取的数据自动进行 OKX 交叉验证（`validate=True`）。已缓存数据跳过验证。可用验证源（国内可访问）：okx、gate、htx。
 
 测试：`uv run pytest test/backtest/test_database.py -v`（20个测试）
 

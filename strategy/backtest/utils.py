@@ -13,7 +13,7 @@ Provides:
 import importlib.util
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -96,6 +96,8 @@ async def fetch_data(
     exchange: str = "bitget",
     *,
     no_cache: bool = False,
+    validate: bool = True,
+    validate_sources: list[str] | None = None,
 ) -> pd.DataFrame:
     """Fetch historical OHLCV data.
 
@@ -107,14 +109,22 @@ async def fetch_data(
         exchange: Exchange name for CCXT provider.
         no_cache: If ``True``, bypass the local SQLite cache and fetch
             directly from the exchange.
+        validate: If ``True`` (default), automatically cross-validate
+            newly fetched data against a second exchange.  Already-cached
+            data is assumed to have been validated on first fetch.
+        validate_sources: Exchanges to use for cross-validation
+            (default ``["okx"]``).  Binance/Bybit are blocked in China;
+            usable alternatives: okx, gate, htx.
 
     Returns:
         OHLCV DataFrame with DatetimeIndex.
     """
     if start_date is None:
-        start_date = datetime.now() - timedelta(days=365 * 2)
+        start_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            days=365 * 2
+        )
     if end_date is None:
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc).replace(tzinfo=None)
 
     print(f"Fetching data from {start_date.date()} to {end_date.date()}...")
 
@@ -129,17 +139,62 @@ async def fetch_data(
             print(f"Fetched {len(data)} bars")
             return data
 
-    from nexustrader.backtest.data.cached_provider import CachedDataProvider
+    from nexustrader.backtest.data.cached_provider import (
+        CachedDataProvider,
+        _INTERVAL_STR,
+    )
 
-    provider = CachedDataProvider(exchanges=[exchange])
+    # Build validation source list (avoid self-comparison)
+    if validate_sources is None:
+        validate_sources = ["okx"]
+    validate_sources = [s for s in validate_sources if s != exchange]
+    if validate and not validate_sources:
+        validate_sources = ["gate"]
+
+    all_exchanges = [exchange] + validate_sources
+    provider = CachedDataProvider(exchanges=all_exchanges)
     try:
-        data = await provider.fetch(
-            symbol=symbol,
-            interval=interval,
-            start=start_date,
-            end=end_date,
-            exchange=exchange,
-        )
+        # Check whether the primary exchange has gaps (needs fresh fetch)
+        iv_str = _INTERVAL_STR.get(interval)
+        has_gaps = True
+        if iv_str:
+            has_gaps = bool(
+                provider._db.get_gaps(exchange, symbol, iv_str, start_date, end_date)
+            )
+
+        if has_gaps and validate and validate_sources:
+            # New data to fetch — cross-validate with second source
+            sources = [exchange] + validate_sources
+            result = await provider.fetch_and_validate(
+                symbol=symbol,
+                interval=interval,
+                start=start_date,
+                end=end_date,
+                sources=sources,
+            )
+            if result.is_valid:
+                print("[validate] Cross-validation PASSED")
+            else:
+                print("[validate] Cross-validation WARNING — anomalies detected:")
+                for src, info in result.validation_report.items():
+                    if isinstance(info, dict) and "max_diff_pct" in info:
+                        print(
+                            f"  {src}: max_diff={info['max_diff_pct']:.4f}%, "
+                            f"corr={info.get('correlation', 0):.6f}"
+                        )
+                if not result.anomalies.empty:
+                    print(f"  {len(result.anomalies)} bar(s) with >1% deviation")
+            data = result.primary_data
+        else:
+            # Cache hit or validation disabled — fetch from cache only
+            data = await provider.fetch(
+                symbol=symbol,
+                interval=interval,
+                start=start_date,
+                end=end_date,
+                exchange=exchange,
+            )
+
         print(f"Loaded {len(data)} bars")
         return data
     finally:
@@ -168,11 +223,13 @@ async def validate_data(
     from nexustrader.backtest.data.cached_provider import CachedDataProvider
 
     if start_date is None:
-        start_date = datetime.now() - timedelta(days=365 * 2)
+        start_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            days=365 * 2
+        )
     if end_date is None:
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc).replace(tzinfo=None)
     if sources is None:
-        sources = ["bitget", "binance"]
+        sources = ["bitget", "okx"]
 
     print(f"Validating data across {sources}...")
 
@@ -220,9 +277,11 @@ async def fetch_funding_rates(
         DataFrame with ``funding_rate`` column and DatetimeIndex.
     """
     if start_date is None:
-        start_date = datetime.now() - timedelta(days=365 * 2)
+        start_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            days=365 * 2
+        )
     if end_date is None:
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc).replace(tzinfo=None)
 
     print("Fetching funding rates...")
 

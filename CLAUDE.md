@@ -438,7 +438,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-R, --rolling-optimize` | Rolling optimize (day-forward test): re-optimize on rolling training window, test next day |
 | `--train-days` | Training window size in days for `--rolling-optimize` (default: 7) |
 | `--no-cache` | Skip local SQLite cache, fetch directly from exchange |
-| `--validate` | Cross-validate data across exchanges (optionally specify sources) |
+| `--no-validate` | Skip automatic cross-validation of newly fetched data |
 | `--db-stats` | Show local kline database statistics and exit |
 
 ### Architecture
@@ -483,6 +483,9 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 **Sharpe Annualisation (Auto-Inferred)**
 `PerformanceAnalyzer` and `VectorizedBacktest._calculate_metrics()` infer `periods_per_year` from the equity curve's DatetimeIndex via `infer_periods_per_year()` (`nexustrader/backtest/analysis/performance.py`). No manual configuration needed — 1h strategies automatically use ~8766 instead of the incorrect 15m constant 35040.
 
+**UTC Datetime Convention**
+`strategy/backtest/utils.py` and `cli.py` use `datetime.now(timezone.utc).replace(tzinfo=None)` instead of `datetime.now()`.  Since `calendar.timegm()` treats naive datetimes as UTC, using local time would produce timestamps offset by the system timezone (e.g. +8h in UTC+8), causing exchange APIs to reject requests with future timestamps.
+
 **Parallel Scan / Optimise**
 `HeatmapScanner` and `GridSearchOptimizer` accept `n_jobs` (also exposed as `--jobs/-j` in the CLI):
 - HeatmapScanner: full parallel — each `_run_single()` creates a fresh generator (thread-safe)
@@ -502,7 +505,7 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 - **ValidatedData**: `fetch_and_validate()` compares data across multiple exchanges
 - Returns: `primary_data`, `validation_report`, `anomalies`, `is_valid`
 
-`strategy/backtest/utils.py` — `fetch_data()` uses cache by default (`no_cache=False`); `validate_data()` for multi-source comparison.
+`strategy/backtest/utils.py` — `fetch_data()` uses cache by default (`no_cache=False`) with automatic cross-validation against OKX for newly fetched data (`validate=True`).  Already-cached data skips validation.  Usable validation sources (China-accessible): okx, gate, htx.
 
 Tests: `uv run pytest test/backtest/test_database.py -v` (20 tests)
 
