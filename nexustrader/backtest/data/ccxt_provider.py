@@ -2,6 +2,7 @@
 CCXT-based DataProvider for fetching historical data from exchanges.
 """
 
+import calendar
 from datetime import datetime
 from typing import Optional
 
@@ -39,6 +40,12 @@ class CCXTDataProvider(DataProvider):
         KlineInterval.HOUR_4: 14_400_000,
         KlineInterval.DAY_1: 86_400_000,
     }
+
+    # Maximum candles per request.  Bitget silently ignores the ``since``
+    # parameter when ``limit`` exceeds 200, returning the most recent bars
+    # instead.  Cap at 200 for safety across all exchanges (the loop
+    # handles pagination for larger ranges).
+    _BATCH_LIMIT = 200
 
     def __init__(
         self,
@@ -106,20 +113,23 @@ class CCXTDataProvider(DataProvider):
             if interval_ms is None:
                 raise ValueError(f"Unsupported interval: {interval}")
 
-            # Convert datetimes to timestamps
-            since = int(start.timestamp() * 1000)
-            end_ts = int(end.timestamp() * 1000)
+            # Convert datetimes to UTC timestamps (ms).
+            # Use calendar.timegm() so naive datetimes are always treated
+            # as UTC, matching the UTC timestamps returned by exchanges.
+            since = int(calendar.timegm(start.timetuple()) * 1000)
+            end_ts = int(calendar.timegm(end.timetuple()) * 1000)
 
             all_candles = []
             current_since = since
 
             while current_since < end_ts:
-                # Fetch batch of candles
+                # Fetch batch of candles (capped at _BATCH_LIMIT to
+                # prevent Bitget from ignoring the ``since`` parameter)
                 candles = await exchange.fetch_ohlcv(
                     symbol,
                     timeframe,
                     since=current_since,
-                    limit=1000,
+                    limit=self._BATCH_LIMIT,
                 )
 
                 if not candles:

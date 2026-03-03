@@ -2,6 +2,7 @@
 FundingRateProvider for fetching historical funding rates.
 """
 
+import calendar
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
@@ -37,10 +38,12 @@ class FundingRateProvider:
         """Get or create CCXT exchange instance."""
         if self._exchange is None:
             exchange_class = getattr(ccxt, self.exchange_name)
-            self._exchange = exchange_class({
-                "enableRateLimit": True,
-                "timeout": 30000,  # 30 second timeout
-            })
+            self._exchange = exchange_class(
+                {
+                    "enableRateLimit": True,
+                    "timeout": 30000,  # 30 second timeout
+                }
+            )
         return self._exchange
 
     async def _close_exchange(self):
@@ -78,9 +81,11 @@ class FundingRateProvider:
         exchange = self._get_exchange()
 
         try:
-            # Convert datetimes to timestamps
-            since = int(start.timestamp() * 1000)
-            end_ts = int(end.timestamp() * 1000)
+            # Convert datetimes to UTC timestamps (ms).
+            # Use calendar.timegm() so naive datetimes are always treated
+            # as UTC, matching the UTC timestamps returned by exchanges.
+            since = int(calendar.timegm(start.timetuple()) * 1000)
+            end_ts = int(calendar.timegm(end.timetuple()) * 1000)
 
             all_rates = []
 
@@ -102,10 +107,12 @@ class FundingRateProvider:
                         for rate in rates:
                             rate_ts = rate.get("timestamp", 0)
                             if since <= rate_ts <= end_ts:
-                                all_rates.append({
-                                    "timestamp": rate_ts,
-                                    "funding_rate": rate.get("fundingRate", 0),
-                                })
+                                all_rates.append(
+                                    {
+                                        "timestamp": rate_ts,
+                                        "funding_rate": rate.get("fundingRate", 0),
+                                    }
+                                )
 
                         # Move to next batch
                         current_since = rates[-1]["timestamp"] + 1
@@ -122,10 +129,14 @@ class FundingRateProvider:
                 try:
                     rate = await exchange.fetch_funding_rate(symbol)
                     if rate:
-                        all_rates.append({
-                            "timestamp": rate.get("timestamp", int(datetime.now().timestamp() * 1000)),
-                            "funding_rate": rate.get("fundingRate", 0),
-                        })
+                        all_rates.append(
+                            {
+                                "timestamp": rate.get(
+                                    "timestamp", int(datetime.now().timestamp() * 1000)
+                                ),
+                                "funding_rate": rate.get("fundingRate", 0),
+                            }
+                        )
                 except Exception:
                     pass
 

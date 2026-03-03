@@ -177,6 +177,8 @@ class CachedDataProvider:
             df = await self.fetch(symbol, interval, start, end, exchange=src)
             if not df.empty:
                 source_data[src] = df
+            else:
+                print(f"[validate] WARNING: {src} returned 0 bars")
 
         if not source_data:
             return ValidatedData(
@@ -204,6 +206,12 @@ class CachedDataProvider:
 
         report: dict = {}
         all_valid = True
+
+        # Report sources that returned no data
+        for src in sources:
+            if src != primary_name and src not in source_data:
+                report[src] = {"status": "no_data", "bars_fetched": 0}
+                all_valid = False
 
         for name in source_data:
             if name == primary_name:
