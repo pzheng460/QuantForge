@@ -485,8 +485,8 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 **Funding Rate Fallback (Gate.io)**
 `fetch_funding_rates()` in `utils.py` tries the requested exchange first; if it returns fewer than 500 records for periods > 6 months, it falls back to Gate.io (`gate` in CCXT) which provides full funding rate history.  Bitget/OKX only return ~100–270 recent records, while Gate.io returns 5000+ covering years of data.
 
-**Daily SMA Look-Ahead Prevention**
-The `sma_trend` strategy resamples 1h bars to daily close, computes rolling SMA, then forward-fills back to 1h. A `.shift(1)` is applied to the daily SMA before forward-filling, ensuring day D only sees the SMA computed from day D-1's close. Without this shift, all 24 bars of day D would see D's own end-of-day close ~23 hours early (severe look-ahead bias).
+**SMA Trend Daily-Close Gating**
+The `sma_trend` strategy resamples 1h bars to daily close, computes rolling SMA, then forward-fills back to 1h. Signal evaluation (close vs SMA) is gated to daily-close bars only — the last 1h bar of each calendar day (`is_daily_close=True`). All intraday bars return HOLD, preventing 1h price noise from generating false crossovers. The runner's 1-bar signal delay already prevents look-ahead (signal from bar i executes at bar i+1), so no `.shift(1)` on the SMA itself is needed.
 
 **Sharpe Annualisation (Auto-Inferred)**
 `PerformanceAnalyzer` and `VectorizedBacktest._calculate_metrics()` infer `periods_per_year` from the equity curve's DatetimeIndex via `infer_periods_per_year()` (`nexustrader/backtest/analysis/performance.py`). No manual configuration needed — 1h strategies automatically use ~8766 instead of the incorrect 15m constant 35040.
