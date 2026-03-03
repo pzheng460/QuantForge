@@ -479,6 +479,30 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 - GridSearchOptimizer：信号生成保持顺序（共享闭包），仅 `VectorizedBacktest.run()` 并行化
 - `n_jobs=-1` 使用所有可用 CPU 核心
 
+### 蒙特卡洛模拟与压力测试
+
+`nexustrader/backtest/simulation/` 子模块提供策略稳健性评估的统计模拟功能：
+
+| 模块 | 类 | 用途 |
+|------|-----|------|
+| `bootstrap.py` | `BlockBootstrap` | 基于对数收益率的分块自助法重采样（保留厚尾、波动率聚集） |
+| `monte_carlo.py` | `GBMGenerator` | 几何布朗运动路径生成 |
+| `monte_carlo.py` | `JumpDiffusionGenerator` | Merton跳跃扩散（GBM + 泊松跳跃，产生更厚的尾部） |
+| `stress_test.py` | `StressTestGenerator` | 重要性采样：崩盘、暴涨、波动率放大情景 |
+| `stress_test.py` | `StressTestResult` | 数据类：路径、重要性权重、尾部概率 |
+| `report.py` | `SimulationReport` | 分布统计、置信区间、可选matplotlib图表 |
+
+所有类接受 OHLCV DataFrame（DatetimeIndex，列：open/high/low/close/volume），输出相同格式的合成路径列表。GBM/JD 使用 `infer_periods_per_year()` 计算 dt。
+
+```python
+from nexustrader.backtest.simulation import (
+    BlockBootstrap, GBMGenerator, JumpDiffusionGenerator,
+    StressTestGenerator, SimulationReport,
+)
+```
+
+测试：`uv run pytest test/backtest/test_simulation.py -v`（23个测试）
+
 ## Claude Code 记忆
 
 ### 工作规范

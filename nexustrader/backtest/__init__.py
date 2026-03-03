@@ -38,6 +38,16 @@ from nexustrader.backtest.optimization.walk_forward import (
     WindowType,
 )
 
+# Simulation tools
+from nexustrader.backtest.simulation import (
+    BlockBootstrap,
+    GBMGenerator,
+    JumpDiffusionGenerator,
+    SimulationReport,
+    StressTestGenerator,
+    StressTestResult,
+)
+
 __all__ = [
     # Core
     "BacktestConfig",
@@ -68,4 +78,11 @@ __all__ = [
     "WalkForwardAnalyzer",
     "WalkForwardResult",
     "WindowType",
+    # Simulation
+    "BlockBootstrap",
+    "GBMGenerator",
+    "JumpDiffusionGenerator",
+    "SimulationReport",
+    "StressTestGenerator",
+    "StressTestResult",
 ]

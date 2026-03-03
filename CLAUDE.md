@@ -486,6 +486,30 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 - GridSearchOptimizer: signal generation stays sequential (shared closure), only `VectorizedBacktest.run()` is parallelised
 - `n_jobs=-1` uses all available CPU cores
 
+### Monte Carlo Simulation & Stress Testing
+
+The `nexustrader/backtest/simulation/` submodule provides statistical simulation capabilities for strategy robustness assessment:
+
+| Module | Class | Purpose |
+|--------|-------|---------|
+| `bootstrap.py` | `BlockBootstrap` | Block bootstrap resampling on log-returns (preserves fat tails, volatility clustering) |
+| `monte_carlo.py` | `GBMGenerator` | Geometric Brownian Motion path generation |
+| `monte_carlo.py` | `JumpDiffusionGenerator` | Merton Jump Diffusion (GBM + Poisson jumps for fatter tails) |
+| `stress_test.py` | `StressTestGenerator` | Importance sampling: crash, spike, and volatility regime scenarios |
+| `stress_test.py` | `StressTestResult` | Dataclass with paths, importance weights, tail probability |
+| `report.py` | `SimulationReport` | Distribution statistics, confidence intervals, optional matplotlib plots |
+
+All classes accept OHLCV DataFrames (DatetimeIndex, columns: open/high/low/close/volume) and produce `List[pd.DataFrame]` of synthetic paths in the same format. GBM/JD use `infer_periods_per_year()` for dt calculation.
+
+```python
+from nexustrader.backtest.simulation import (
+    BlockBootstrap, GBMGenerator, JumpDiffusionGenerator,
+    StressTestGenerator, SimulationReport,
+)
+```
+
+Tests: `uv run pytest test/backtest/test_simulation.py -v` (23 tests)
+
 ## Claude Code Memories
 
 ### Workflow Rules
