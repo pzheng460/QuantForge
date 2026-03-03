@@ -35,10 +35,8 @@ from strategy.strategies.sma_trend.signal_core import SMATrendSignalCore
 def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
     """Resample 1h closes to daily, compute rolling SMA, forward-fill to 1h index.
 
-    The daily SMA is shifted by 1 day before forward-filling so that on
-    day D only the SMA computed from day D-1's close is visible.  This
-    prevents look-ahead bias: without the shift, all 24 hourly bars of
-    day D would see day D's own end-of-day close (~23 hours early).
+    The runner already applies a 1-bar signal delay via _apply_signal_delay(),
+    so no additional shift is needed here.
     """
     sma_period = effective_config.sma_period
 
@@ -52,9 +50,6 @@ def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
     daily_close = daily_close.resample("1D").last().dropna()
 
     daily_sma = daily_close.rolling(sma_period).mean()
-
-    # Shift by 1 day: day D's SMA becomes available at start of day D+1
-    daily_sma = daily_sma.shift(1)
 
     # Forward-fill daily SMA back to 1h index
     sma_at_1h = daily_sma.reindex(idx, method="ffill")
@@ -93,8 +88,6 @@ def _parity_sma_pre_core_hook(core, data, seed):
     daily_close.index = idx
     daily_close = daily_close.resample("1D").last().dropna()
     daily_sma = daily_close.rolling(sma_period).mean()
-    # Shift by 1 day to match _sma_pre_loop_hook (no look-ahead)
-    daily_sma = daily_sma.shift(1)
     sma_at_1h = daily_sma.reindex(idx, method="ffill")
     core._test_daily_sma = sma_at_1h.values
 
@@ -126,6 +119,7 @@ def _make_generator(config, filter_config):
         filter_config,
         core_cls=SMATrendSignalCore,
         update_columns=COLUMNS_CLOSE,
+        core_extra_filter_fields=(),
         pre_loop_hook=_sma_pre_loop_hook,
         bar_hook=_sma_bar_hook,
     )
@@ -154,20 +148,18 @@ register_strategy(
         default_interval=KlineInterval.HOUR_1,
         default_grid={
             "sma_period": [50, 100, 150, 200],
-            "min_holding_bars": [4, 8, 16, 24],
-            "cooldown_bars": [2, 4, 8],
-            "signal_confirmation": [1, 2, 3],
+            "min_holding_bars": [1, 4, 8, 16],
+            "cooldown_bars": [0, 2, 4],
         },
         heatmap_config=HeatmapConfig(
             x_param_name="sma_period",
             y_param_name="min_holding_bars",
             x_range=(20, 250),
-            y_range=(2, 48),
+            y_range=(1, 48),
             x_label="SMA Period (days)",
             y_label="Min Holding Bars (1h)",
             third_param_choices={
-                "signal_confirmation": [1, 2, 3],
-                "cooldown_bars": [2, 4, 8],
+                "cooldown_bars": [0, 2, 4],
             },
             fixed_params={
                 "position_size_pct": 1.0,
@@ -195,6 +187,7 @@ register_strategy(
             data_generator=_generate_sma_ohlcv,
             data_size=2000,
             random_seeds=(1, 17, 99),
+            core_filter_fields=(),
             pre_generate_hook=_parity_sma_pre_generate_hook,
             pre_core_hook=_parity_sma_pre_core_hook,
             core_bar_hook=_parity_sma_core_bar_hook,

@@ -32,22 +32,21 @@ class SMATrendSignalCore:
     """Shared signal logic for SMA Trend (long-only).
 
     Long when close > daily SMA, flat otherwise.
-    No shorting, no stop loss.
+    No shorting, no stop loss, no signal confirmation.
+    Raw signal directly drives position changes.
     """
 
     def __init__(
         self,
         config: SMATrendConfig,
-        min_holding_bars: int = 4,
-        cooldown_bars: int = 2,
-        signal_confirmation: int = 1,
+        min_holding_bars: int = 1,
+        cooldown_bars: int = 0,
     ):
         self._config = config
 
         # Filter params
         self._min_holding_bars = min_holding_bars
         self._cooldown_bars = cooldown_bars
-        self._signal_confirmation = signal_confirmation
 
         # Streaming SMA (for live mode with daily klines)
         self._sma = StreamingSMA(config.sma_period)
@@ -57,7 +56,6 @@ class SMATrendSignalCore:
         self.entry_bar = 0
         self.entry_price = 0.0
         self.cooldown_until = 0
-        self.signal_count = {BUY: 0, CLOSE: 0}
         self.bar_index = 0
 
     def update_indicators_only(self, close: float, sma_value: float = None) -> None:
@@ -92,43 +90,19 @@ class SMATrendSignalCore:
 
         price = close
 
-        # ---- 1. Raw signal generation ----
-        raw_signal = HOLD
-        if price > sma:
-            raw_signal = BUY
-        elif price < sma:
-            raw_signal = CLOSE
-
-        # ---- 2. Cooldown check ----
+        # ---- 1. Cooldown check ----
         if i < self.cooldown_until:
             return HOLD
 
-        # ---- 3. Signal confirmation ----
-        if raw_signal == BUY:
-            self.signal_count[BUY] += 1
-            self.signal_count[CLOSE] = 0
-        elif raw_signal == CLOSE:
-            self.signal_count[CLOSE] += 1
-            self.signal_count[BUY] = 0
-        else:
-            self.signal_count[BUY] = 0
-            self.signal_count[CLOSE] = 0
-
-        confirmed_signal = HOLD
-        if self.signal_count[BUY] >= self._signal_confirmation:
-            confirmed_signal = BUY
-        elif self.signal_count[CLOSE] >= self._signal_confirmation:
-            confirmed_signal = CLOSE
-
-        # ---- 4. Position management (long-only) ----
-        if confirmed_signal == BUY:
+        # ---- 2. Position management (long-only, no confirmation) ----
+        if price > sma:
             if self.position == 0:
                 self.position = 1
                 self.entry_bar = i
                 self.entry_price = price
                 return BUY
 
-        elif confirmed_signal == CLOSE:
+        elif price < sma:
             if self.position == 1 and i - self.entry_bar >= self._min_holding_bars:
                 self.position = 0
                 self.entry_price = 0.0
@@ -144,7 +118,6 @@ class SMATrendSignalCore:
         self.entry_bar = 0
         self.entry_price = 0.0
         self.cooldown_until = 0
-        self.signal_count = {BUY: 0, CLOSE: 0}
         self.bar_index = 0
 
     def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
