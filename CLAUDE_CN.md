@@ -475,6 +475,12 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 **资金费率数据质量**
 当 `funding_rates` 为空/None 时，`use_funding_rate=False` 传递给 `CostConfig` 并打印警告。`_build_funding_rate_series` 的回退值使用 `0.0`（不建模资金成本），而非之前误导性的 `0.000014` 常量。
 
+**资金费率回退（Gate.io）**
+`utils.py` 中的 `fetch_funding_rates()` 先尝试请求的交易所；若返回少于 500 条记录（>6 个月的周期），则回退到 Gate.io（CCXT 中的 `gate`），其提供完整的资金费率历史。Bitget/OKX 仅返回约 100–270 条近期记录，而 Gate.io 返回 5000+ 条，覆盖数年数据。
+
+**日线 SMA 预知防范**
+`sma_trend` 策略将 1h K 线重采样为日线收盘价，计算滚动 SMA 后前向填充回 1h。在前向填充前对日线 SMA 应用 `.shift(1)`，确保第 D 天只能看到第 D-1 天收盘价计算的 SMA。否则第 D 天的全部 24 根 K 线会提前约 23 小时看到当天的收盘价（严重预知偏差）。
+
 **Sharpe 年化自动推断**
 `PerformanceAnalyzer` 和 `VectorizedBacktest._calculate_metrics()` 通过 `infer_periods_per_year()`（`nexustrader/backtest/analysis/performance.py`）从权益曲线的 DatetimeIndex 中位数推断每年周期数。无需手动配置——1h 策略自动使用约 8766，而非错误的 15m 常量 35040。
 

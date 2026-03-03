@@ -268,6 +268,10 @@ async def fetch_funding_rates(
 ) -> pd.DataFrame:
     """Fetch historical funding rates.
 
+    Tries the requested exchange first; if it returns fewer than
+    ``_MIN_FUNDING_RECORDS`` records, falls back to Gate.io which
+    provides full history for most perpetual pairs.
+
     Args:
         symbol: Trading pair symbol.
         start_date: Start of data range (defaults to 2 years ago).
@@ -277,6 +281,9 @@ async def fetch_funding_rates(
     Returns:
         DataFrame with ``funding_rate`` column and DatetimeIndex.
     """
+    _MIN_FUNDING_RECORDS = 500
+    _FALLBACK_EXCHANGE = "gate"
+
     if start_date is None:
         start_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
             days=365 * 2
@@ -284,7 +291,11 @@ async def fetch_funding_rates(
     if end_date is None:
         end_date = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    print("Fetching funding rates...")
+    days_requested = (end_date - start_date).days
+    # Only expect many records for long periods (>6 months = ~540 settlements)
+    need_fallback_check = days_requested > 180
+
+    print(f"Fetching funding rates from {exchange}...")
 
     try:
         async with FundingRateProvider(exchange=exchange) as provider:
@@ -293,13 +304,46 @@ async def fetch_funding_rates(
                 start=start_date,
                 end=end_date,
             )
-            if not funding_rates.empty:
-                print(f"Fetched {len(funding_rates)} funding rate records")
-                avg_rate = funding_rates["funding_rate"].mean() * 100
-                print(f"Average funding rate: {avg_rate:.4f}% per 8h")
-            else:
-                print("No funding rate data available (will use zero)")
-            return funding_rates
+
+        if not funding_rates.empty:
+            print(f"Fetched {len(funding_rates)} funding rate records from {exchange}")
+            avg_rate = funding_rates["funding_rate"].mean() * 100
+            print(f"Average funding rate: {avg_rate:.4f}% per 8h")
+
+        # Fallback to gate if primary exchange returned too few records
+        if (
+            need_fallback_check
+            and len(funding_rates) < _MIN_FUNDING_RECORDS
+            and exchange != _FALLBACK_EXCHANGE
+        ):
+            print(
+                f"[funding] {exchange} returned only {len(funding_rates)} records "
+                f"for {days_requested}d — falling back to {_FALLBACK_EXCHANGE}..."
+            )
+            try:
+                async with FundingRateProvider(
+                    exchange=_FALLBACK_EXCHANGE
+                ) as fallback:
+                    fb_rates = await fallback.fetch_funding_rates(
+                        symbol=symbol,
+                        start=start_date,
+                        end=end_date,
+                    )
+                if not fb_rates.empty and len(fb_rates) > len(funding_rates):
+                    funding_rates = fb_rates
+                    print(
+                        f"[funding] Got {len(funding_rates)} records from "
+                        f"{_FALLBACK_EXCHANGE}"
+                    )
+                    avg_rate = funding_rates["funding_rate"].mean() * 100
+                    print(f"Average funding rate: {avg_rate:.4f}% per 8h")
+            except Exception as e:
+                print(f"[funding] Fallback to {_FALLBACK_EXCHANGE} failed: {e}")
+
+        if funding_rates.empty:
+            print("No funding rate data available (will use zero)")
+
+        return funding_rates
     except Exception as e:
         print(f"Warning: Could not fetch funding rates: {e}")
         print("Continuing without funding rate data...")

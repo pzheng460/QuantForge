@@ -33,7 +33,13 @@ from strategy.strategies.sma_trend.signal_core import SMATrendSignalCore
 
 
 def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
-    """Resample 1h closes to daily, compute rolling SMA, forward-fill to 1h index."""
+    """Resample 1h closes to daily, compute rolling SMA, forward-fill to 1h index.
+
+    The daily SMA is shifted by 1 day before forward-filling so that on
+    day D only the SMA computed from day D-1's close is visible.  This
+    prevents look-ahead bias: without the shift, all 24 hourly bars of
+    day D would see day D's own end-of-day close (~23 hours early).
+    """
     sma_period = effective_config.sma_period
 
     if data.index.tz is None:
@@ -46,6 +52,9 @@ def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
     daily_close = daily_close.resample("1D").last().dropna()
 
     daily_sma = daily_close.rolling(sma_period).mean()
+
+    # Shift by 1 day: day D's SMA becomes available at start of day D+1
+    daily_sma = daily_sma.shift(1)
 
     # Forward-fill daily SMA back to 1h index
     sma_at_1h = daily_sma.reindex(idx, method="ffill")
@@ -84,6 +93,8 @@ def _parity_sma_pre_core_hook(core, data, seed):
     daily_close.index = idx
     daily_close = daily_close.resample("1D").last().dropna()
     daily_sma = daily_close.rolling(sma_period).mean()
+    # Shift by 1 day to match _sma_pre_loop_hook (no look-ahead)
+    daily_sma = daily_sma.shift(1)
     sma_at_1h = daily_sma.reindex(idx, method="ffill")
     core._test_daily_sma = sma_at_1h.values
 

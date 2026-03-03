@@ -482,6 +482,12 @@ Strategies with `position_size_pct < 1.0` (e.g. `funding_rate=0.30`, `grid_tradi
 **Funding Rate Data Quality**
 When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostConfig` and a warning is printed. The fallback in `_build_funding_rate_series` uses `0.0` (no cost modelled) instead of the previous misleading `0.000014` constant.
 
+**Funding Rate Fallback (Gate.io)**
+`fetch_funding_rates()` in `utils.py` tries the requested exchange first; if it returns fewer than 500 records for periods > 6 months, it falls back to Gate.io (`gate` in CCXT) which provides full funding rate history.  Bitget/OKX only return ~100–270 recent records, while Gate.io returns 5000+ covering years of data.
+
+**Daily SMA Look-Ahead Prevention**
+The `sma_trend` strategy resamples 1h bars to daily close, computes rolling SMA, then forward-fills back to 1h. A `.shift(1)` is applied to the daily SMA before forward-filling, ensuring day D only sees the SMA computed from day D-1's close. Without this shift, all 24 bars of day D would see D's own end-of-day close ~23 hours early (severe look-ahead bias).
+
 **Sharpe Annualisation (Auto-Inferred)**
 `PerformanceAnalyzer` and `VectorizedBacktest._calculate_metrics()` infer `periods_per_year` from the equity curve's DatetimeIndex via `infer_periods_per_year()` (`nexustrader/backtest/analysis/performance.py`). No manual configuration needed — 1h strategies automatically use ~8766 instead of the incorrect 15m constant 35040.
 
