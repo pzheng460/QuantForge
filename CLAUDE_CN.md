@@ -430,6 +430,9 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-L, --leverage` | 杠杆倍数（默认：1.0） |
 | `-R, --rolling-optimize` | 滚动优化（日前向测试）：在滚动训练窗口上重新优化，测试下一天 |
 | `--train-days` | `--rolling-optimize` 的训练窗口天数（默认：7） |
+| `--no-cache` | 跳过本地 SQLite 缓存，直接从交易所拉取 |
+| `--validate` | 多源交叉验证数据（可指定交易所） |
+| `--db-stats` | 显示本地 K 线数据库统计信息 |
 
 ### 架构
 
@@ -478,6 +481,23 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 - HeatmapScanner：完全并行——每个 `_run_single()` 创建新生成器（线程安全）
 - GridSearchOptimizer：信号生成保持顺序（共享闭包），仅 `VectorizedBacktest.run()` 并行化
 - `n_jobs=-1` 使用所有可用 CPU 核心
+
+### 本地数据缓存与多源验证
+
+`nexustrader/backtest/data/database.py` 提供 SQLite 缓存层：
+- **KlineDatabase**: 存储 OHLCV 数据至 `~/.nexustrader/data/klines.db`（可配置）
+- API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
+- 唯一约束: `(exchange, symbol, interval, timestamp)`
+- 使用 `calendar.timegm()` 确保时区安全的 UTC 时间戳转换
+
+`nexustrader/backtest/data/cached_provider.py` 提供智能缓存 + 验证：
+- **CachedDataProvider**: `fetch()` 先查缓存，仅拉取缺失区间
+- **ValidatedData**: `fetch_and_validate()` 跨交易所对比数据
+- 返回: `primary_data`, `validation_report`, `anomalies`, `is_valid`
+
+`strategy/backtest/utils.py` — `fetch_data()` 默认使用缓存（`no_cache=False`）；`validate_data()` 多源交叉验证。
+
+测试：`uv run pytest test/backtest/test_database.py -v`（20个测试）
 
 ### 蒙特卡洛模拟与压力测试
 

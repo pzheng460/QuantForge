@@ -94,6 +94,8 @@ async def fetch_data(
     end_date: datetime = None,
     interval: KlineInterval = KlineInterval.MINUTE_15,
     exchange: str = "bitget",
+    *,
+    no_cache: bool = False,
 ) -> pd.DataFrame:
     """Fetch historical OHLCV data.
 
@@ -103,6 +105,8 @@ async def fetch_data(
         end_date: End of data range (defaults to now).
         interval: Kline interval.
         exchange: Exchange name for CCXT provider.
+        no_cache: If ``True``, bypass the local SQLite cache and fetch
+            directly from the exchange.
 
     Returns:
         OHLCV DataFrame with DatetimeIndex.
@@ -114,15 +118,88 @@ async def fetch_data(
 
     print(f"Fetching data from {start_date.date()} to {end_date.date()}...")
 
-    async with CCXTDataProvider(exchange=exchange) as provider:
-        data = await provider.fetch_klines(
+    if no_cache:
+        async with CCXTDataProvider(exchange=exchange) as provider:
+            data = await provider.fetch_klines(
+                symbol=symbol,
+                interval=interval,
+                start=start_date,
+                end=end_date,
+            )
+            print(f"Fetched {len(data)} bars")
+            return data
+
+    from nexustrader.backtest.data.cached_provider import CachedDataProvider
+
+    provider = CachedDataProvider(exchanges=[exchange])
+    try:
+        data = await provider.fetch(
             symbol=symbol,
             interval=interval,
             start=start_date,
             end=end_date,
+            exchange=exchange,
         )
-        print(f"Fetched {len(data)} bars")
+        print(f"Loaded {len(data)} bars")
         return data
+    finally:
+        provider.close()
+
+
+async def validate_data(
+    symbol: str = "BTC/USDT:USDT",
+    start_date: datetime = None,
+    end_date: datetime = None,
+    interval: KlineInterval = KlineInterval.MINUTE_15,
+    sources: list[str] | None = None,
+):
+    """Fetch and cross-validate OHLCV data from multiple exchanges.
+
+    Args:
+        symbol: Trading pair symbol.
+        start_date: Start of data range (defaults to 2 years ago).
+        end_date: End of data range (defaults to now).
+        interval: Kline interval.
+        sources: List of exchange names to compare.
+
+    Returns:
+        :class:`~nexustrader.backtest.data.cached_provider.ValidatedData`.
+    """
+    from nexustrader.backtest.data.cached_provider import CachedDataProvider
+
+    if start_date is None:
+        start_date = datetime.now() - timedelta(days=365 * 2)
+    if end_date is None:
+        end_date = datetime.now()
+    if sources is None:
+        sources = ["bitget", "binance"]
+
+    print(f"Validating data across {sources}...")
+
+    provider = CachedDataProvider(exchanges=sources)
+    try:
+        result = await provider.fetch_and_validate(
+            symbol=symbol,
+            interval=interval,
+            start=start_date,
+            end=end_date,
+            sources=sources,
+        )
+        if result.is_valid:
+            print("[validate] Data quality: PASS")
+        else:
+            print("[validate] Data quality: WARN — anomalies detected")
+            for src, info in result.validation_report.items():
+                if isinstance(info, dict) and "max_diff_pct" in info:
+                    print(
+                        f"  {src}: max_diff={info['max_diff_pct']:.4f}%, "
+                        f"corr={info.get('correlation', 0):.6f}"
+                    )
+            if not result.anomalies.empty:
+                print(f"  {len(result.anomalies)} anomalous bar(s)")
+        return result
+    finally:
+        provider.close()
 
 
 async def fetch_funding_rates(

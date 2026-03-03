@@ -25,6 +25,7 @@ from strategy.backtest.utils import (
     fetch_data,
     fetch_funding_rates,
     print_results_table,
+    validate_data,
 )
 
 
@@ -162,6 +163,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Training window size in days for --rolling-optimize (default: 7).",
     )
 
+    # Data caching / validation
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Skip local SQLite cache, fetch directly from exchange.",
+    )
+    parser.add_argument(
+        "--validate",
+        nargs="*",
+        metavar="EXCHANGE",
+        default=None,
+        help=(
+            "Cross-validate data across exchanges. "
+            "Optionally specify sources (e.g. --validate bitget binance). "
+            "Default sources: primary exchange + binance."
+        ),
+    )
+    parser.add_argument(
+        "--db-stats",
+        action="store_true",
+        help="Show local kline database statistics and exit.",
+    )
+
     return parser
 
 
@@ -183,6 +207,23 @@ async def async_main(args: argparse.Namespace) -> None:
         print_results_table(results)
         return
 
+    # Show database stats and exit
+    if args.db_stats:
+        from nexustrader.backtest.data.database import KlineDatabase
+
+        db = KlineDatabase()
+        stats = db.stats()
+        db.close()
+        print("\nKline Database Statistics")
+        print("=" * 50)
+        print(f"  Path:       {stats['db_path']}")
+        print(f"  Size:       {stats['db_size_mb']:.2f} MB")
+        print(f"  Total rows: {stats['total_rows']:,}")
+        print(f"  Exchanges:  {', '.join(stats['exchanges']) or '(none)'}")
+        print(f"  Symbols:    {', '.join(stats['symbols']) or '(none)'}")
+        print("=" * 50)
+        return
+
     # Fetch data
     days = PERIODS.get(args.period, 365)
     end_date = datetime.now()
@@ -196,6 +237,7 @@ async def async_main(args: argparse.Namespace) -> None:
         end_date=end_date,
         interval=runner.reg.default_interval,
         exchange=profile.ccxt_id,
+        no_cache=getattr(args, "no_cache", False),
     )
     funding_rates = await fetch_funding_rates(
         symbol=symbol,
@@ -203,6 +245,24 @@ async def async_main(args: argparse.Namespace) -> None:
         end_date=end_date,
         exchange=profile.ccxt_id,
     )
+
+    # Multi-source cross-validation (if requested)
+    if args.validate is not None:
+        sources = args.validate if args.validate else [profile.ccxt_id, "binance"]
+        # Ensure primary exchange is first
+        if profile.ccxt_id not in sources:
+            sources.insert(0, profile.ccxt_id)
+        validation = await validate_data(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            interval=runner.reg.default_interval,
+            sources=sources,
+        )
+        if not validation.is_valid:
+            print(
+                "[WARNING] Data validation found anomalies — review results carefully"
+            )
 
     # Warn if short period is used with analysis modes that need sufficient data
     if args.period in SHORT_PERIODS and (

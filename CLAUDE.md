@@ -437,6 +437,9 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 | `-L, --leverage` | Leverage multiplier (default: 1.0) |
 | `-R, --rolling-optimize` | Rolling optimize (day-forward test): re-optimize on rolling training window, test next day |
 | `--train-days` | Training window size in days for `--rolling-optimize` (default: 7) |
+| `--no-cache` | Skip local SQLite cache, fetch directly from exchange |
+| `--validate` | Cross-validate data across exchanges (optionally specify sources) |
+| `--db-stats` | Show local kline database statistics and exit |
 
 ### Architecture
 
@@ -485,6 +488,23 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 - HeatmapScanner: full parallel — each `_run_single()` creates a fresh generator (thread-safe)
 - GridSearchOptimizer: signal generation stays sequential (shared closure), only `VectorizedBacktest.run()` is parallelised
 - `n_jobs=-1` uses all available CPU cores
+
+### Local Data Cache & Multi-Source Validation
+
+`nexustrader/backtest/data/database.py` provides a SQLite cache for historical kline data:
+- **KlineDatabase**: Stores OHLCV bars in `~/.nexustrader/data/klines.db` (configurable)
+- API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
+- Unique constraint: `(exchange, symbol, interval, timestamp)`
+- Uses `calendar.timegm()` for timezone-safe UTC epoch conversion
+
+`nexustrader/backtest/data/cached_provider.py` provides smart caching + validation:
+- **CachedDataProvider**: `fetch()` checks cache first, only pulls gaps from exchange
+- **ValidatedData**: `fetch_and_validate()` compares data across multiple exchanges
+- Returns: `primary_data`, `validation_report`, `anomalies`, `is_valid`
+
+`strategy/backtest/utils.py` — `fetch_data()` uses cache by default (`no_cache=False`); `validate_data()` for multi-source comparison.
+
+Tests: `uv run pytest test/backtest/test_database.py -v` (20 tests)
 
 ### Monte Carlo Simulation & Stress Testing
 
