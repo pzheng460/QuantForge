@@ -300,6 +300,7 @@ test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略
 | `SMATrendSignalCore` | `SMATrendConfig` | SMA（日线重采样） | 仅做多趋势跟踪 |
 | `FundingArbSignalCore` | `FundingArbConfig` | 资金费率队列 | 德尔塔中性资金费率套利 |
 | `FearReversalSignalCore` | `FearReversalConfig` | RSI、ATR、SMA、EMA、ADX | 仅做多恐慌反转 |
+| `SMAFundingSignalCore` | `SMAFundingConfig` | SMA、ATR、资金费率队列 | 双腿：SMA趋势（80%）+ 资金费率套利（20%） |
 
 ### 仓位管理状态
 
