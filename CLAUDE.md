@@ -301,6 +301,7 @@ All primitives share: `.value` property, `.update()` returning `Optional[float]`
 | `FundingArbSignalCore` | `FundingArbConfig` | Funding rate deque | Delta-neutral funding arb |
 | `FearReversalSignalCore` | `FearReversalConfig` | RSI, ATR, SMA, EMA, ADX | Long-only fear bounce reversal |
 | `SMAFundingSignalCore` | `SMAFundingConfig` | SMA, ATR, funding rate deque | Dual-leg: SMA trend (80%) + funding arb (20%) |
+| `DynamicGridSignalCore` | `DynamicGridConfig` | SMA, ATR, ADX, SMA(ATR) | Grid trading with volatility-adaptive leverage |
 
 ### Position Management State
 
