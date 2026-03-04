@@ -292,6 +292,7 @@ All primitives share: `.value` property, `.update()` returning `Optional[float]`
 | `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3, EMA×3, ATR | MA convergence breakout |
 | `SMATrendSignalCore` | `SMATrendConfig` | SMA (daily resampled) | Long-only trend following |
 | `FundingArbSignalCore` | `FundingArbConfig` | Funding rate deque | Delta-neutral funding arb |
+| `FearReversalSignalCore` | `FearReversalConfig` | RSI, ATR, SMA, EMA, ADX | Long-only fear bounce reversal |
 
 ### Position Management State
 
@@ -386,7 +387,7 @@ Currently custom: momentum (trailing stops), funding_rate (funding subscription)
 ### Running Parity Tests
 
 ```bash
-# Run all parity tests (107 tests: 88 strategy parity + 19 streaming primitive)
+# Run all parity tests (115 tests: 96 strategy parity + 19 streaming primitive)
 uv run pytest test/strategy/ -v
 
 # Run only strategy parity tests
@@ -477,7 +478,7 @@ WFO window sizes scale with bar interval via `_bars_per_day(interval)`:
 Strategies with `position_size_pct < 1.0` (e.g. `funding_rate=0.30`, `grid_trading=0.20`) correctly size positions in all backtest paths: single run, grid search, walk-forward, heatmap.
 
 **Intrabar Stop Loss**
-`BaseSignalGenerator.generate()` checks bar `low`/`high` against `entry_price * stop_loss_pct` after each `core.update()` call. If triggered, the signal is overridden to CLOSE and core state is reset. Parity tests mirror this logic in `_run_core` so all 107 tests still pass.
+`BaseSignalGenerator.generate()` checks bar `low`/`high` against `entry_price * stop_loss_pct` after each `core.update()` call. If triggered, the signal is overridden to CLOSE and core state is reset. Parity tests mirror this logic in `_run_core` so all 115 tests still pass.
 
 **Funding Rate Data Quality**
 When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostConfig` and a warning is printed. The fallback in `_build_funding_rate_series` uses `0.0` (no cost modelled) instead of the previous misleading `0.000014` constant.

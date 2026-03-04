@@ -292,6 +292,7 @@ test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略
 | `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3、EMA×3、ATR | 均线密集突破 |
 | `SMATrendSignalCore` | `SMATrendConfig` | SMA（日线重采样） | 仅做多趋势跟踪 |
 | `FundingArbSignalCore` | `FundingArbConfig` | 资金费率队列 | 德尔塔中性资金费率套利 |
+| `FearReversalSignalCore` | `FearReversalConfig` | RSI、ATR、SMA、EMA、ADX | 仅做多恐慌反转 |
 
 ### 仓位管理状态
 
@@ -379,7 +380,7 @@ class TradeFilterConfig:
 ### 运行一致性测试
 
 ```bash
-# 运行所有指标测试（107 个：88 策略一致性 + 19 流式原语）
+# 运行所有指标测试（115 个：96 策略一致性 + 19 流式原语）
 uv run pytest test/strategy/ -v
 
 # 仅运行策略一致性测试（自动发现，无需手动维护）
@@ -470,7 +471,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 资金费率策略（0.30）、网格策略（0.20）等的仓位比例正确传递至所有回测路径：单次运行、网格搜索、前推验证、热力图。
 
 **bar 内止损**
-`BaseSignalGenerator.generate()` 在每次 `core.update()` 调用后用 bar 的最低/最高价检查止损。触发时信号覆盖为 CLOSE 并重置核心状态。一致性测试在 `_run_core` 中镜像此逻辑，确保所有 107 个测试仍通过。
+`BaseSignalGenerator.generate()` 在每次 `core.update()` 调用后用 bar 的最低/最高价检查止损。触发时信号覆盖为 CLOSE 并重置核心状态。一致性测试在 `_run_core` 中镜像此逻辑，确保所有 115 个测试仍通过。
 
 **资金费率数据质量**
 当 `funding_rates` 为空/None 时，`use_funding_rate=False` 传递给 `CostConfig` 并打印警告。`_build_funding_rate_series` 的回退值使用 `0.0`（不建模资金成本），而非之前误导性的 `0.000014` 常量。
