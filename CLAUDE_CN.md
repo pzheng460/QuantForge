@@ -207,6 +207,13 @@ self.register_indicator(
 ### 导入规范
 - 始终使用绝对路径导入
 
+### 连接器杠杆设置
+- `PrivateConnectorConfig.leverage` 设置杠杆倍数；`leverage_symbols` 可选地限制应用于哪些交易对。
+- 杠杆在 `strategy.on_start()` 之后通过 `engine._apply_leverage()` 应用，因此只针对策略实际订阅的交易对（通过 `strategy._subscribed_symbols` 自动检测）。
+- 优先级：显式 `leverage_symbols` 配置 → 自动检测策略交易对 → 跳过（无全品种兜底）。
+- `BitgetPrivateConnector.apply_leverage(strategy_symbols)` 是入口点；其他交易所在实现杠杆设置时可添加相同方法。
+- `Strategy._track_subscribed_symbols()` 在每个 `subscribe_*()` 方法中被调用，以构建 `_subscribed_symbols`。
+
 ## 统一信号核心架构
 
 所有交易策略共享一个 **SignalCore** 模式，保证回测和实盘交易之间 100% 的代码一致性。信号逻辑存在于单一的共享类中——回测信号生成器和实盘指标都委托给它。

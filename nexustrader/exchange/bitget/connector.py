@@ -507,20 +507,15 @@ class BitgetPrivateConnector(PrivateConnector):
             return "SCOIN-FUTURES" if is_demo else "COIN-FUTURES"
         return None
 
-    async def _set_leverage(self, leverage: int):
-        """Set leverage for futures symbols.
-
-        If leverage_symbols is specified, only set leverage for those symbols.
-        Otherwise, set leverage for all futures symbols in the market.
-        """
+    async def _set_leverage_for_symbols(self, leverage: int, symbols: set[str]):
+        """Set leverage for a specific set of futures symbols."""
         is_uta = self._account_type.is_uta
         success_count = 0
         fail_count = 0
 
-        for symbol, market in self._market.items():
-            if not market.swap:
-                continue
-            if self._leverage_symbols and symbol not in self._leverage_symbols:
+        for symbol in symbols:
+            market = self._market.get(symbol)
+            if not market or not market.swap:
                 continue
             product_type = self._get_product_type(market)
             if not product_type:
@@ -552,6 +547,36 @@ class BitgetPrivateConnector(PrivateConnector):
             f"Leverage setting complete: {success_count} succeeded, {fail_count} failed"
         )
 
+    async def apply_leverage(self, strategy_symbols: list[str] | None = None):
+        """Apply leverage to traded symbols after strategy on_start().
+
+        Priority:
+        1. ``leverage_symbols`` explicitly set in config — always use these.
+        2. ``strategy_symbols`` collected from strategy subscriptions — auto-detect.
+        3. If neither is available, skip (no fallback to all-futures loop).
+        """
+        if self._leverage is None:
+            return
+
+        if self._leverage_symbols:
+            effective = self._leverage_symbols
+            self._log.info(
+                f"Setting leverage to {self._leverage}x for configured symbols: {', '.join(effective)}..."
+            )
+        elif strategy_symbols:
+            effective = set(strategy_symbols)
+            self._log.info(
+                f"Setting leverage to {self._leverage}x for {len(effective)} strategy symbol(s)..."
+            )
+        else:
+            self._log.warning(
+                "Leverage configured but no symbols available to set it for. "
+                "Set `leverage_symbols` in PrivateConnectorConfig or ensure strategy subscribes before leverage is applied."
+            )
+            return
+
+        await self._set_leverage_for_symbols(self._leverage, effective)
+
     async def connect(self):
         await self._oms._ws_api_client.connect()
         if self._account_type.is_uta:
@@ -575,15 +600,6 @@ class BitgetPrivateConnector(PrivateConnector):
         elif self._account_type.is_spot:
             await self._oms._ws_client.subscribe_orders(inst_types=["SPOT"])
             await self._oms._ws_client.subscribe_account(inst_types=["SPOT"])
-
-        if self._leverage is not None:
-            target = (
-                f"symbols: {', '.join(self._leverage_symbols)}"
-                if self._leverage_symbols
-                else "all futures symbols"
-            )
-            self._log.info(f"Setting leverage to {self._leverage}x for {target}...")
-            await self._set_leverage(self._leverage)
 
 
 # async def main():

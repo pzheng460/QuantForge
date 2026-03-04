@@ -404,6 +404,13 @@ class Engine:
             nautilus_pyo3.logger_flush()
         self._log.debug("Auto flush worker thread stopped")
 
+    async def _apply_leverage(self):
+        """Set leverage on private connectors for strategy-subscribed symbols only."""
+        strategy_symbols = list(self._strategy._subscribed_symbols)
+        for connector in self._private_connectors.values():
+            if hasattr(connector, "apply_leverage"):
+                await connector.apply_leverage(strategy_symbols)
+
     async def _start(self):
         await self._sms.start()
         await self._start_oms()
@@ -412,6 +419,7 @@ class Engine:
         if self._custom_signal_recv:
             await self._custom_signal_recv.start()
         self._strategy._on_start()
+        await self._apply_leverage()
         self._start_scheduler()
         self._start_auto_flush_thread()
         await self._task_manager.wait()

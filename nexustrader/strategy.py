@@ -71,6 +71,9 @@ class Strategy:
         self._scheduler = AsyncIOScheduler()
         self.indicator = IndicatorProxy()
 
+        # Track all symbols the strategy subscribes to (populated in subscribe_*() calls)
+        self._subscribed_symbols: set[str] = set()
+
     def _init_core(
         self,
         exchanges: Dict[ExchangeType, ExchangeManager],
@@ -147,6 +150,13 @@ class Strategy:
 
     def api(self, account_type: AccountType):
         return self._private_connectors[account_type].api
+
+    def _track_subscribed_symbols(self, symbols: str | List[str]):
+        """Record symbols being subscribed so connectors can target only traded symbols."""
+        if isinstance(symbols, str):
+            self._subscribed_symbols.add(symbols)
+        else:
+            self._subscribed_symbols.update(symbols)
 
     def register_indicator(
         self,
@@ -698,6 +708,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="bookl1", handler=self._on_bookl1)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.BOOKL1,
@@ -723,6 +734,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="trade", handler=self._on_trade)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.TRADE,
@@ -759,6 +771,7 @@ class Strategy:
         if isinstance(symbols, str):
             symbols = [symbols]
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.KLINE,
@@ -795,6 +808,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="kline", handler=self._on_kline)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.VOLUME_KLINE,
@@ -829,6 +843,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="bookl2", handler=self._on_bookl2)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.BOOKL2,
@@ -855,6 +870,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="funding_rate", handler=self._on_funding_rate)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.FUNDING_RATE,
@@ -880,6 +896,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="index_price", handler=self._on_index_price)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.INDEX_PRICE,
@@ -905,6 +922,7 @@ class Strategy:
 
         self._msgbus.subscribe(topic="mark_price", handler=self._on_mark_price)
 
+        self._track_subscribed_symbols(symbols)
         self._sms.subscribe(
             symbols=symbols,
             data_type=DataType.MARK_PRICE,

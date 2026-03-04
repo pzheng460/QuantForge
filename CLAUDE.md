@@ -207,6 +207,13 @@ Start with: `docker-compose up -d`
 ### Import Guidelines
 - Always use absolute path imports
 
+### Connector Leverage Setting
+- `PrivateConnectorConfig.leverage` sets the leverage multiplier; `leverage_symbols` optionally restricts which symbols it applies to.
+- Leverage is applied **after** `strategy.on_start()` via `engine._apply_leverage()`, so only symbols the strategy actually subscribes to are targeted (auto-detected via `strategy._subscribed_symbols`).
+- Priority: explicit `leverage_symbols` config → auto-detected strategy symbols → skip (no all-futures fallback).
+- `BitgetPrivateConnector.apply_leverage(strategy_symbols)` is the entry point; other exchanges can add the same method when they implement leverage setting.
+- `Strategy._track_subscribed_symbols()` is called in every `subscribe_*()` method to build `_subscribed_symbols`.
+
 ## Unified Signal Core Architecture
 
 All trading strategies share a **SignalCore** pattern that guarantees 100% code parity between backtest and live trading. The signal logic lives in a single shared class — both the backtest signal generator and the live indicator delegate to it.
