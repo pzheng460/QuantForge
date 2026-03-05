@@ -22,14 +22,10 @@ if TYPE_CHECKING:
     from strategy.strategies.momentum.core import MomentumConfig
 
 
-# Signal constants matching nexustrader.backtest.Signal
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 
-class MomentumSignalCore:
+class MomentumSignalCore(BaseSignalCore):
     """Shared signal logic for backtest and live trading.
 
     Processes OHLCV bars one at a time and returns a trading signal.
@@ -55,12 +51,7 @@ class MomentumSignalCore:
         cooldown_bars: int = 2,
         signal_confirmation: int = 1,
     ):
-        self._config = config
-
-        # Filter params
-        self._min_holding_bars = min_holding_bars
-        self._cooldown_bars = cooldown_bars
-        self._signal_confirmation = signal_confirmation
+        super().__init__(config, min_holding_bars, cooldown_bars, signal_confirmation)
 
         # Streaming indicators
         self._ema_fast = StreamingEMA(config.ema_fast)
@@ -71,14 +62,8 @@ class MomentumSignalCore:
         self._vol_sma = StreamingSMA(config.volume_sma_period)
         self._adx = StreamingADX(config.adx_period)
 
-        # Position management state
-        self.position = 0  # 0=flat, 1=long, -1=short
-        self.entry_bar = 0
-        self.entry_price = 0.0
+        # Additional position state
         self.trailing_stop = 0.0
-        self.cooldown_until = 0
-        self.signal_count = {BUY: 0, SELL: 0}
-        self.bar_index = 0
 
     def update_indicators_only(
         self, close: float, high: float, low: float, volume: float
@@ -281,18 +266,8 @@ class MomentumSignalCore:
         self._roc.reset()
         self._vol_sma.reset()
         self._adx.reset()
-        self.position = 0
-        self.entry_bar = 0
-        self.entry_price = 0.0
         self.trailing_stop = 0.0
-        self.cooldown_until = 0
-        self.signal_count = {BUY: 0, SELL: 0}
-        self.bar_index = 0
-
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
+        self._reset_position_state()
 
     # ---- Indicator value properties (for live indicator wrapper) ----
 

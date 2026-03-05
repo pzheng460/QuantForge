@@ -23,13 +23,10 @@ if TYPE_CHECKING:
     from strategy.strategies.sma_trend.core import SMATrendConfig
 
 
-# Signal constants
-HOLD = 0
-BUY = 1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 
-class SMATrendSignalCore:
+class SMATrendSignalCore(BaseSignalCore):
     """Shared signal logic for SMA Trend (long-only).
 
     Long when daily close > daily SMA, flat otherwise.
@@ -40,12 +37,12 @@ class SMATrendSignalCore:
     def __init__(
         self,
         config: SMATrendConfig,
-        min_holding_bars: int = 1,
+        min_holding_bars: int = 0,
         cooldown_bars: int = 0,
     ):
         self._config = config
 
-        # Filter params
+        # Filter params (unused for simplicity, kept for interface compat)
         self._min_holding_bars = min_holding_bars
         self._cooldown_bars = cooldown_bars
 
@@ -56,7 +53,6 @@ class SMATrendSignalCore:
         self.position = 0  # 0=flat, 1=long (never short)
         self.entry_bar = 0
         self.entry_price = 0.0
-        self.cooldown_until = 0
         self.bar_index = 0
 
     def update_indicators_only(
@@ -102,24 +98,17 @@ class SMATrendSignalCore:
 
         price = close
 
-        # ---- 1. Cooldown check ----
-        if i < self.cooldown_until:
-            return HOLD
+        # ---- Position management (long-only, no filters) ----
+        if price > sma and self.position == 0:
+            self.position = 1
+            self.entry_bar = i
+            self.entry_price = price
+            return BUY
 
-        # ---- 2. Position management (long-only) ----
-        if price > sma:
-            if self.position == 0:
-                self.position = 1
-                self.entry_bar = i
-                self.entry_price = price
-                return BUY
-
-        elif price < sma:
-            if self.position == 1 and i - self.entry_bar >= self._min_holding_bars:
-                self.position = 0
-                self.entry_price = 0.0
-                self.cooldown_until = i + self._cooldown_bars
-                return CLOSE
+        elif price < sma and self.position == 1:
+            self.position = 0
+            self.entry_price = 0.0
+            return CLOSE
 
         return HOLD
 
@@ -132,10 +121,6 @@ class SMATrendSignalCore:
         self.cooldown_until = 0
         self.bar_index = 0
 
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
 
     # ---- Indicator value properties ----
 

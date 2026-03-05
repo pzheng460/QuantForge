@@ -36,17 +36,13 @@ if TYPE_CHECKING:
     from strategy.strategies.dynamic_grid.core import DynamicGridConfig
 
 
-# Signal constants
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 # Bars in one day (1h interval) — used for daily circuit breaker cooldown
 _BARS_PER_DAY = 24
 
 
-class DynamicGridSignalCore:
+class DynamicGridSignalCore(BaseSignalCore):
     """Dynamic Grid signal core with volatility-adaptive leverage.
 
     Grid mechanics (SMA + ATR bounds, level-based entries) are identical to
@@ -320,10 +316,6 @@ class DynamicGridSignalCore:
         self.cooldown_until = 0
         self.bar_index = 0
 
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
 
     # ------------------------------------------------------------------ #
     # Indicator value properties                                           #

@@ -45,14 +45,10 @@ if TYPE_CHECKING:
     from strategy.strategies.sma_funding.core import SMAFundingConfig
 
 
-# Signal constants
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 
-class SMAFundingSignalCore:
+class SMAFundingSignalCore(BaseSignalCore):
     """Dual-leg signal core: SMA Trend + Funding Rate Arb.
 
     Tracks two independent legs and emits a net signal based on

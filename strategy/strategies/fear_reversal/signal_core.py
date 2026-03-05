@@ -22,14 +22,10 @@ if TYPE_CHECKING:
     from strategy.strategies.fear_reversal.core import FearReversalConfig
 
 
-# Signal constants matching nexustrader.backtest.Signal
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 
-class FearReversalSignalCore:
+class FearReversalSignalCore(BaseSignalCore):
     """Shared signal logic for Fear Reversal backtest and live trading.
 
     Long-only strategy that enters when extreme fear creates a bounce
@@ -301,12 +297,50 @@ class FearReversalSignalCore:
     def adx_value(self) -> Optional[float]:
         return self._adx.value
 
-    def get_raw_signal(self, close: float, volume: float) -> int:
-        """Compute raw entry signal from current indicator values (no position management).
+    def get_signal_breakdown(self, close: float, volume: float) -> dict:
+        """Return a dict with each signal's status for logging."""
+        current_rsi = self._rsi.value
+        current_atr = self._atr.value
+        prev_rsi = self._prev_rsi
+        open_price = self._last_open
+        vol_sma = self._vol_sma.value
+        ema_sup = self._ema_support.value
+        adx_val = self._adx.value
 
-        Used by the live indicator wrapper to expose signal without
-        modifying position state. Uses _last_open stored from the
-        most recent update_indicators_only() call.
+        s1 = (prev_rsi is not None and current_rsi is not None
+              and prev_rsi < self._config.rsi_oversold
+              and current_rsi >= self._config.rsi_oversold)
+        s2 = (vol_sma is not None and vol_sma > 0
+              and volume > vol_sma * self._config.volume_threshold)
+        s3 = ema_sup is not None and close > ema_sup
+        s4 = adx_val is None or adx_val < self._config.adx_weak_threshold
+        s5 = (current_atr is not None and close > open_price
+              and (close - open_price) > self._config.candle_atr_mult * current_atr)
+
+        return {
+            "rsi": current_rsi,
+            "prev_rsi": prev_rsi,
+            "rsi_reversal": s1,
+            "vol": volume,
+            "vol_sma_x": vol_sma * self._config.volume_threshold if vol_sma else None,
+            "vol_ok": s2,
+            "price": close,
+            "ema200": ema_sup,
+            "above_ema": s3,
+            "adx": adx_val,
+            "adx_weak": s4,
+            "candle_body": close - open_price if open_price else 0,
+            "atr_thresh": self._config.candle_atr_mult * current_atr if current_atr else None,
+            "strong_candle": s5,
+            "count": sum([s1, s2, s3, s4, s5]),
+            "needed": self._config.min_signals,
+        }
+
+    def get_raw_signal(self, close: float, volume: float) -> int:
+        """Compute entry/exit signal from current indicator values.
+
+        Used by the live indicator wrapper. Includes both entry AND exit
+        logic since this strategy doesn't use dual-mode.
         """
         current_rsi = self._rsi.value
         current_atr = self._atr.value
@@ -314,6 +348,34 @@ class FearReversalSignalCore:
         if current_atr is None:
             return HOLD
 
+        # ---- Exit checks (if in long position) ----
+        if self.position == 1:
+            self.peak_price = max(self.peak_price, close)
+            i = self.bar_index
+
+            # Exit 1: RSI overbought
+            if (current_rsi is not None
+                    and current_rsi > self._config.rsi_overbought
+                    and i - self.entry_bar >= self._min_holding_bars):
+                return CLOSE
+
+            # Exit 2: Hard stop loss
+            if self.entry_price > 0 and close < self.entry_price * (1 - self._config.stop_loss_pct):
+                return CLOSE
+
+            # Exit 3: ATR trailing stop
+            if self.entry_price > 0 and i - self.entry_bar >= self._min_holding_bars:
+                trail_stop = self.peak_price - self._config.atr_trail_mult * current_atr
+                if close < trail_stop:
+                    return CLOSE
+
+            # Exit 4: Max holding bars
+            if i - self.entry_bar >= self._config.max_holding_bars:
+                return CLOSE
+
+            return HOLD
+
+        # ---- Entry checks (flat position) ----
         signal_count = self._count_entry_signals(
             close, self._last_open, volume, current_rsi, current_atr
         )

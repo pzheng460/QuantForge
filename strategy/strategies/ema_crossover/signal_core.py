@@ -10,20 +10,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 from strategy.strategies._base.streaming import StreamingEMA
 
 if TYPE_CHECKING:
     from strategy.strategies.ema_crossover.core import EMAConfig
 
 
-# Signal constants matching nexustrader.backtest.Signal
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
-
-
-class EMASignalCore:
+class EMASignalCore(BaseSignalCore):
     """Shared signal logic for EMA Crossover backtest and live trading.
 
     Processes OHLCV bars one at a time and returns a trading signal.
@@ -38,12 +32,7 @@ class EMASignalCore:
         cooldown_bars: int = 2,
         signal_confirmation: int = 1,
     ):
-        self._config = config
-
-        # Filter params
-        self._min_holding_bars = min_holding_bars
-        self._cooldown_bars = cooldown_bars
-        self._signal_confirmation = signal_confirmation
+        super().__init__(config, min_holding_bars, cooldown_bars, signal_confirmation)
 
         # Streaming indicators
         self._ema_fast = StreamingEMA(config.fast_period)
@@ -52,14 +41,6 @@ class EMASignalCore:
         # Previous EMA values for crossover detection
         self._prev_ema_fast: Optional[float] = None
         self._prev_ema_slow: Optional[float] = None
-
-        # Position management state
-        self.position = 0  # 0=flat, 1=long, -1=short
-        self.entry_bar = 0
-        self.entry_price = 0.0
-        self.cooldown_until = 0
-        self.signal_count = {BUY: 0, SELL: 0}
-        self.bar_index = 0
 
     def update_indicators_only(self, close: float) -> None:
         """Update all indicators without generating a trading signal.
@@ -88,7 +69,6 @@ class EMASignalCore:
         ema_s = self._ema_slow.update(close)
 
         self.bar_index += 1
-        i = self.bar_index
 
         # Skip if any indicator is not ready
         if ema_f is None or ema_s is None:
@@ -99,77 +79,27 @@ class EMASignalCore:
         price = close
 
         # ---- 1. Stop loss check ----
-        if self.position != 0 and self.entry_price > 0:
-            is_long = self.position == 1
-            if is_long:
-                pnl_pct = (price - self.entry_price) / self.entry_price
-            else:
-                pnl_pct = (self.entry_price - price) / self.entry_price
-
-            if pnl_pct < -self._config.stop_loss_pct:
-                self.position = 0
-                self.entry_price = 0.0
-                self.entry_bar = i
-                return CLOSE
+        sl = self._check_stop_loss(price)
+        if sl is not None:
+            return sl
 
         # ---- 2. Raw signal generation (crossover detection) ----
         prev_diff = self._prev_ema_fast - self._prev_ema_slow
         curr_diff = ema_f - ema_s
 
         raw_signal = HOLD
-
         if prev_diff <= 0 and curr_diff > 0:
             raw_signal = BUY
         elif prev_diff >= 0 and curr_diff < 0:
             raw_signal = SELL
 
         # ---- 3. Cooldown check ----
-        if i < self.cooldown_until:
+        if self.bar_index < self.cooldown_until:
             return HOLD
 
-        # ---- 4. Signal confirmation ----
-        if raw_signal == BUY:
-            self.signal_count[BUY] += 1
-            self.signal_count[SELL] = 0
-        elif raw_signal == SELL:
-            self.signal_count[SELL] += 1
-            self.signal_count[BUY] = 0
-        else:
-            self.signal_count[BUY] = 0
-            self.signal_count[SELL] = 0
-
-        confirmed_signal = HOLD
-        if self.signal_count[BUY] >= self._signal_confirmation:
-            confirmed_signal = BUY
-        elif self.signal_count[SELL] >= self._signal_confirmation:
-            confirmed_signal = SELL
-
-        # ---- 5. Position management ----
-        if confirmed_signal == BUY:
-            if self.position == -1 and i - self.entry_bar >= self._min_holding_bars:
-                self.position = 0
-                self.entry_price = 0.0
-                self.cooldown_until = i + self._cooldown_bars
-                return CLOSE
-            elif self.position == 0:
-                self.position = 1
-                self.entry_bar = i
-                self.entry_price = price
-                return BUY
-
-        elif confirmed_signal == SELL:
-            if self.position == 1 and i - self.entry_bar >= self._min_holding_bars:
-                self.position = 0
-                self.entry_price = 0.0
-                self.cooldown_until = i + self._cooldown_bars
-                return CLOSE
-            elif self.position == 0:
-                self.position = -1
-                self.entry_bar = i
-                self.entry_price = price
-                return SELL
-
-        return HOLD
+        # ---- 4. Signal confirmation + 5. Position management ----
+        confirmed = self._confirm_signal(raw_signal)
+        return self._apply_position_management(confirmed, price)
 
     def reset(self):
         """Reset all state (indicators + position management)."""
@@ -177,17 +107,7 @@ class EMASignalCore:
         self._ema_slow.reset()
         self._prev_ema_fast = None
         self._prev_ema_slow = None
-        self.position = 0
-        self.entry_bar = 0
-        self.entry_price = 0.0
-        self.cooldown_until = 0
-        self.signal_count = {BUY: 0, SELL: 0}
-        self.bar_index = 0
-
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
+        self._reset_position_state()
 
     # ---- Indicator value properties (for live indicator wrapper) ----
 

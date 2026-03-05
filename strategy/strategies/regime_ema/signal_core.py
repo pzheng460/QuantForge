@@ -17,14 +17,10 @@ from strategy.strategies._base.streaming import StreamingADX, StreamingATR, Stre
 from strategy.strategies.regime_ema.core import MarketRegime, RegimeEMAConfig, classify_regime
 
 
-# Signal constants
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 
-class RegimeEMASignalCore:
+class RegimeEMASignalCore(BaseSignalCore):
     """Shared signal logic for Regime EMA backtest and live trading.
 
     EMA crossover gated on market regime:
@@ -271,10 +267,6 @@ class RegimeEMASignalCore:
         self.signal_count = {BUY: 0, SELL: 0}
         self.bar_index = 0
 
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
 
     # ---- Indicator value properties ----
 

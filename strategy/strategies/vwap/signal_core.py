@@ -19,14 +19,10 @@ if TYPE_CHECKING:
     from strategy.strategies.vwap.core import VWAPConfig
 
 
-# Signal constants
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 
-class VWAPSignalCore:
+class VWAPSignalCore(BaseSignalCore):
     """Shared signal logic for VWAP backtest and live trading.
 
     VWAP mean-reversion with RSI confirmation:
@@ -291,10 +287,6 @@ class VWAPSignalCore:
         self.signal_count = {BUY: 0, SELL: 0}
         self.bar_index = 0
 
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
 
     # ---- Indicator value properties ----
 

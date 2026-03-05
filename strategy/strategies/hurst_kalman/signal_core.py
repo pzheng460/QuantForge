@@ -13,6 +13,7 @@ from typing import Optional
 
 import numpy as np
 
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 from strategy.strategies.hurst_kalman.core import (
     HurstKalmanConfig,
     KalmanFilter1D,
@@ -20,14 +21,7 @@ from strategy.strategies.hurst_kalman.core import (
 )
 
 
-# Signal constants
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
-
-
-class HurstKalmanSignalCore:
+class HurstKalmanSignalCore(BaseSignalCore):
     """Shared signal logic for Hurst-Kalman backtest and live trading.
 
     Uses Kalman filter for price estimation, Hurst exponent for market
@@ -42,12 +36,8 @@ class HurstKalmanSignalCore:
         signal_confirmation: int = 1,
         only_mean_reversion: bool = True,
     ):
-        self._config = config
+        super().__init__(config, min_holding_bars, cooldown_bars, signal_confirmation)
 
-        # Filter params
-        self._min_holding_bars = min_holding_bars
-        self._cooldown_bars = cooldown_bars
-        self._signal_confirmation = signal_confirmation
         self._only_mean_reversion = only_mean_reversion
 
         # Kalman filter
@@ -55,7 +45,7 @@ class HurstKalmanSignalCore:
         self._kalman_prices: list[float] = []
 
         # Price history for Hurst calculation
-        self._price_history: deque[float] = deque(maxlen=config.hurst_window + 50)
+        self._price_history: deque[float] = deque(maxlen=int(config.hurst_window) + 50)
 
         # Current values
         self._hurst: float = 0.5
@@ -64,13 +54,7 @@ class HurstKalmanSignalCore:
         self._slope: float = 0.0
         self._market_state: str = "unknown"
 
-        # Position management state
-        self.position = 0
-        self.entry_bar = 0
-        self.entry_price = 0.0
-        self.cooldown_until = 0
-        self.signal_count = {BUY: 0, SELL: 0}
-        self.bar_index = 0
+        # Extra position state for trending signal tracking
         self._last_trending_signal = HOLD
 
     def update_indicators_only(self, close: float) -> None:
@@ -80,14 +64,14 @@ class HurstKalmanSignalCore:
         self._kalman_prices.append(self._kalman_price)
         self.bar_index += 1
 
-        if len(self._price_history) >= self._config.hurst_window:
+        if len(self._price_history) >= int(self._config.hurst_window):
             self._hurst = calculate_hurst(
-                np.array(self._price_history), self._config.hurst_window
+                np.array(self._price_history), int(self._config.hurst_window)
             )
 
-        if len(self._kalman_prices) >= self._config.zscore_window:
-            recent_prices = list(self._price_history)[-self._config.zscore_window :]
-            recent_kalman = self._kalman_prices[-self._config.zscore_window :]
+        if len(self._kalman_prices) >= int(self._config.zscore_window):
+            recent_prices = list(self._price_history)[-int(self._config.zscore_window):]
+            recent_kalman = self._kalman_prices[-int(self._config.zscore_window):]
             deviations = np.array(recent_prices) - np.array(recent_kalman)
             std = np.std(deviations)
             if std > 1e-10:
@@ -122,17 +106,18 @@ class HurstKalmanSignalCore:
         i = self.bar_index
 
         # Need enough data for both Hurst and zscore
-        if i <= self._config.hurst_window + self._config.zscore_window:
+        if i <= int(self._config.hurst_window) + int(self._config.zscore_window):
             return HOLD
 
         # Calculate Hurst
         self._hurst = calculate_hurst(
-            np.array(self._price_history), self._config.hurst_window
+            np.array(self._price_history), int(self._config.hurst_window)
         )
 
         # Calculate zscore
-        recent_prices = list(self._price_history)[-self._config.zscore_window :]
-        recent_kalman = self._kalman_prices[-self._config.zscore_window :]
+        zw = int(self._config.zscore_window)
+        recent_prices = list(self._price_history)[-zw:]
+        recent_kalman = self._kalman_prices[-zw:]
         deviations = np.array(recent_prices) - np.array(recent_kalman)
         std = np.std(deviations)
         zscore = (price - self._kalman_price) / std if std > 1e-10 else 0.0
@@ -141,7 +126,7 @@ class HurstKalmanSignalCore:
         slope = self._kalman.get_slope(lookback=5)
         self._slope = slope
 
-        # ---- 1. Stop loss check ----
+        # ---- 1. Stop loss check (custom: also checks zscore_stop) ----
         if self.position != 0 and self.entry_price > 0:
             is_long = self.position == 1
             if is_long:
@@ -149,13 +134,7 @@ class HurstKalmanSignalCore:
             else:
                 pnl_pct = (self.entry_price - price) / self.entry_price
 
-            stop_triggered = False
-            if pnl_pct < -self._config.stop_loss_pct:
-                stop_triggered = True
-            if abs(zscore) > self._config.zscore_stop:
-                stop_triggered = True
-
-            if stop_triggered:
+            if pnl_pct < -self._config.stop_loss_pct or abs(zscore) > self._config.zscore_stop:
                 self.position = 0
                 self.entry_price = 0.0
                 self.entry_bar = i
@@ -211,58 +190,9 @@ class HurstKalmanSignalCore:
         if i < self.cooldown_until:
             return HOLD
 
-        # ---- 6. Signal confirmation ----
-        if raw_signal == BUY:
-            self.signal_count[BUY] += 1
-            self.signal_count[SELL] = 0
-        elif raw_signal == SELL:
-            self.signal_count[SELL] += 1
-            self.signal_count[BUY] = 0
-        else:
-            self.signal_count[BUY] = 0
-            self.signal_count[SELL] = 0
-
-        confirmed_signal = HOLD
-        if self.signal_count[BUY] >= self._signal_confirmation:
-            confirmed_signal = BUY
-        elif self.signal_count[SELL] >= self._signal_confirmation:
-            confirmed_signal = SELL
-        elif raw_signal == CLOSE:
-            confirmed_signal = CLOSE
-
-        # ---- 7. Position management ----
-        if confirmed_signal == BUY:
-            if self.position == -1 and i - self.entry_bar >= self._min_holding_bars:
-                self.position = 0
-                self.entry_price = 0.0
-                self.cooldown_until = i + self._cooldown_bars
-                return CLOSE
-            elif self.position == 0:
-                self.position = 1
-                self.entry_bar = i
-                self.entry_price = price
-                return BUY
-
-        elif confirmed_signal == SELL:
-            if self.position == 1 and i - self.entry_bar >= self._min_holding_bars:
-                self.position = 0
-                self.entry_price = 0.0
-                self.cooldown_until = i + self._cooldown_bars
-                return CLOSE
-            elif self.position == 0:
-                self.position = -1
-                self.entry_bar = i
-                self.entry_price = price
-                return SELL
-
-        elif confirmed_signal == CLOSE:
-            if self.position != 0 and i - self.entry_bar >= self._min_holding_bars:
-                self.position = 0
-                self.entry_price = 0.0
-                self.cooldown_until = i + self._cooldown_bars
-                return CLOSE
-
-        return HOLD
+        # ---- 6. Signal confirmation + 7. Position management ----
+        confirmed = self._confirm_signal(raw_signal)
+        return self._apply_position_management(confirmed, price)
 
     def reset(self):
         """Reset all state."""
@@ -274,18 +204,8 @@ class HurstKalmanSignalCore:
         self._zscore = 0.0
         self._slope = 0.0
         self._market_state = "unknown"
-        self.position = 0
-        self.entry_bar = 0
-        self.entry_price = 0.0
-        self.cooldown_until = 0
-        self.signal_count = {BUY: 0, SELL: 0}
-        self.bar_index = 0
         self._last_trending_signal = HOLD
-
-    def sync_position(self, pos_int: int, entry_price: float = 0.0) -> None:
-        """Sync position state from external source (rollback or startup sync)."""
-        self.position = pos_int
-        self.entry_price = entry_price if pos_int != 0 else 0.0
+        self._reset_position_state()
 
     # ---- Indicator value properties ----
 

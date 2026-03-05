@@ -25,11 +25,7 @@ if TYPE_CHECKING:
     from strategy.strategies.ma_convergence.core import MAConvergenceConfig
 
 
-# Signal constants matching nexustrader.backtest.Signal
-HOLD = 0
-BUY = 1
-SELL = -1
-CLOSE = 2
+from strategy.strategies._base.signal_core_base import BaseSignalCore, HOLD, BUY, SELL, CLOSE
 
 # State machine for entry Method 1 (convergence breakout)
 _STATE_IDLE = 0  # no convergence detected
@@ -42,7 +38,7 @@ _RETEST_IDLE = 0  # waiting for divergence
 _RETEST_READY = 1  # diverged, watching for first retest of MA20
 
 
-class MAConvergenceSignalCore:
+class MAConvergenceSignalCore(BaseSignalCore):
     """Shared signal logic for MA Convergence backtest and live trading.
 
     Processes OHLCV bars one at a time and returns a trading signal.
