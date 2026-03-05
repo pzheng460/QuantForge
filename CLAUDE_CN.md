@@ -503,6 +503,18 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 - GridSearchOptimizer：信号生成保持顺序（共享闭包），仅 `VectorizedBacktest.run()` 并行化
 - `n_jobs=-1` 使用所有可用 CPU 核心
 
+**资金费率纳入优化（阶段 1 & 2）**
+`GridSearchOptimizer` 和 `WalkForwardAnalyzer` 新增 `funding_rates` 参数。传入后，每个 grid cell（阶段 1）和每个 WFO 窗口的训练/测试（阶段 2）均将资金费率传给 `VectorizedBacktest.run()`。`runner.py` 的 `run_grid_search()`、`run_walk_forward()`、`run_three_stage_test()` 均接收并转发资金费率；CLI 的 `--optimize` 和 `--walk-forward` 模式同样透传。
+
+**买入持有基准对比**
+`_bh_return_pct(data, leverage)` 计算任意区间的杠杆持仓收益。`run_single()` 输出中展示在策略收益旁，并以 `bh_return_pct` 存入结果字典。三阶段测试还额外输出 `bh_holdout_return`（阶段 3 区间）和 `bh_full_return`（完整区间）。
+
+**Monte Carlo Sharpe 95% 置信区间**
+`_bootstrap_sharpe_ci(equity_curve, periods_per_year, n_bootstrap=500)` 对权益曲线进行块引导（block bootstrap），估算 Sharpe 比率的 95% CI（块大小约 len/50）。在 `run_single()` 和阶段 3 holdout 的 Sharpe 行后显示为 `[95% CI: lo, hi]`，并以 `sharpe_ci_lo` / `sharpe_ci_hi` 存入结果。权益曲线不足 10 个点时返回 `(None, None)`。
+
+**统计显著性（最少交易次数）**
+阶段 1 通过标准改为：`in_sample_sharpe >= 1.0` 且 `in_sample_trades >= 10`。交易次数不足 10 时阶段失败，汇总表显示原因。阶段 3 输出中交易次数 < 10 同样触发 `(low trade count)` 警告。
+
 ### 本地数据缓存与多源验证
 
 `nexustrader/backtest/data/database.py` 提供 SQLite 缓存层：

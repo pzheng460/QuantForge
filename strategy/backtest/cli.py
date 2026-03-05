@@ -162,6 +162,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Training window size in days for --rolling-optimize (default: 7).",
     )
 
+    # Custom date range
+    parser.add_argument(
+        "--start",
+        type=str,
+        default=None,
+        help="Start date (YYYY-MM-DD). Overrides --period.",
+    )
+    parser.add_argument(
+        "--end",
+        type=str,
+        default=None,
+        help="End date (YYYY-MM-DD). Overrides --period. Default: now.",
+    )
+
     # Data caching / validation
     parser.add_argument(
         "--no-cache",
@@ -218,9 +232,16 @@ async def async_main(args: argparse.Namespace) -> None:
         return
 
     # Fetch data
-    days = PERIODS.get(args.period, 365)
-    end_date = datetime.now(timezone.utc).replace(tzinfo=None)
-    start_date = end_date - timedelta(days=days)
+    if args.start:
+        start_date = datetime.strptime(args.start, "%Y-%m-%d")
+        end_date = (
+            datetime.strptime(args.end, "%Y-%m-%d") if args.end
+            else datetime.now(timezone.utc).replace(tzinfo=None)
+        )
+    else:
+        days = PERIODS.get(args.period, 365)
+        end_date = datetime.now(timezone.utc).replace(tzinfo=None)
+        start_date = end_date - timedelta(days=days)
     profile = get_profile(args.exchange)
 
     symbol = args.symbol or profile.default_symbol
@@ -281,11 +302,11 @@ async def async_main(args: argparse.Namespace) -> None:
         return
 
     if args.optimize:
-        runner.run_grid_search(data=data, period=args.period)
+        runner.run_grid_search(data=data, period=args.period, funding_rates=funding_rates)
         return
 
     if args.walk_forward:
-        runner.run_walk_forward(data=data)
+        runner.run_walk_forward(data=data, funding_rates=funding_rates)
         return
 
     # Default: single backtest with Mesa config

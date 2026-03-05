@@ -86,6 +86,7 @@ class GridSearchOptimizer:
         cost_config: Optional[CostConfig] = None,
         position_size_pct: float = 1.0,
         n_jobs: int = 1,
+        funding_rates: Optional[pd.DataFrame] = None,
     ):
         """
         Initialize grid search optimizer.
@@ -101,6 +102,7 @@ class GridSearchOptimizer:
                 -1 = use all CPU cores.
                 Signal generation is always sequential because the shared
                 signal_fn closure may not be thread-safe.
+            funding_rates: Optional funding rate DataFrame for cost modeling.
         """
         self.data = data
         self.config = config
@@ -108,6 +110,7 @@ class GridSearchOptimizer:
         self.cost_config = cost_config or CostConfig()
         self.position_size_pct = position_size_pct
         self.n_jobs = n_jobs
+        self.funding_rates = funding_rates
 
     def optimize(
         self,
@@ -177,7 +180,7 @@ class GridSearchOptimizer:
             cost_config=self.cost_config,
             position_size_pct=self.position_size_pct,
         )
-        result = backtest.run(data=self.data, signals=signals)
+        result = backtest.run(data=self.data, signals=signals, funding_rates=self.funding_rates)
         return OptimizationResult(
             params=params,
             metrics=result.metrics,

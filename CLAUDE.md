@@ -512,6 +512,18 @@ The `sma_trend` strategy resamples 1h bars to daily close, computes rolling SMA,
 - GridSearchOptimizer: signal generation stays sequential (shared closure), only `VectorizedBacktest.run()` is parallelised
 - `n_jobs=-1` uses all available CPU cores
 
+**Funding Rate in Optimization (Stage 1 & 2)**
+`GridSearchOptimizer` and `WalkForwardAnalyzer` now accept `funding_rates` (optional `pd.DataFrame`). When provided, funding costs are passed to `VectorizedBacktest.run()` in every grid cell (Stage 1) and every WFO window's train/test run (Stage 2). The train-period funding slice is computed before optimization starts. `run_grid_search()`, `run_walk_forward()`, and `run_three_stage_test()` in `runner.py` all accept and forward `funding_rates`; the CLI's `--optimize` and `--walk-forward` modes also forward funding rates.
+
+**Buy-and-Hold Benchmark**
+`_bh_return_pct(data, leverage)` computes the leveraged buy-and-hold return for any period. Shown alongside strategy return in `run_single()` output and stored as `bh_return_pct` in the results dict. Three-stage test additionally shows `bh_holdout_return` (Stage 3 period) and `bh_full_return` (entire period) in the summary.
+
+**Monte Carlo Sharpe 95% CI**
+`_bootstrap_sharpe_ci(equity_curve, periods_per_year, n_bootstrap=500)` block-bootstraps the Sharpe ratio from an equity curve (block size ≈ len/50). Displayed as `[95% CI: lo, hi]` after the Sharpe line in `run_single()` and Stage 3 holdout output. Stored as `sharpe_ci_lo` / `sharpe_ci_hi` in results. Requires ≥10 equity curve bars; returns `(None, None)` otherwise.
+
+**Statistical Significance (Min Trades)**
+Stage 1 pass now requires both `in_sample_sharpe >= 1.0` AND `in_sample_trades >= 10`. If trade count < 10 the stage fails and the reason is shown in the summary table. Trade count < 10 also triggers a `(low trade count)` warning in Stage 3 output.
+
 ### Local Data Cache & Multi-Source Validation
 
 `nexustrader/backtest/data/database.py` provides a SQLite cache for historical kline data:

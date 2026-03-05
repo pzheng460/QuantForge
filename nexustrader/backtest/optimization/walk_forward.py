@@ -57,6 +57,7 @@ class WalkForwardAnalyzer:
         window_type: WindowType = WindowType.ROLLING,
         cost_config: Optional[CostConfig] = None,
         position_size_pct: float = 1.0,
+        funding_rates: Optional[pd.DataFrame] = None,
     ):
         """
         Initialize walk-forward analyzer.
@@ -70,6 +71,8 @@ class WalkForwardAnalyzer:
             window_type: Rolling or anchored window
             cost_config: Trading cost configuration
             position_size_pct: Fraction of capital to use per trade
+            funding_rates: Optional funding rate DataFrame for cost modeling.
+                Sliced per window by timestamp alignment.
         """
         self.data = data
         self.config = config
@@ -79,6 +82,7 @@ class WalkForwardAnalyzer:
         self.window_type = window_type
         self.cost_config = cost_config or CostConfig()
         self.position_size_pct = position_size_pct
+        self.funding_rates = funding_rates
 
     def run(
         self,
@@ -137,12 +141,25 @@ class WalkForwardAnalyzer:
                 leverage=self.config.leverage,
             )
 
+            # Slice funding rates for this window if available
+            train_funding = None
+            test_funding = None
+            if self.funding_rates is not None and not self.funding_rates.empty:
+                ts = self.funding_rates.index
+                train_funding = self.funding_rates[
+                    (ts >= train_data.index[0]) & (ts <= train_data.index[-1])
+                ]
+                test_funding = self.funding_rates[
+                    (ts >= test_data.index[0]) & (ts <= test_data.index[-1])
+                ]
+
             optimizer = GridSearchOptimizer(
                 data=train_data,
                 config=train_config,
                 signal_generator=self.signal_generator,
                 cost_config=self.cost_config,
                 position_size_pct=self.position_size_pct,
+                funding_rates=train_funding,
             )
 
             opt_results = optimizer.optimize(grid, target_metric=target_metric)
@@ -165,7 +182,7 @@ class WalkForwardAnalyzer:
                 cost_config=self.cost_config,
                 position_size_pct=self.position_size_pct,
             )
-            test_result = backtest.run(data=test_data, signals=test_signals)
+            test_result = backtest.run(data=test_data, signals=test_signals, funding_rates=test_funding)
 
             # Create result
             wf_result = WalkForwardResult(

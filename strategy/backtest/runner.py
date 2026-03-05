@@ -50,6 +50,45 @@ def _apply_signal_delay(signals: np.ndarray) -> np.ndarray:
     return delayed
 
 
+def _bh_return_pct(data: pd.DataFrame, leverage: float = 1.0) -> float:
+    """Buy-and-hold return for the period (leveraged)."""
+    if len(data) < 2:
+        return 0.0
+    return (data["close"].iloc[-1] / data["close"].iloc[0] - 1) * 100 * leverage
+
+
+def _bootstrap_sharpe_ci(
+    equity_curve: pd.Series,
+    periods_per_year: int,
+    n_bootstrap: int = 500,
+    block_size: int = None,
+    seed: int = 42,
+) -> tuple:
+    """Block-bootstrap 95% CI for Sharpe ratio from an equity curve.
+
+    Returns (lower_bound, upper_bound) or (None, None) if insufficient data.
+    """
+    returns = equity_curve.pct_change().dropna().values
+    n = len(returns)
+    if n < 10:
+        return None, None
+    if block_size is None:
+        block_size = max(1, n // 50)
+    rng = np.random.default_rng(seed)
+    sharpes = []
+    for _ in range(n_bootstrap):
+        n_blocks = max(1, n // block_size + 1)
+        starts = rng.integers(0, max(1, n - block_size + 1), size=n_blocks)
+        resampled = np.concatenate([returns[s : s + block_size] for s in starts])[:n]
+        std = resampled.std()
+        if std > 1e-12:
+            sharpes.append(resampled.mean() / std * np.sqrt(periods_per_year))
+    if len(sharpes) < 10:
+        return None, None
+    arr = np.array(sharpes)
+    return float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))
+
+
 def _bars_per_day(interval: KlineInterval) -> int:
     """Return number of bars per calendar day for the given interval."""
     _MINUTES = {
@@ -137,7 +176,12 @@ class BacktestRunner:
         )
 
     def _make_signal_fn(self, base_config, base_filter, extra_params=None, funding_rates=None):
-        """Return a signal function suitable for GridSearchOptimizer / WalkForwardAnalyzer."""
+        """Return a signal function suitable for GridSearchOptimizer / WalkForwardAnalyzer.
+
+        Note: funding_rates injected here is used for *signal generation* (e.g. funding_rate
+        strategy uses it to decide entry timing). Cost-model funding rates are passed
+        separately to GridSearchOptimizer / WalkForwardAnalyzer.
+        """
         gen = self.reg.signal_generator_cls(base_config, base_filter)
         # Inject funding rate data if the generator supports it
         if hasattr(gen, "funding_rates") and funding_rates is not None:
@@ -204,6 +248,11 @@ class BacktestRunner:
 
         funding_paid = result.metrics.get("total_funding_paid", 0)
         config_name = strategy_config.name if strategy_config else "Custom"
+        bh_return = _bh_return_pct(data, self.leverage)
+
+        from nexustrader.backtest.analysis.performance import infer_periods_per_year
+        ppy = infer_periods_per_year(result.equity_curve.index)
+        sharpe_lo, sharpe_hi = _bootstrap_sharpe_ci(result.equity_curve, ppy)
 
         print(f"\n{'=' * 60}")
         print(f"BACKTEST RESULTS - {config_name}")
@@ -211,19 +260,24 @@ class BacktestRunner:
         print(f"Exchange: {self.profile.name}")
         print(f"Leverage: {self.leverage}x")
         print(f"Period: {data.index[0].date()} to {data.index[-1].date()}")
-        print(f"Total Return: {metrics['total_return_pct']:+.2f}%")
+        print(f"Total Return: {metrics['total_return_pct']:+.2f}%  (B&H: {bh_return:+.2f}%)")
         print(f"Max Drawdown: {metrics['max_drawdown_pct']:.2f}%")
-        print(f"Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
+        sharpe_str = f"{metrics['sharpe_ratio']:.2f}"
+        if sharpe_lo is not None:
+            sharpe_str += f"  [95% CI: {sharpe_lo:.2f}, {sharpe_hi:.2f}]"
+        print(f"Sharpe Ratio: {sharpe_str}")
         print(f"Sortino Ratio: {metrics['sortino_ratio']:.2f}")
         print(f"Calmar Ratio: {metrics['calmar_ratio']:.2f}")
-        print(f"Total Trades: {metrics['total_trades']}")
+        total_trades = metrics['total_trades']
+        trade_warning = "  ⚠ Low trade count" if total_trades < 10 else ""
+        print(f"Total Trades: {total_trades}{trade_warning}")
         print(f"Win Rate: {metrics['win_rate_pct']:.1f}%")
         print(f"Profit Factor: {metrics['profit_factor']:.2f}")
         if funding_paid != 0:
             print(f"Funding Paid: ${funding_paid:.2f}")
         print(f"{'=' * 60}")
 
-        return {
+        result_dict = {
             "mesa_index": mesa_index,
             "config_name": config_name,
             "period": period,
@@ -231,6 +285,7 @@ class BacktestRunner:
             "end_date": str(data.index[-1].date()),
             "run_time": datetime.now().isoformat(),
             "total_return_pct": round(metrics["total_return_pct"], 2),
+            "bh_return_pct": round(bh_return, 2),
             "max_drawdown_pct": round(metrics["max_drawdown_pct"], 2),
             "sharpe_ratio": round(metrics["sharpe_ratio"], 2),
             "sortino_ratio": round(metrics["sortino_ratio"], 2),
@@ -241,12 +296,17 @@ class BacktestRunner:
             "result": result,
             "data": data,
         }
+        if sharpe_lo is not None:
+            result_dict["sharpe_ci_lo"] = round(sharpe_lo, 2)
+            result_dict["sharpe_ci_hi"] = round(sharpe_hi, 2)
+        return result_dict
 
     def run_grid_search(
         self,
         data: pd.DataFrame,
         train_ratio: float = 0.8,
         period: str = None,
+        funding_rates: Optional[pd.DataFrame] = None,
     ) -> Dict[str, Any]:
         """Run grid search optimization."""
         train_idx = int(len(data) * train_ratio)
@@ -261,11 +321,20 @@ class BacktestRunner:
         print(f"Training bars: {len(train_data)}")
 
         bt_config = self._create_bt_config(train_data)
-        cost_config = self.profile.cost_config()
+        has_funding_data = funding_rates is not None and not funding_rates.empty
+        cost_config = self.profile.cost_config(use_funding_rate=has_funding_data)
+
+        # Slice funding rates to training period
+        train_funding = None
+        if has_funding_data:
+            ts = funding_rates.index
+            train_funding = funding_rates[
+                (ts >= train_data.index[0]) & (ts <= train_data.index[-1])
+            ]
 
         base_config = self.reg.config_cls()
         base_filter = self.reg.filter_config_cls(**self.reg.default_filter_kwargs)
-        signal_fn = self._make_signal_fn(base_config, base_filter)
+        signal_fn = self._make_signal_fn(base_config, base_filter, funding_rates=funding_rates)
 
         psp = _get_position_size_pct(base_config)
         optimizer = GridSearchOptimizer(
@@ -275,6 +344,7 @@ class BacktestRunner:
             cost_config=cost_config,
             position_size_pct=psp,
             n_jobs=self.n_jobs,
+            funding_rates=train_funding,
         )
 
         grid = ParameterGrid(**self.reg.default_grid)
@@ -307,6 +377,7 @@ class BacktestRunner:
         self,
         data: pd.DataFrame,
         params: Dict = None,
+        funding_rates: Optional[pd.DataFrame] = None,
     ) -> Dict[str, Any]:
         """Run walk-forward validation."""
         print(f"\n{'=' * 60}")
@@ -314,7 +385,8 @@ class BacktestRunner:
         print(f"{'=' * 60}")
 
         bt_config = self._create_bt_config(data)
-        cost_config = self.profile.cost_config()
+        has_funding_data = funding_rates is not None and not funding_rates.empty
+        cost_config = self.profile.cost_config(use_funding_rate=has_funding_data)
 
         cfg_kw, filt_kw = self._split_params(params)
         base_config = self.reg.config_cls(**cfg_kw)
@@ -323,7 +395,7 @@ class BacktestRunner:
             if filt_kw
             else self.reg.filter_config_cls(**self.reg.default_filter_kwargs)
         )
-        signal_fn = self._make_signal_fn(base_config, base_filter, params)
+        signal_fn = self._make_signal_fn(base_config, base_filter, params, funding_rates=funding_rates)
 
         bpd = _bars_per_day(self.reg.default_interval)
         train_periods = bpd * 90   # 90 calendar days
@@ -347,6 +419,7 @@ class BacktestRunner:
             window_type=WindowType.ROLLING,
             cost_config=cost_config,
             position_size_pct=psp,
+            funding_rates=funding_rates if has_funding_data else None,
         )
 
         if params:
@@ -455,7 +528,21 @@ class BacktestRunner:
         print(f"Stage 1: {THREE_STAGE_CONFIG['stage1_name']}")
         print("=" * 80)
 
-        opt_result = self.run_grid_search(train_data, train_ratio=1.0, period=period)
+        # Slice funding rates for train period
+        train_funding = None
+        holdout_funding = None
+        if funding_rates is not None and not funding_rates.empty:
+            ts = funding_rates.index
+            train_funding = funding_rates[
+                (ts >= train_data.index[0]) & (ts <= train_data.index[-1])
+            ]
+            holdout_funding = funding_rates[
+                (ts >= holdout_data.index[0]) & (ts <= holdout_data.index[-1])
+            ]
+
+        opt_result = self.run_grid_search(
+            train_data, train_ratio=1.0, period=period, funding_rates=train_funding
+        )
         best_params = opt_result["best_params"]
         best_metrics = opt_result["best_metrics"]
 
@@ -478,7 +565,7 @@ class BacktestRunner:
         print(f"Stage 2: {THREE_STAGE_CONFIG['stage2_name']}")
         print("=" * 80)
 
-        wf_result = self.run_walk_forward(train_data, best_params)
+        wf_result = self.run_walk_forward(train_data, best_params, funding_rates=train_funding)
         wf_summary = wf_result["summary"]
 
         results["stage2"] = {
@@ -513,9 +600,9 @@ class BacktestRunner:
         print(f"Stage 3: {THREE_STAGE_CONFIG['stage3_name']}")
         print("=" * 80)
 
+        has_holdout_funding = holdout_funding is not None and not holdout_funding.empty
         bt_config = self._create_bt_config(holdout_data)
-        has_funding_data = funding_rates is not None and not funding_rates.empty
-        cost_config = self.profile.cost_config(use_funding_rate=has_funding_data)
+        cost_config = self.profile.cost_config(use_funding_rate=has_holdout_funding)
 
         cfg_kw, filt_kw = self._split_params(best_params)
         base_config = self.reg.config_cls(**cfg_kw)
@@ -525,29 +612,13 @@ class BacktestRunner:
             else self.reg.filter_config_cls(**self.reg.default_filter_kwargs)
         )
         gen = self.reg.signal_generator_cls(base_config, base_filter)
-        # Inject funding rate data if the generator supports it
-        if hasattr(gen, "funding_rates") and funding_rates is not None:
-            holdout_start_ts = holdout_data.index[0]
-            holdout_end_ts = holdout_data.index[-1]
-            gen.funding_rates = funding_rates[
-                (funding_rates.index >= holdout_start_ts)
-                & (funding_rates.index <= holdout_end_ts)
-            ] if not funding_rates.empty else funding_rates
+        if hasattr(gen, "funding_rates") and holdout_funding is not None:
+            gen.funding_rates = holdout_funding
         signals = gen.generate(holdout_data, best_params)
         signals = _apply_signal_delay(signals)
 
         psp = _get_position_size_pct(base_config)
         bt = VectorizedBacktest(config=bt_config, cost_config=cost_config, position_size_pct=psp)
-
-        holdout_funding = None
-        if funding_rates is not None and not funding_rates.empty:
-            holdout_start = holdout_data.index[0]
-            holdout_end = holdout_data.index[-1]
-            holdout_funding = funding_rates[
-                (funding_rates.index >= holdout_start)
-                & (funding_rates.index <= holdout_end)
-            ]
-
         holdout_result = bt.run(
             data=holdout_data, signals=signals, funding_rates=holdout_funding
         )
@@ -559,12 +630,22 @@ class BacktestRunner:
         )
         holdout_metrics = analyzer.calculate_metrics()
 
+        # Monte Carlo: bootstrap 95% CI for holdout Sharpe
+        from nexustrader.backtest.analysis.performance import infer_periods_per_year
+        ppy = infer_periods_per_year(holdout_result.equity_curve.index)
+        sharpe_lo, sharpe_hi = _bootstrap_sharpe_ci(holdout_result.equity_curve, ppy)
+
         regime_result = self.run_regime_analysis(holdout_data, holdout_result)
+        bh_holdout = _bh_return_pct(holdout_data, self.leverage)
+        bh_full = _bh_return_pct(data, self.leverage)
 
         results["stage3"] = {
             "name": THREE_STAGE_CONFIG["stage3_name"],
             "holdout_return": holdout_metrics["total_return_pct"],
+            "bh_holdout_return": round(bh_holdout, 2),
             "holdout_sharpe": holdout_metrics["sharpe_ratio"],
+            "holdout_sharpe_ci_lo": round(sharpe_lo, 2) if sharpe_lo is not None else None,
+            "holdout_sharpe_ci_hi": round(sharpe_hi, 2) if sharpe_hi is not None else None,
             "holdout_drawdown": holdout_metrics["max_drawdown_pct"],
             "holdout_trades": holdout_metrics["total_trades"],
             "holdout_win_rate": holdout_metrics["win_rate_pct"],
@@ -586,20 +667,28 @@ class BacktestRunner:
         degradation_pass = degradation <= 0.5
 
         print("\nStage 3 Results (holdout):")
-        print(f"  Holdout return: {holdout_return:+.2f}%")
-        print(f"  Holdout Sharpe: {holdout_metrics['sharpe_ratio']:.2f}")
+        print(f"  Holdout return: {holdout_return:+.2f}%  (B&H: {bh_holdout:+.2f}%)")
+        holdout_sharpe_str = f"{holdout_metrics['sharpe_ratio']:.2f}"
+        if sharpe_lo is not None:
+            holdout_sharpe_str += f"  [95% CI: {sharpe_lo:.2f}, {sharpe_hi:.2f}]"
+        print(f"  Holdout Sharpe: {holdout_sharpe_str}")
         print(f"  Max drawdown: {holdout_metrics['max_drawdown_pct']:.2f}%")
-        print(f"  Trades: {holdout_metrics['total_trades']}")
+        holdout_trades = holdout_metrics['total_trades']
+        trade_warn = "  (low trade count)" if holdout_trades < 10 else ""
+        print(f"  Trades: {holdout_trades}{trade_warn}")
         print(
             f"  Degradation: {degradation:.0%} {'PASS' if degradation_pass else 'FAIL'} (<= 50%)"
         )
+        print(f"\n  Full period B&H: {bh_full:+.2f}%")
 
         # Summary
         print("\n" + "=" * 80)
         print("Three-Stage Test Summary")
         print("=" * 80)
 
-        stage1_pass = results["stage1"]["in_sample_sharpe"] >= 1.0
+        in_sample_trades = results["stage1"]["in_sample_trades"]
+        min_trades_pass = in_sample_trades >= 10
+        stage1_pass = results["stage1"]["in_sample_sharpe"] >= 1.0 and min_trades_pass
         stage2_pass = robustness_pass and consistency_pass
         stage3_pass = degradation_pass and holdout_metrics["sharpe_ratio"] >= 0.5
 
@@ -607,9 +696,12 @@ class BacktestRunner:
 
         print(f"\n{'Stage':<25} {'Status':<10} {'Key Metric'}")
         print("-" * 60)
+        s1_detail = f"Sharpe={results['stage1']['in_sample_sharpe']:.2f}"
+        if not min_trades_pass:
+            s1_detail += f", Trades={in_sample_trades} (< 10)"
         print(
             f"{'Stage 1: Optimization':<25} {'PASS' if stage1_pass else 'FAIL':<10} "
-            f"Sharpe={results['stage1']['in_sample_sharpe']:.2f}"
+            f"{s1_detail}"
         )
         print(
             f"{'Stage 2: Walk-Forward':<25} {'PASS' if stage2_pass else 'FAIL':<10} "
@@ -632,8 +724,11 @@ class BacktestRunner:
             "best_params": best_params,
             "in_sample_sharpe": results["stage1"]["in_sample_sharpe"],
             "holdout_sharpe": holdout_metrics["sharpe_ratio"],
+            "holdout_sharpe_ci_lo": round(sharpe_lo, 2) if sharpe_lo is not None else None,
+            "holdout_sharpe_ci_hi": round(sharpe_hi, 2) if sharpe_hi is not None else None,
             "robustness_ratio": wf_summary["robustness_ratio"],
             "degradation": degradation,
+            "bh_full_return": round(bh_full, 2),
         }
 
         if export_config_flag and self.reg.export_config_fn:
