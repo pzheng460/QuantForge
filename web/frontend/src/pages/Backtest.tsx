@@ -263,7 +263,7 @@ export default function BacktestPage() {
       <h1 className="text-2xl font-semibold text-gray-900">Backtest</h1>
 
       {/* ── Config panel ─────────────────────────────────────────── */}
-      <div className="card space-y-5">
+      <fieldset disabled={loading} className="card space-y-5">
         <h2 className="text-sm font-semibold text-gray-700">Configuration</h2>
 
         {/* Row 1: strategy + exchange */}
@@ -413,7 +413,7 @@ export default function BacktestPage() {
           </button>
           {status && <StatusBadge status={status} />}
         </div>
-      </div>
+      </fieldset>
 
       {/* ── Error ──────────────────────────────────────────────────── */}
       {error && (

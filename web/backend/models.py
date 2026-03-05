@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+_VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
+_VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid"}
+_VALID_MODES = {"grid", "wfo", "full", "heatmap"}
 
 
 class BacktestRequest(BaseModel):
@@ -17,6 +21,34 @@ class BacktestRequest(BaseModel):
     mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
     filter_override: Optional[Dict[str, Any]] = None
+
+    @field_validator("exchange")
+    @classmethod
+    def validate_exchange(cls, v: str) -> str:
+        if v not in _VALID_EXCHANGES:
+            raise ValueError(f"exchange must be one of {_VALID_EXCHANGES}")
+        return v
+
+    @field_validator("period")
+    @classmethod
+    def validate_period(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in _VALID_PERIODS:
+            raise ValueError(f"period must be one of {_VALID_PERIODS}")
+        return v
+
+    @field_validator("leverage")
+    @classmethod
+    def validate_leverage(cls, v: float) -> float:
+        if not (0.1 <= v <= 50):
+            raise ValueError("leverage must be between 0.1 and 50")
+        return v
+
+    @field_validator("mesa_index")
+    @classmethod
+    def validate_mesa_index(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("mesa_index must be >= 0")
+        return v
 
 
 class TradeOut(BaseModel):
@@ -105,6 +137,41 @@ class OptimizeRequest(BaseModel):
     mode: str = "grid"                 # grid | wfo | full | heatmap
     n_jobs: int = 1
     resolution: int = 15               # heatmap grid resolution
+
+    @field_validator("exchange")
+    @classmethod
+    def validate_exchange(cls, v: str) -> str:
+        if v not in _VALID_EXCHANGES:
+            raise ValueError(f"exchange must be one of {_VALID_EXCHANGES}")
+        return v
+
+    @field_validator("period")
+    @classmethod
+    def validate_period(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in _VALID_PERIODS:
+            raise ValueError(f"period must be one of {_VALID_PERIODS}")
+        return v
+
+    @field_validator("leverage")
+    @classmethod
+    def validate_leverage(cls, v: float) -> float:
+        if not (0.1 <= v <= 50):
+            raise ValueError("leverage must be between 0.1 and 50")
+        return v
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        if v not in _VALID_MODES:
+            raise ValueError(f"mode must be one of {_VALID_MODES}")
+        return v
+
+    @field_validator("resolution")
+    @classmethod
+    def validate_resolution(cls, v: int) -> int:
+        if not (3 <= v <= 50):
+            raise ValueError("resolution must be between 3 and 50")
+        return v
 
 
 class GridRowOut(BaseModel):

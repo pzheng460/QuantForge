@@ -27,10 +27,31 @@ from web.backend.models import (
 # In-memory job store (process-scoped; resets on server restart)
 _jobs: Dict[str, Dict[str, Any]] = {}
 
+_JOB_TTL = timedelta(hours=1)
+
+
+def _cleanup_old_jobs() -> None:
+    """Remove completed/failed jobs older than TTL."""
+    now = datetime.now(timezone.utc)
+    expired = [
+        jid
+        for jid, j in _jobs.items()
+        if j["status"] in ("completed", "failed")
+        and (now - j.get("created_at", now)) > _JOB_TTL
+    ]
+    for jid in expired:
+        del _jobs[jid]
+
 
 def create_job() -> str:
+    _cleanup_old_jobs()
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {"status": "pending", "result": None, "error": None}
+    _jobs[job_id] = {
+        "status": "pending",
+        "result": None,
+        "error": None,
+        "created_at": datetime.now(timezone.utc),
+    }
     return job_id
 
 
@@ -69,6 +90,19 @@ def _serialize_result(
 
     equity = result.equity_curve
     initial = result.config.initial_capital
+
+    # Guard: empty equity curve
+    if len(equity) == 0:
+        return BacktestResultOut(
+            total_return_pct=0, bh_return_pct=0, annualized_return_pct=0,
+            max_drawdown_pct=0, sharpe_ratio=0, sharpe_ci_lo=None, sharpe_ci_hi=None,
+            sortino_ratio=0, calmar_ratio=0, total_trades=0, win_rate_pct=0,
+            profit_factor=0, avg_win=0, avg_loss=0, expectancy=0,
+            largest_win=0, largest_loss=0, final_equity=initial,
+            equity_curve=[], drawdown_curve=[], monthly_returns=[], trades=[],
+            strategy=strategy_name, exchange=exchange,
+            period_start="", period_end="", config_name=config_name,
+        )
 
     # Build B&H equity curve
     bh_raw = data["close"] / data["close"].iloc[0] * initial * runner.leverage
@@ -360,7 +394,6 @@ def _serialize_heatmap(hm_results, hc) -> HeatmapResultOut:
 
     panel = hm_results.panels[0] if hm_results.panels else {}
     raw_sharpe = panel.get("sharpe_grid", [])
-    raw_return = panel.get("metrics", {}).get("return_grid", None)
 
     def _clean_grid(grid):
         out = []
