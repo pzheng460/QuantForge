@@ -109,6 +109,7 @@ Each exchange directory contains:
 - `rest_api.py` - REST API client
 
 ### Strategy Signal Layer
+- `strategy/strategies/_base/signal_core_base.py` - BaseSignalCore: shared position state, helpers (`_check_stop_loss`, `_confirm_signal`, `_apply_position_management`, `_reset_position_state`, `sync_position`)
 - `strategy/strategies/_base/streaming.py` - Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
 - `strategy/strategies/{name}/signal_core.py` - Signal cores (single source of truth for each strategy)
 - `strategy/strategies/_base/` - BaseSignalGenerator, TradeFilterConfig, registration helpers, BaseQuantStrategy, PerformanceTracker, GenericStrategy, GenericIndicator, generic configs
@@ -222,6 +223,7 @@ All trading strategies share a **SignalCore** pattern that guarantees 100% code 
 
 ```
 strategy/strategies/_base/
+├── signal_core_base.py      # BaseSignalCore: shared position state + helpers (_check_stop_loss, _confirm_signal, _apply_position_management, _reset_position_state, sync_position)
 ├── streaming.py             # Streaming indicator primitives (EMA, SMA, ATR, ADX, ROC, BB, RSI)
 ├── test_data.py             # Synthetic OHLCV data generators (shared by registration.py + tests)
 ├── __init__.py
