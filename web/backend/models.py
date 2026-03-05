@@ -90,3 +90,128 @@ class StrategySchema(BaseModel):
     default_interval: str
     config_fields: List[SchemaField]
     filter_fields: List[SchemaField]
+
+
+# ─── Optimizer models ────────────────────────────────────────────────────────
+
+class OptimizeRequest(BaseModel):
+    strategy: str
+    exchange: str = "bitget"
+    symbol: Optional[str] = None
+    period: Optional[str] = "1y"
+    start_date: Optional[str] = None   # YYYY-MM-DD
+    end_date: Optional[str] = None     # YYYY-MM-DD
+    leverage: float = 1.0
+    mode: str = "grid"                 # grid | wfo | full | heatmap
+    n_jobs: int = 1
+    resolution: int = 15               # heatmap grid resolution
+
+
+class GridRowOut(BaseModel):
+    rank: int
+    params: Dict[str, Any]
+    sharpe: float
+    total_return_pct: float
+    max_drawdown_pct: float
+    total_trades: int
+    win_rate_pct: float
+
+
+class GridSearchResultOut(BaseModel):
+    best_params: Dict[str, Any]
+    best_sharpe: float
+    best_return_pct: float
+    best_drawdown_pct: float
+    rows: List[GridRowOut]
+    train_start: str
+    train_end: str
+
+
+class WFOWindowOut(BaseModel):
+    window: int
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str
+    best_params: Dict[str, Any]
+    train_sharpe: float
+    train_return_pct: float
+    test_sharpe: float
+    test_return_pct: float
+    test_drawdown_pct: float
+
+
+class WFOResultOut(BaseModel):
+    windows: List[WFOWindowOut]
+    windows_count: int
+    avg_train_return: float
+    avg_test_return: float
+    robustness_ratio: float
+    positive_windows: int
+    total_test_return: float
+
+
+class ThreeStageResultOut(BaseModel):
+    best_params: Dict[str, Any]
+    # Stage 1
+    s1_in_sample_return: float
+    s1_in_sample_sharpe: float
+    s1_in_sample_drawdown: float
+    s1_in_sample_trades: int
+    s1_pass: bool
+    # Stage 2
+    s2_windows_count: int
+    s2_avg_train_return: float
+    s2_avg_test_return: float
+    s2_robustness_ratio: float
+    s2_positive_windows: int
+    s2_total_test_return: float
+    s2_pass: bool
+    # Stage 3
+    s3_holdout_return: float
+    s3_bh_return: float
+    s3_holdout_sharpe: float
+    s3_sharpe_ci_lo: Optional[float]
+    s3_sharpe_ci_hi: Optional[float]
+    s3_holdout_drawdown: float
+    s3_holdout_trades: int
+    s3_holdout_win_rate: float
+    s3_degradation: float
+    s3_pass: bool
+    # Summary
+    all_pass: bool
+    bh_full_return: float
+
+
+class HeatmapMesaOut(BaseModel):
+    index: int
+    center_x: float
+    center_y: float
+    avg_sharpe: float
+    avg_return_pct: float
+    stability: float
+    area: int
+    frequency_label: str
+
+
+class HeatmapResultOut(BaseModel):
+    x_values: List[float]
+    y_values: List[float]
+    x_label: str
+    y_label: str
+    x_param: str
+    y_param: str
+    sharpe_grid: List[List[Optional[float]]]
+    return_grid: List[List[Optional[float]]]
+    mesas: List[HeatmapMesaOut]
+
+
+class OptimizeJobStatusOut(BaseModel):
+    job_id: str
+    status: str
+    error: Optional[str] = None
+    mode: Optional[str] = None
+    grid_result: Optional[GridSearchResultOut] = None
+    wfo_result: Optional[WFOResultOut] = None
+    full_result: Optional[ThreeStageResultOut] = None
+    heatmap_result: Optional[HeatmapResultOut] = None

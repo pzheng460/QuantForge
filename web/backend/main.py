@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from web.backend.routers import strategies, backtest
+from web.backend.routers import strategies, backtest, optimize
 
 app = FastAPI(
     title="NexusTrader API",
@@ -21,6 +21,7 @@ app.add_middleware(
 
 app.include_router(strategies.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
+app.include_router(optimize.router, prefix="/api")
 
 
 @app.get("/api/health")

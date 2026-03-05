@@ -100,3 +100,124 @@ export interface BacktestRequest {
   config_override?: Record<string, number | string | boolean>
   filter_override?: Record<string, number | string | boolean>
 }
+
+// ─── Optimizer types ──────────────────────────────────────────────────────────
+
+export interface OptimizeRequest {
+  strategy: string
+  exchange: string
+  symbol?: string
+  period?: string
+  start_date?: string
+  end_date?: string
+  leverage?: number
+  mode: 'grid' | 'wfo' | 'full' | 'heatmap'
+  n_jobs?: number
+  resolution?: number
+}
+
+export interface GridRow {
+  rank: number
+  params: Record<string, unknown>
+  sharpe: number
+  total_return_pct: number
+  max_drawdown_pct: number
+  total_trades: number
+  win_rate_pct: number
+}
+
+export interface GridSearchResult {
+  best_params: Record<string, unknown>
+  best_sharpe: number
+  best_return_pct: number
+  best_drawdown_pct: number
+  rows: GridRow[]
+  train_start: string
+  train_end: string
+}
+
+export interface WFOWindow {
+  window: number
+  train_start: string
+  train_end: string
+  test_start: string
+  test_end: string
+  best_params: Record<string, unknown>
+  train_sharpe: number
+  train_return_pct: number
+  test_sharpe: number
+  test_return_pct: number
+  test_drawdown_pct: number
+}
+
+export interface WFOResult {
+  windows: WFOWindow[]
+  windows_count: number
+  avg_train_return: number
+  avg_test_return: number
+  robustness_ratio: number
+  positive_windows: number
+  total_test_return: number
+}
+
+export interface ThreeStageResult {
+  best_params: Record<string, unknown>
+  s1_in_sample_return: number
+  s1_in_sample_sharpe: number
+  s1_in_sample_drawdown: number
+  s1_in_sample_trades: number
+  s1_pass: boolean
+  s2_windows_count: number
+  s2_avg_train_return: number
+  s2_avg_test_return: number
+  s2_robustness_ratio: number
+  s2_positive_windows: number
+  s2_total_test_return: number
+  s2_pass: boolean
+  s3_holdout_return: number
+  s3_bh_return: number
+  s3_holdout_sharpe: number
+  s3_sharpe_ci_lo: number | null
+  s3_sharpe_ci_hi: number | null
+  s3_holdout_drawdown: number
+  s3_holdout_trades: number
+  s3_holdout_win_rate: number
+  s3_degradation: number
+  s3_pass: boolean
+  all_pass: boolean
+  bh_full_return: number
+}
+
+export interface HeatmapMesa {
+  index: number
+  center_x: number
+  center_y: number
+  avg_sharpe: number
+  avg_return_pct: number
+  stability: number
+  area: number
+  frequency_label: string
+}
+
+export interface HeatmapResult {
+  x_values: number[]
+  y_values: number[]
+  x_label: string
+  y_label: string
+  x_param: string
+  y_param: string
+  sharpe_grid: (number | null)[][]
+  return_grid: (number | null)[][]
+  mesas: HeatmapMesa[]
+}
+
+export interface OptimizeJobStatus {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  error?: string
+  mode?: string
+  grid_result?: GridSearchResult
+  wfo_result?: WFOResult
+  full_result?: ThreeStageResult
+  heatmap_result?: HeatmapResult
+}

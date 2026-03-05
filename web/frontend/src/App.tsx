@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
 import BacktestPage from './pages/Backtest'
 import DashboardPage from './pages/Dashboard'
+import OptimizerPage from './pages/Optimizer'
 
 function NavItem({ to, label }: { to: string; label: string }) {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <span className="text-brand-500 font-bold text-lg mr-4">📈 NexusTrader</span>
         <NavItem to="/" label="Dashboard" />
         <NavItem to="/backtest" label="Backtest" />
+        <NavItem to="/optimizer" label="Optimizer" />
       </header>
 
       {/* Main */}
@@ -34,6 +36,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/backtest" element={<BacktestPage />} />
+          <Route path="/optimizer" element={<OptimizerPage />} />
         </Routes>
       </main>
     </div>
