@@ -794,13 +794,20 @@ class BacktestRunner:
             n_jobs=self.n_jobs,
         )
 
-    def generate_report(self, result, output_path: Path = None):
-        """Generate HTML report."""
+    def generate_report(self, result, output_path: Path = None, data: pd.DataFrame = None):
+        """Generate HTML report with optional B&H comparison line."""
         if output_path is None:
             output_path = self._report_file
 
+        bh_equity = None
+        if data is not None and len(data) >= 2:
+            initial = result.config.initial_capital
+            bh_equity = (
+                data["close"] / data["close"].iloc[0] * initial * self.leverage
+            )
+
         print(f"\nGenerating report to {output_path}...")
-        generator = ReportGenerator(result)
+        generator = ReportGenerator(result, bh_equity_curve=bh_equity)
         generator.save(output_path)
         print(f"Report saved to {output_path}")
 

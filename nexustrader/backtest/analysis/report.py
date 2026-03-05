@@ -3,13 +3,15 @@ Report generation for backtest results.
 
 Generates interactive HTML reports with:
 - Performance metrics summary
-- Equity curve visualization
+- Equity curve visualization (with optional Buy-and-Hold comparison)
 - Drawdown analysis
 - Trade list and statistics
 """
 
 from pathlib import Path
+from typing import Optional
 
+import pandas as pd
 
 from nexustrader.backtest.result import BacktestResult
 
@@ -21,14 +23,22 @@ class ReportGenerator:
     Creates interactive reports with charts and metrics.
     """
 
-    def __init__(self, result: BacktestResult):
+    def __init__(
+        self,
+        result: BacktestResult,
+        bh_equity_curve: Optional[pd.Series] = None,
+    ):
         """
         Initialize report generator.
 
         Args:
             result: Backtest result to report on
+            bh_equity_curve: Optional buy-and-hold equity curve for comparison.
+                Should have the same DatetimeIndex as result.equity_curve and
+                start at the same initial capital value.
         """
         self.result = result
+        self.bh_equity_curve = bh_equity_curve
 
     def generate(self) -> str:
         """
@@ -256,31 +266,60 @@ class ReportGenerator:
         """
 
     def _generate_equity_section(self) -> str:
-        """Generate equity curve section."""
+        """Generate equity curve section with optional B&H comparison."""
         equity = self.result.equity_curve
 
-        # Prepare data for Plotly
         timestamps = [t.isoformat() for t in equity.index]
         values = equity.values.tolist()
 
-        return f"""
-        <section class="section">
-            <h2>Equity Curve</h2>
-            <div id="equity-chart" class="chart-container"></div>
-            <script>
-                var equityData = [{{
+        # Strategy trace
+        traces = f"""{{
                     x: {timestamps},
                     y: {values},
                     type: 'scatter',
                     mode: 'lines',
-                    name: 'Equity',
+                    name: 'Strategy',
                     line: {{ color: '#667eea', width: 2 }}
-                }}];
+                }}"""
+
+        # B&H trace (optional)
+        if self.bh_equity_curve is not None:
+            bh_values = self.bh_equity_curve.reindex(equity.index, method="ffill").values.tolist()
+            bh_final = bh_values[-1] if bh_values else 0
+            strategy_final = values[-1] if values else 0
+            initial = self.result.config.initial_capital
+            bh_ret = (bh_final / initial - 1) * 100 if initial > 0 else 0
+            strat_ret = (strategy_final / initial - 1) * 100 if initial > 0 else 0
+            alpha = strat_ret - bh_ret
+            alpha_sign = "+" if alpha >= 0 else ""
+            subtitle = f"Strategy: {strat_ret:+.1f}%  |  B&H: {bh_ret:+.1f}%  |  Alpha: {alpha_sign}{alpha:.1f}%"
+            bh_trace = f""",{{
+                    x: {timestamps},
+                    y: {bh_values},
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Buy & Hold',
+                    line: {{ color: '#f59e0b', width: 1.5, dash: 'dot' }}
+                }}"""
+            traces += bh_trace
+        else:
+            subtitle = ""
+
+        subtitle_html = f'<p style="color:#666;font-size:0.9em;margin-bottom:8px">{subtitle}</p>' if subtitle else ""
+
+        return f"""
+        <section class="section">
+            <h2>Equity Curve</h2>
+            {subtitle_html}
+            <div id="equity-chart" class="chart-container"></div>
+            <script>
+                var equityData = [{traces}];
                 var equityLayout = {{
                     margin: {{ t: 20, r: 20, b: 40, l: 60 }},
                     xaxis: {{ title: 'Time' }},
-                    yaxis: {{ title: 'Equity' }},
-                    hovermode: 'x unified'
+                    yaxis: {{ title: 'Portfolio Value (USDT)' }},
+                    hovermode: 'x unified',
+                    legend: {{ orientation: 'h', y: 1.08 }}
                 }};
                 Plotly.newPlot('equity-chart', equityData, equityLayout, {{responsive: true}});
             </script>

@@ -322,7 +322,7 @@ async def async_main(args: argparse.Namespace) -> None:
         runner.run_regime_analysis(data, result_dict["result"])
 
     if args.report and "result" in result_dict:
-        runner.generate_report(result_dict["result"])
+        runner.generate_report(result_dict["result"], data=data)
 
     # Save results
     saved = runner.load_results()
