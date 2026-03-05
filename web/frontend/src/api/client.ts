@@ -41,7 +41,7 @@ export function subscribeBacktest(
   onError?: (e: Event) => void
 ): () => void {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/ws/backtest/${jobId}`)
+  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/backtest/${jobId}`)
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
