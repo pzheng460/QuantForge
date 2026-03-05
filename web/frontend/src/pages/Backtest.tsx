@@ -163,8 +163,8 @@ export default function BacktestPage() {
   const [endDate, setEndDate] = useState('')
   const [leverage, setLeverage] = useState(1)
   const [mesaIndex, setMesaIndex] = useState(0)
-  const [configOverride, setConfigOverride] = useState<Record<string, unknown>>({})
-  const [filterOverride, setFilterOverride] = useState<Record<string, unknown>>({})
+  const [configOverride, setConfigOverride] = useState<Record<string, string | number | boolean>>({})
+  const [filterOverride, setFilterOverride] = useState<Record<string, string | number | boolean>>({})
 
   // Job / result state
   const [jobId, setJobId] = useState<string | null>(null)
@@ -191,10 +191,10 @@ export default function BacktestPage() {
   const selectedSchema = strategies.find((s) => s.name === strategy)
   useEffect(() => {
     if (!selectedSchema) return
-    const cfg: Record<string, unknown> = {}
-    for (const f of selectedSchema.config_fields) cfg[f.name] = f.default
-    const flt: Record<string, unknown> = {}
-    for (const f of selectedSchema.filter_fields) flt[f.name] = f.default
+    const cfg: Record<string, string | number | boolean> = {}
+    for (const f of selectedSchema.config_fields) if (f.default != null) cfg[f.name] = f.default as string | number | boolean
+    const flt: Record<string, string | number | boolean> = {}
+    for (const f of selectedSchema.filter_fields) if (f.default != null) flt[f.name] = f.default as string | number | boolean
     setConfigOverride(cfg)
     setFilterOverride(flt)
   }, [strategy])
@@ -376,7 +376,7 @@ export default function BacktestPage() {
                   key={f.name}
                   field={f}
                   value={configOverride[f.name] ?? f.default}
-                  onChange={(v) => setConfigOverride((prev) => ({ ...prev, [f.name]: v }))}
+                  onChange={(v) => setConfigOverride((prev) => ({ ...prev, [f.name]: v as string | number | boolean }))}
                 />
               ))}
             </div>
@@ -395,7 +395,7 @@ export default function BacktestPage() {
                   key={f.name}
                   field={f}
                   value={filterOverride[f.name] ?? f.default}
-                  onChange={(v) => setFilterOverride((prev) => ({ ...prev, [f.name]: v }))}
+                  onChange={(v) => setFilterOverride((prev) => ({ ...prev, [f.name]: v as string | number | boolean }))}
                 />
               ))}
             </div>

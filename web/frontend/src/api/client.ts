@@ -5,6 +5,8 @@ import type {
   StrategySchema,
   OptimizeRequest,
   OptimizeJobStatus,
+  LivePerformance,
+  LiveStrategyStatus,
 } from '../types'
 
 const BASE = '/api'
@@ -40,6 +42,9 @@ export const api = {
 
   getOptimizeStatus: (jobId: string): Promise<OptimizeJobStatus> =>
     get(`/optimize/${jobId}`),
+
+  liveStrategies: (): Promise<LiveStrategyStatus[]> => get('/live/strategies'),
+  livePerformance: (): Promise<LivePerformance> => get('/live/performance'),
 }
 
 /** Subscribe to an optimize job via WebSocket. Returns a cleanup function. */
@@ -50,6 +55,24 @@ export function subscribeOptimize(
 ): () => void {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/optimize/${jobId}`)
+  ws.onmessage = (e) => {
+    try {
+      onMessage(JSON.parse(e.data))
+    } catch {
+      /* ignore malformed frames */
+    }
+  }
+  if (onError) ws.onerror = onError
+  return () => ws.close()
+}
+
+/** Subscribe to live performance updates via WebSocket. Returns a cleanup function. */
+export function subscribeLivePerformance(
+  onMessage: (msg: LivePerformance) => void,
+  onError?: (e: Event) => void
+): () => void {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/live/performance`)
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
