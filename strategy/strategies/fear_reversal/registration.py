@@ -25,6 +25,28 @@ from strategy.strategies.fear_reversal.signal_core import FearReversalSignalCore
 COLUMNS_CLOSE_HIGH_LOW_VOLUME_OPEN = ("close", "high", "low", "volume", "open")
 
 
+def _pre_signal_hook(strategy, symbol, signal, price, indicator, current_bar):
+    """Log signal breakdown every bar."""
+    core = indicator.core
+    if not hasattr(core, "get_signal_breakdown"):
+        return False
+    try:
+        vol = indicator._last_volume if hasattr(indicator, "_last_volume") else 0
+        bd = core.get_signal_breakdown(price, vol)
+        marks = []
+        marks.append(f"RSI={'✓' if bd['rsi_reversal'] else '✗'}({bd['rsi']:.1f})" if bd['rsi'] is not None else "RSI=N/A")
+        marks.append(f"Vol={'✓' if bd['vol_ok'] else '✗'}")
+        marks.append(f"EMA200={'✓' if bd['above_ema'] else '✗'}({bd['ema200']:.0f})" if bd['ema200'] is not None else "EMA200=N/A")
+        marks.append(f"ADX={'✓' if bd['adx_weak'] else '✗'}({bd['adx']:.1f})" if bd['adx'] is not None else "ADX=✓(N/A)")
+        marks.append(f"Candle={'✓' if bd['strong_candle'] else '✗'}")
+        strategy.log.info(
+            f"{symbol} | Signals {bd['count']}/{bd['needed']}: {' | '.join(marks)}"
+        )
+    except Exception:
+        pass
+    return False
+
+
 def _make_generator(config, filter_config):
     return BaseSignalGenerator(
         config,
@@ -106,8 +128,10 @@ register_strategy(
                 )
                 + 10
             ),
+            use_dual_mode=True,
             enable_stale_guard=True,
             max_kline_age_s=120.0,
+            pre_signal_hook_fn=_pre_signal_hook,
         ),
         parity_config=ParityTestConfig(
             custom_config_kwargs={

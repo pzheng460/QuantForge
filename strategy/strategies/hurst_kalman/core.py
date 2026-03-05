@@ -15,6 +15,9 @@ def calculate_hurst(prices: np.ndarray, window: int = 100) -> float:
     """
     Calculate the Hurst Exponent using R/S (Rescaled Range) Analysis.
 
+    Uses log-returns and multiple sub-division scales with averaged R/S
+    per scale for robust estimation.
+
     H < 0.45: Mean-reverting
     0.45 <= H <= 0.55: Random walk
     H > 0.55: Trending
@@ -35,20 +38,38 @@ def calculate_hurst(prices: np.ndarray, window: int = 100) -> float:
     if n < 20:
         return 0.5
 
-    rs_list = []
-    ns_list = []
+    # Use log-returns for stationarity
+    log_returns = np.diff(np.log(ts))
+    m = len(log_returns)  # n - 1
 
-    for size in [n // 4, n // 2, n]:
-        if size < 10:
+    # Generate multiple chunk sizes (powers of 2 that fit, plus intermediate)
+    # We need at least 8 bars per chunk and at least 2 chunks per size
+    sizes = []
+    s = 8
+    while s <= m // 2:
+        sizes.append(s)
+        # Add intermediate size for more data points
+        mid = int(s * 1.5)
+        if mid < m // 2 and mid != s:
+            sizes.append(mid)
+        s *= 2
+    sizes = sorted(set(sizes))
+
+    if len(sizes) < 2:
+        return 0.5
+
+    avg_log_rs = []
+    log_sizes = []
+
+    for size in sizes:
+        num_chunks = m // size
+        if num_chunks < 1:
             continue
 
-        num_chunks = n // size
-        if num_chunks == 0:
-            continue
-
+        rs_values = []
         for chunk_idx in range(num_chunks):
-            chunk = ts[chunk_idx * size : (chunk_idx + 1) * size]
-            if len(chunk) < 10:
+            chunk = log_returns[chunk_idx * size : (chunk_idx + 1) * size]
+            if len(chunk) < 8:
                 continue
 
             mean = np.mean(chunk)
@@ -56,22 +77,26 @@ def calculate_hurst(prices: np.ndarray, window: int = 100) -> float:
             cum_dev = np.cumsum(deviations)
 
             r = np.max(cum_dev) - np.min(cum_dev)
-            s = np.std(chunk, ddof=1)
+            s_std = np.std(chunk, ddof=1)
 
-            if s > 1e-10:
-                rs_list.append(r / s)
-                ns_list.append(len(chunk))
+            if s_std > 1e-10:
+                rs_values.append(r / s_std)
 
-    if len(rs_list) < 2:
+        if rs_values:
+            # Average R/S across all chunks of this size
+            avg_log_rs.append(np.log(np.mean(rs_values)))
+            log_sizes.append(np.log(size))
+
+    if len(avg_log_rs) < 2:
         return 0.5
 
-    log_n = np.log(ns_list)
-    log_rs = np.log(rs_list)
+    log_sizes = np.array(log_sizes)
+    avg_log_rs = np.array(avg_log_rs)
 
-    if len(set(log_n)) < 2:
+    if len(set(log_sizes)) < 2:
         return 0.5
 
-    coeffs = np.polyfit(log_n, log_rs, 1)
+    coeffs = np.polyfit(log_sizes, avg_log_rs, 1)
     hurst = max(0.0, min(1.0, coeffs[0]))
 
     return hurst

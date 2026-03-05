@@ -45,6 +45,7 @@ def _get_kline_kwargs(kline: Kline, param_names: Tuple[str, ...]) -> Dict[str, A
         "high": float(kline.high),
         "low": float(kline.low),
         "volume": float(kline.volume),
+        "open": float(kline.open),
     }
     return {name: kline_map[name] for name in param_names if name in kline_map}
 
@@ -177,6 +178,7 @@ class GenericIndicator(Indicator):
         """Process a confirmed bar through the signal core."""
         price = float(kline.close)
         self._last_price = price
+        self._last_volume = float(kline.volume) if kline.volume else 0.0
 
         # Pre-update hook (e.g. for VWAP day boundary detection)
         extra_kwargs: Dict[str, Any] = {}
