@@ -47,6 +47,13 @@ function num(v: number, digits = 2) {
   return v.toFixed(digits)
 }
 
+function fmtDuration(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)}m`
+  if (hours < 24) return `${num(hours, 1)}h`
+  const days = hours / 24
+  return `${num(days, 1)}d`
+}
+
 export default function MetricsPanel({ result }: Props) {
   const sharpeSub =
     result.sharpe_ci_lo != null && result.sharpe_ci_hi != null
@@ -58,7 +65,7 @@ export default function MetricsPanel({ result }: Props) {
       {/* Returns row */}
       <div>
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Returns</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <Metric
             label="Total Return"
             value={pct(result.total_return_pct)}
@@ -83,17 +90,25 @@ export default function MetricsPanel({ result }: Props) {
             positive={result.annualized_return_pct > 0}
             negative={result.annualized_return_pct < 0}
           />
+          <Metric
+            label="Recovery Factor"
+            value={num(result.recovery_factor)}
+            positive={result.recovery_factor > 1}
+            negative={result.recovery_factor < 0}
+            sub="Return / Max DD"
+          />
         </div>
       </div>
 
       {/* Risk row */}
       <div>
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Risk</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <Metric
             label="Max Drawdown"
             value={pct(result.max_drawdown_pct)}
             negative={true}
+            sub={`Duration: ${num(result.max_dd_duration_days, 1)} days`}
           />
           <Metric
             label="Sharpe Ratio"
@@ -114,13 +129,17 @@ export default function MetricsPanel({ result }: Props) {
             positive={result.calmar_ratio >= 1}
             negative={result.calmar_ratio < 0}
           />
+          <Metric
+            label="Ann. Volatility"
+            value={`${num(result.annualized_volatility_pct)}%`}
+          />
         </div>
       </div>
 
       {/* Trade stats */}
       <div>
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Trade Statistics</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <Metric label="Total Trades" value={String(result.total_trades)} />
           <Metric
             label="Win Rate"
@@ -133,11 +152,32 @@ export default function MetricsPanel({ result }: Props) {
             positive={result.profit_factor >= 1.5}
             negative={result.profit_factor < 1}
           />
+          <Metric
+            label="Payoff Ratio"
+            value={num(result.payoff_ratio)}
+            positive={result.payoff_ratio > 1}
+            negative={result.payoff_ratio < 1}
+            sub="Avg Win / Avg Loss"
+          />
           <Metric label="Expectancy" value={`$${result.expectancy.toFixed(2)}`} positive={result.expectancy > 0} negative={result.expectancy < 0} />
           <Metric label="Avg Win" value={`$${result.avg_win.toFixed(2)}`} positive={true} />
           <Metric label="Avg Loss" value={`$${result.avg_loss.toFixed(2)}`} negative={true} />
           <Metric label="Largest Win" value={`$${result.largest_win.toFixed(2)}`} positive={true} />
           <Metric label="Largest Loss" value={`$${result.largest_loss.toFixed(2)}`} negative={true} />
+          <Metric
+            label="Max Consec. Wins"
+            value={String(result.max_consecutive_wins)}
+            positive={true}
+          />
+          <Metric
+            label="Max Consec. Losses"
+            value={String(result.max_consecutive_losses)}
+            negative={true}
+          />
+          <Metric
+            label="Avg Trade Duration"
+            value={fmtDuration(result.avg_trade_duration_hours)}
+          />
         </div>
       </div>
 

@@ -68,20 +68,27 @@ class BacktestResultOut(BaseModel):
     annualized_return_pct: float
     # Risk
     max_drawdown_pct: float
+    max_dd_duration_days: float
     sharpe_ratio: float
     sharpe_ci_lo: Optional[float]
     sharpe_ci_hi: Optional[float]
     sortino_ratio: float
     calmar_ratio: float
+    annualized_volatility_pct: float
+    recovery_factor: float
     # Trade stats
     total_trades: int
     win_rate_pct: float
     profit_factor: float
+    payoff_ratio: float
     avg_win: float
     avg_loss: float
     expectancy: float
     largest_win: float
     largest_loss: float
+    max_consecutive_wins: int
+    max_consecutive_losses: int
+    avg_trade_duration_hours: float
     final_equity: float
     # Curves: list of {"t": iso_str, "strategy": float, "bh": float}
     equity_curve: List[Dict[str, Any]]

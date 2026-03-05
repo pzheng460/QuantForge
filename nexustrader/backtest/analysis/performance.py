@@ -151,11 +151,45 @@ class PerformanceAnalyzer:
         else:
             calmar = 0.0
 
+        # Annualized volatility
+        if len(self.returns) > 1:
+            ann_vol = float(self.returns.std() * np.sqrt(self.periods_per_year) * 100)
+        else:
+            ann_vol = 0.0
+
+        # Max drawdown duration (in calendar days)
+        rolling_max = self.equity_curve.cummax()
+        drawdown = (self.equity_curve - rolling_max) / rolling_max
+        max_dd_duration_days = 0.0
+        if len(drawdown) > 1:
+            in_dd = False
+            dd_start = drawdown.index[0]
+            for ts, dd_val in drawdown.items():
+                if dd_val < 0 and not in_dd:
+                    in_dd = True
+                    dd_start = ts
+                elif dd_val >= 0 and in_dd:
+                    in_dd = False
+                    dur = (ts - dd_start).total_seconds() / 86400
+                    if dur > max_dd_duration_days:
+                        max_dd_duration_days = dur
+            if in_dd:
+                dur = (drawdown.index[-1] - dd_start).total_seconds() / 86400
+                if dur > max_dd_duration_days:
+                    max_dd_duration_days = dur
+
+        # Recovery factor (total return / max drawdown)
+        total_return_pct = return_metrics["total_return_pct"]
+        recovery_factor = total_return_pct / max_drawdown_pct if max_drawdown_pct > 0 else 0.0
+
         return {
             "max_drawdown_pct": max_drawdown_pct,
+            "max_dd_duration_days": max_dd_duration_days,
             "sharpe_ratio": sharpe,
             "sortino_ratio": sortino,
             "calmar_ratio": calmar,
+            "annualized_volatility_pct": ann_vol,
+            "recovery_factor": recovery_factor,
         }
 
     def _calculate_trade_stats(self) -> Dict[str, float]:
@@ -174,6 +208,10 @@ class PerformanceAnalyzer:
                 "expectancy": 0.0,
                 "largest_win": 0.0,
                 "largest_loss": 0.0,
+                "payoff_ratio": 0.0,
+                "max_consecutive_wins": 0,
+                "max_consecutive_losses": 0,
+                "avg_trade_duration_hours": 0.0,
             }
 
         # Winning and losing trades
@@ -201,6 +239,9 @@ class PerformanceAnalyzer:
         avg_win = gross_profit / n_wins if n_wins > 0 else 0.0
         avg_loss = gross_loss / n_losses if n_losses > 0 else 0.0
 
+        # Payoff ratio (avg win / avg loss)
+        payoff_ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
+
         # Expectancy
         loss_rate = n_losses / total_trades if total_trades > 0 else 0
         expectancy = (win_rate / 100 * avg_win) - (loss_rate * avg_loss)
@@ -208,6 +249,36 @@ class PerformanceAnalyzer:
         # Largest win/loss
         largest_win = max(t.pnl for t in winning_trades) if winning_trades else 0.0
         largest_loss = abs(min(t.pnl for t in losing_trades)) if losing_trades else 0.0
+
+        # Max consecutive wins/losses
+        max_con_wins = 0
+        max_con_losses = 0
+        cur_wins = 0
+        cur_losses = 0
+        for t in closing_trades:
+            if t.pnl > 0:
+                cur_wins += 1
+                cur_losses = 0
+                max_con_wins = max(max_con_wins, cur_wins)
+            else:
+                cur_losses += 1
+                cur_wins = 0
+                max_con_losses = max(max_con_losses, cur_losses)
+
+        # Average trade duration (hours)
+        # TradeRecord has timestamp (exit) but not entry; use bar index diff
+        # For now, compute from equity curve bar intervals × bars held
+        avg_trade_duration_hours = 0.0
+        if len(self.equity_curve.index) >= 2:
+            median_bar_secs = (
+                pd.Series(self.equity_curve.index.asi8).diff().dropna().median() / 1e9
+            )
+            # Approximate: each trade's bar count = (exit_idx - entry_idx)
+            # TradeRecord doesn't store bar indices, so estimate from total
+            # bars / total trades as average holding period
+            total_bars = len(self.equity_curve)
+            avg_bars_per_trade = total_bars / total_trades if total_trades > 0 else 0
+            avg_trade_duration_hours = avg_bars_per_trade * median_bar_secs / 3600
 
         return {
             "total_trades": total_trades,
@@ -218,6 +289,10 @@ class PerformanceAnalyzer:
             "expectancy": expectancy,
             "largest_win": largest_win,
             "largest_loss": largest_loss,
+            "payoff_ratio": payoff_ratio,
+            "max_consecutive_wins": max_con_wins,
+            "max_consecutive_losses": max_con_losses,
+            "avg_trade_duration_hours": avg_trade_duration_hours,
         }
 
     def get_daily_returns(self) -> pd.Series:

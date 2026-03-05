@@ -56,19 +56,26 @@ export interface BacktestResult {
   bh_return_pct: number
   annualized_return_pct: number
   max_drawdown_pct: number
+  max_dd_duration_days: number
   sharpe_ratio: number
   sharpe_ci_lo: number | null
   sharpe_ci_hi: number | null
   sortino_ratio: number
   calmar_ratio: number
+  annualized_volatility_pct: number
+  recovery_factor: number
   total_trades: number
   win_rate_pct: number
   profit_factor: number
+  payoff_ratio: number
   avg_win: number
   avg_loss: number
   expectancy: number
   largest_win: number
   largest_loss: number
+  max_consecutive_wins: number
+  max_consecutive_losses: number
+  avg_trade_duration_hours: number
   final_equity: number
   equity_curve: EquityPoint[]
   drawdown_curve: DrawdownPoint[]
