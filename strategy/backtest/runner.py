@@ -153,12 +153,9 @@ class BacktestRunner:
             )
             cfg, filt = strategy_config.get_configs()
             return cfg, filt, strategy_config
-        except FileNotFoundError:
-            # No heatmap results yet — use default config/filter
-            print(
-                f"No heatmap_results.json found at {results_path}. "
-                "Using default parameters."
-            )
+        except (FileNotFoundError, ValueError) as exc:
+            # No heatmap results or no Mesa regions — use default config/filter
+            print(f"{exc} Using default parameters.")
             cfg = self.reg.config_cls()
             filt_kwargs = self.reg.default_filter_kwargs or {}
             filt = self.reg.filter_config_cls(**filt_kwargs)
