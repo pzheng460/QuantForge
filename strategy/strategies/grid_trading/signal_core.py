@@ -93,7 +93,7 @@ class GridSignalCore(BaseSignalCore):
             lower = center - half_range
             if upper <= lower:
                 return HOLD
-            self._grid_lines = np.linspace(lower, upper, self._config.grid_count + 1)
+            self._grid_lines = np.linspace(lower, upper, int(self._config.grid_count) + 1)
             self._last_recalc = i
             # Reset tracking on grid recalc
             self._current_level = int(np.searchsorted(self._grid_lines, price))

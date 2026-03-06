@@ -193,7 +193,7 @@ class StreamingADX:
     """
 
     def __init__(self, period: int = 14):
-        self._period = period
+        self._period = int(period)
         self._count = 0  # bars processed (0-indexed internally)
         self._prev_high: Optional[float] = None
         self._prev_low: Optional[float] = None
@@ -313,7 +313,7 @@ class StreamingBB:
     """
 
     def __init__(self, period: int = 20, multiplier: float = 2.0):
-        self._period = period
+        self._period = int(period)
         self._multiplier = multiplier
         self._window: deque[float] = deque(maxlen=self._period)
         self._sma: Optional[float] = None
@@ -365,7 +365,7 @@ class StreamingRSI:
     """
 
     def __init__(self, period: int = 14):
-        self._period = period
+        self._period = int(period)
         self._count = 0
         self._prev_price: Optional[float] = None
         self._avg_gain: Optional[float] = None

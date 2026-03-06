@@ -147,11 +147,11 @@ class DynamicGridSignalCore(BaseSignalCore):
             lower = center - half_range
             if upper <= lower:
                 return HOLD
-            self._grid_lines = np.linspace(lower, upper, self._config.grid_count + 1)
+            self._grid_lines = np.linspace(lower, upper, int(self._config.grid_count) + 1)
             self._last_recalc = i
             self._current_level = int(np.searchsorted(self._grid_lines, close))
             self._current_level = max(
-                0, min(self._config.grid_count, self._current_level)
+                0, min(int(self._config.grid_count), self._current_level)
             )
             self._peak_level = self._current_level
             self._trough_level = self._current_level
@@ -161,7 +161,7 @@ class DynamicGridSignalCore(BaseSignalCore):
 
         # ---- Get current grid level ----
         new_level = int(np.searchsorted(self._grid_lines, close))
-        new_level = max(0, min(self._config.grid_count, new_level))
+        new_level = max(0, min(int(self._config.grid_count), new_level))
 
         # ---- Stop loss (with daily circuit-breaker cooldown) ----
         if self.position != 0 and self.entry_price > 0:
