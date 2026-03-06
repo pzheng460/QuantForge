@@ -39,7 +39,7 @@ def _sma_pre_loop_hook(core, data, params, effective_config, generator, **_kw):
     (the last bar of each calendar day).  Signal evaluation is gated to
     these bars only, preventing intraday noise from creating false crossovers.
     """
-    sma_period = effective_config.sma_period
+    sma_period = int(effective_config.sma_period)
 
     if data.index.tz is None:
         idx = data.index.tz_localize("UTC")
