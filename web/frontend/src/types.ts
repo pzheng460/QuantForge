@@ -32,6 +32,8 @@ export interface TradeRecord {
   fee: number
   pnl: number
   pnl_pct: number
+  entry_time?: string
+  bars_held?: number
 }
 
 export interface EquityPoint {
@@ -77,6 +79,20 @@ export interface BacktestResult {
   max_consecutive_losses: number
   avg_trade_duration_hours: number
   final_equity: number
+  // TradingView-compatible fields (optional, populated when backend supports them)
+  net_profit?: number
+  gross_profit?: number
+  gross_loss?: number
+  commission_paid?: number
+  avg_trade_dollar?: number
+  avg_trade_pct?: number
+  avg_bars_held?: number
+  avg_bars_held_winning?: number
+  avg_bars_held_losing?: number
+  open_pl?: number
+  total_open_trades?: number
+  num_winning_trades?: number
+  num_losing_trades?: number
   equity_curve: EquityPoint[]
   drawdown_curve: DrawdownPoint[]
   monthly_returns: MonthlyReturn[]

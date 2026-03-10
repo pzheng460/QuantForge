@@ -1,153 +1,44 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import clsx from 'clsx'
 import { api, subscribeBacktest } from '../api/client'
-import type { BacktestRequest, BacktestResult, StrategySchema, Exchange, SchemaField, TradeRecord } from '../types'
-import EquityChart from '../components/charts/EquityChart'
-import DrawdownChart from '../components/charts/DrawdownChart'
-import MonthlyReturnsHeatmap from '../components/charts/MonthlyReturnsHeatmap'
-import MetricsPanel from '../components/MetricsPanel'
+import type { BacktestRequest, BacktestResult, StrategySchema, Exchange } from '../types'
+import TradingChart from '../components/chart/TradingChart'
+import StrategyTester from '../components/StrategyTester'
+import ParameterPanel from '../components/ParameterPanel'
 
-// ─── Form helpers ────────────────────────────────────────────────────────────
+// ─── Resizable bottom panel ──────────────────────────────────────────────────
 
-const PERIODS = ['1w', '1m', '3m', '6m', '1y', '2y', '3y', '5y']
+function useResizablePanel(defaultHeight: number) {
+  const [height, setHeight] = useState(defaultHeight)
+  const isDragging = useRef(false)
+  const startY = useRef(0)
+  const startH = useRef(defaultHeight)
 
-function FieldInput({ field, value, onChange }: { field: SchemaField; value: unknown; onChange: (v: unknown) => void }) {
-  if (field.type === 'bool') {
-    return (
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={Boolean(value)}
-          onChange={(e) => onChange(e.target.checked)}
-          className="w-4 h-4 rounded border-gray-300 text-brand-500"
-        />
-        <span className="text-sm text-gray-700">{field.label}</span>
-      </label>
-    )
-  }
-  if (field.type === 'int' || field.type === 'float') {
-    return (
-      <div className="flex flex-col gap-1">
-        <label className="text-xs text-gray-500">{field.label}</label>
-        <input
-          type="number"
-          className="input text-sm"
-          value={value as number}
-          step={field.step ?? (field.type === 'int' ? 1 : 0.01)}
-          min={field.min ?? undefined}
-          max={field.max ?? undefined}
-          onChange={(e) =>
-            onChange(field.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value))
-          }
-        />
-      </div>
-    )
-  }
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-xs text-gray-500">{field.label}</label>
-      <input
-        type="text"
-        className="input text-sm"
-        value={value as string}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </div>
-  )
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true
+    startY.current = e.clientY
+    startH.current = height
+    e.preventDefault()
+  }, [height])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = startY.current - e.clientY
+      setHeight(Math.max(160, Math.min(600, startH.current + delta)))
+    }
+    const onUp = () => { isDragging.current = false }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  return { height, onMouseDown }
 }
 
-// ─── Trade table ─────────────────────────────────────────────────────────────
-
-function TradeTable({ trades }: { trades: TradeRecord[] }) {
-  const [page, setPage] = useState(0)
-  const PAGE_SIZE = 20
-  const total = trades.length
-  const paged = trades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-  const pages = Math.ceil(total / PAGE_SIZE)
-
-  return (
-    <div className="space-y-2">
-      <div className="overflow-x-auto">
-        <table className="text-xs w-full">
-          <thead>
-            <tr className="border-b border-gray-100">
-              {['Timestamp', 'Side', 'Price', 'Amount', 'Fee', 'PnL', 'PnL %'].map((h) => (
-                <th key={h} className="py-2 px-3 text-left text-gray-400 font-medium">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {paged.map((t, i) => (
-              <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                <td className="py-1.5 px-3 text-gray-500">{t.timestamp.slice(0, 16).replace('T', ' ')}</td>
-                <td className="py-1.5 px-3">
-                  <span className={clsx('font-medium', t.side === 'buy' ? 'text-green-600' : 'text-red-500')}>
-                    {t.side.toUpperCase()}
-                  </span>
-                </td>
-                <td className="py-1.5 px-3 tabular-nums">${t.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                <td className="py-1.5 px-3 tabular-nums">{t.amount.toFixed(4)}</td>
-                <td className="py-1.5 px-3 tabular-nums text-gray-500">${t.fee.toFixed(2)}</td>
-                <td className={clsx('py-1.5 px-3 tabular-nums font-medium', t.pnl >= 0 ? 'text-green-600' : 'text-red-500')}>
-                  {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
-                </td>
-                <td className={clsx('py-1.5 px-3 tabular-nums', t.pnl_pct >= 0 ? 'text-green-600' : 'text-red-500')}>
-                  {t.pnl_pct >= 0 ? '+' : ''}{t.pnl_pct.toFixed(2)}%
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
-          <span>{total} trades total</span>
-          <div className="flex gap-1">
-            <button
-              className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40"
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              ‹ Prev
-            </button>
-            <span className="px-2 py-1">
-              {page + 1} / {pages}
-            </span>
-            <button
-              className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40"
-              disabled={page >= pages - 1}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next ›
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Status badge ─────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: string }) {
-  const cls: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-700',
-    running: 'bg-blue-100 text-blue-700 animate-pulse',
-    completed: 'bg-green-100 text-green-700',
-    failed: 'bg-red-100 text-red-700',
-  }
-  return (
-    <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', cls[status] ?? 'bg-gray-100 text-gray-600')}>
-      {status}
-    </span>
-  )
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
-
-type Tab = 'equity' | 'drawdown' | 'monthly' | 'trades'
+// ─── Main Backtest page ───────────────────────────────────────────────────────
 
 export default function BacktestPage() {
   const [strategies, setStrategies] = useState<StrategySchema[]>([])
@@ -172,7 +63,9 @@ export default function BacktestPage() {
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [tab, setTab] = useState<Tab>('equity')
+
+  // Resizable bottom panel
+  const { height: bottomHeight, onMouseDown: onDragStart } = useResizablePanel(280)
 
   const wsCleanupRef = useRef<(() => void) | null>(null)
 
@@ -220,9 +113,7 @@ export default function BacktestPage() {
         setLoading(false)
       },
     )
-    return () => {
-      wsCleanupRef.current?.()
-    }
+    return () => { wsCleanupRef.current?.() }
   }, [jobId])
 
   const handleRun = useCallback(async () => {
@@ -256,237 +147,102 @@ export default function BacktestPage() {
     }
   }, [strategy, exchange, symbol, leverage, mesaIndex, configOverride, filterOverride, useDateRange, period, startDate, endDate])
 
-  const selectedExchange = exchanges.find((e) => e.id === exchange)
-
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-gray-900">Backtest</h1>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
 
-      {/* ── Config panel ─────────────────────────────────────────── */}
-      <fieldset disabled={loading} className="card space-y-5">
-        <h2 className="text-sm font-semibold text-gray-700">Configuration</h2>
+      {/* ── Main body: left panel + chart ─────────────────────────── */}
+      <div className="flex flex-1 min-h-0">
 
-        {/* Row 1: strategy + exchange */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Strategy</label>
-            <select className="input text-sm" value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-              {strategies.map((s) => (
-                <option key={s.name} value={s.name}>
-                  {s.display_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Exchange</label>
-            <select className="input text-sm" value={exchange} onChange={(e) => setExchange(e.target.value)}>
-              {exchanges.map((ex) => (
-                <option key={ex.id} value={ex.id}>
-                  {ex.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">
-              Symbol{' '}
-              <span className="text-gray-400">
-                (default: {selectedExchange?.default_symbol ?? '…'})
-              </span>
-            </label>
-            <input
-              type="text"
-              className="input text-sm"
-              placeholder={selectedExchange?.default_symbol ?? ''}
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Leverage</label>
-            <input
-              type="number"
-              className="input text-sm"
-              min={1}
-              max={20}
-              step={1}
-              value={leverage}
-              onChange={(e) => setLeverage(Number(e.target.value))}
-            />
-          </div>
+        {/* Left parameter panel (fixed width) */}
+        <div className="w-56 shrink-0" style={{ height: '100%' }}>
+          <ParameterPanel
+            strategies={strategies}
+            exchanges={exchanges}
+            strategy={strategy}
+            exchange={exchange}
+            symbol={symbol}
+            period={period}
+            leverage={leverage}
+            mesaIndex={mesaIndex}
+            useDateRange={useDateRange}
+            startDate={startDate}
+            endDate={endDate}
+            configOverride={configOverride}
+            filterOverride={filterOverride}
+            loading={loading}
+            status={status}
+            onStrategyChange={setStrategy}
+            onExchangeChange={setExchange}
+            onSymbolChange={setSymbol}
+            onPeriodChange={setPeriod}
+            onLeverageChange={setLeverage}
+            onMesaIndexChange={setMesaIndex}
+            onUseDateRangeChange={setUseDateRange}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onConfigChange={setConfigOverride}
+            onFilterChange={setFilterOverride}
+            onRun={handleRun}
+          />
         </div>
 
-        {/* Row 2: period / date range */}
-        <div className="flex flex-wrap gap-4 items-end">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={useDateRange}
-              onChange={(e) => setUseDateRange(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300"
+        {/* Right: chart area + bottom panel */}
+        <div className="flex flex-col flex-1 min-w-0">
+
+          {/* Chart area */}
+          <div className="flex-1 min-h-0 bg-tv-bg relative">
+            {result ? (
+              <TradingChart
+                equityCurve={result.equity_curve}
+                trades={result.trades}
+                height={undefined}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                {loading ? (
+                  <div className="flex flex-col items-center gap-3 text-tv-muted">
+                    <div className="w-8 h-8 border-2 border-tv-blue border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm capitalize">{status || 'Loading…'}</span>
+                  </div>
+                ) : error ? (
+                  <div className="max-w-lg px-6">
+                    <p className="text-sm font-medium text-tv-red mb-2">Backtest failed</p>
+                    <pre className="text-xs text-tv-muted whitespace-pre-wrap overflow-auto max-h-48 bg-tv-panel border border-tv-border rounded-sm p-3">
+                      {error}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-tv-muted">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                    <span className="text-sm">Configure parameters and click Run Backtest</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Resize handle */}
+          {result && (
+            <div
+              className="h-1 bg-tv-border cursor-row-resize hover:bg-tv-blue transition-colors shrink-0"
+              onMouseDown={onDragStart}
             />
-            Custom date range
-          </label>
-          {!useDateRange ? (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Period</label>
-              <select className="input text-sm" value={period} onChange={(e) => setPeriod(e.target.value)}>
-                {PERIODS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-gray-500">Start date</label>
-                <input type="date" className="input text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-gray-500">End date</label>
-                <input type="date" className="input text-sm" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </div>
-            </>
           )}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Mesa index</label>
-            <input
-              type="number"
-              className="input text-sm w-20"
-              min={0}
-              step={1}
-              value={mesaIndex}
-              onChange={(e) => setMesaIndex(parseInt(e.target.value))}
-            />
-          </div>
-        </div>
 
-        {/* Strategy params */}
-        {selectedSchema && selectedSchema.config_fields.length > 0 && (
-          <div>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-              Strategy Parameters
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-              {selectedSchema.config_fields.map((f) => (
-                <FieldInput
-                  key={f.name}
-                  field={f}
-                  value={configOverride[f.name] ?? f.default}
-                  onChange={(v) => setConfigOverride((prev) => ({ ...prev, [f.name]: v as string | number | boolean }))}
-                />
-              ))}
+          {/* Bottom Strategy Tester panel */}
+          {result && (
+            <div
+              className="shrink-0 bg-tv-panel border-t border-tv-border overflow-hidden"
+              style={{ height: bottomHeight }}
+            >
+              <StrategyTester result={result} />
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Filter params */}
-        {selectedSchema && selectedSchema.filter_fields.length > 0 && (
-          <div>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-              Filter Parameters
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-              {selectedSchema.filter_fields.map((f) => (
-                <FieldInput
-                  key={f.name}
-                  field={f}
-                  value={filterOverride[f.name] ?? f.default}
-                  onChange={(v) => setFilterOverride((prev) => ({ ...prev, [f.name]: v as string | number | boolean }))}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Run button */}
-        <div className="flex items-center gap-4 pt-1">
-          <button
-            className="btn-primary"
-            onClick={handleRun}
-            disabled={loading || !strategy}
-          >
-            {loading ? 'Running…' : 'Run Backtest'}
-          </button>
-          {status && <StatusBadge status={status} />}
         </div>
-      </fieldset>
-
-      {/* ── Error ──────────────────────────────────────────────────── */}
-      {error && (
-        <div className="card border border-red-200 bg-red-50">
-          <p className="text-sm font-medium text-red-700 mb-1">Backtest failed</p>
-          <pre className="text-xs text-red-600 whitespace-pre-wrap overflow-auto max-h-48">{error}</pre>
-        </div>
-      )}
-
-      {/* ── Results ────────────────────────────────────────────────── */}
-      {result && (
-        <div className="space-y-4">
-          {/* Metrics */}
-          <div className="card">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">
-              Results —{' '}
-              <span className="font-normal text-gray-500">
-                {result.strategy} · {result.exchange} · {result.period_start.slice(0, 10)} → {result.period_end.slice(0, 10)}
-              </span>
-            </h2>
-            <MetricsPanel result={result} />
-          </div>
-
-          {/* Chart tabs */}
-          <div className="card">
-            <div className="flex gap-1 border-b border-gray-100 mb-4 -mx-4 px-4">
-              {(['equity', 'drawdown', 'monthly', 'trades'] as Tab[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={clsx(
-                    'px-3 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors',
-                    tab === t
-                      ? 'border-brand-500 text-brand-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700',
-                  )}
-                >
-                  {t === 'equity' ? 'Equity' : t === 'drawdown' ? 'Drawdown' : t === 'monthly' ? 'Monthly Returns' : 'Trades'}
-                </button>
-              ))}
-            </div>
-
-            {tab === 'equity' && (
-              <div>
-                <p className="text-xs text-gray-400 mb-3">
-                  Strategy (indigo) vs Buy &amp; Hold (amber dashed) — leveraged {result.exchange} position
-                </p>
-                <EquityChart data={result.equity_curve} />
-              </div>
-            )}
-            {tab === 'drawdown' && (
-              <div>
-                <p className="text-xs text-gray-400 mb-3">Drawdown from rolling equity peak</p>
-                <DrawdownChart data={result.drawdown_curve} />
-              </div>
-            )}
-            {tab === 'monthly' && (
-              <div>
-                <p className="text-xs text-gray-400 mb-3">Monthly compounded returns (%)</p>
-                <MonthlyReturnsHeatmap data={result.monthly_returns} />
-              </div>
-            )}
-            {tab === 'trades' && (
-              <div>
-                <p className="text-xs text-gray-400 mb-3">
-                  {result.trades.length} closing trades
-                </p>
-                <TradeTable trades={result.trades} />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }

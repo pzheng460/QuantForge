@@ -4,32 +4,112 @@
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-tv-bg text-tv-text antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #1e222d;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #363a45;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4a4f5e;
   }
 }
 
 @layer components {
+  .tv-panel {
+    @apply bg-tv-panel border border-tv-border;
+  }
+
+  .tv-card {
+    @apply bg-tv-panel border border-tv-border rounded-sm p-4;
+  }
+
+  .tv-input {
+    @apply w-full bg-tv-bg border border-tv-border rounded-sm px-2 py-1.5 text-sm text-tv-text
+           focus:outline-none focus:border-tv-blue transition-colors
+           placeholder:text-tv-muted;
+  }
+
+  .tv-select {
+    @apply w-full bg-tv-bg border border-tv-border rounded-sm px-2 py-1.5 text-sm text-tv-text
+           focus:outline-none focus:border-tv-blue transition-colors cursor-pointer;
+  }
+
+  .tv-btn-primary {
+    @apply bg-tv-blue hover:bg-tv-blue-hover text-white font-medium px-4 py-1.5 rounded-sm
+           transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm;
+  }
+
+  .tv-btn-secondary {
+    @apply bg-tv-border hover:bg-[#363a45] text-tv-text font-medium px-3 py-1.5 rounded-sm
+           transition-colors text-sm;
+  }
+
+  .tv-tab {
+    @apply px-4 py-2 text-xs font-medium text-tv-muted hover:text-tv-text transition-colors
+           border-b-2 border-transparent cursor-pointer;
+  }
+
+  .tv-tab-active {
+    @apply text-tv-text border-tv-blue;
+  }
+
+  .tv-metric-row {
+    @apply flex items-start justify-between py-2 border-b border-tv-border;
+  }
+
+  .tv-metric-label {
+    @apply text-xs text-tv-muted;
+  }
+
+  .tv-metric-value {
+    @apply text-xs font-medium text-tv-text tabular-nums text-right;
+  }
+
+  .tv-metric-positive {
+    @apply text-tv-green;
+  }
+
+  .tv-metric-negative {
+    @apply text-tv-red;
+  }
+
+  /* Old light-theme classes preserved for Dashboard/Optimizer pages */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-5;
+    @apply bg-tv-panel rounded-sm border border-tv-border p-5;
   }
   .btn-primary {
-    @apply bg-brand-500 hover:bg-brand-600 text-white font-medium px-4 py-2 rounded-lg
+    @apply bg-tv-blue hover:bg-tv-blue-hover text-white font-medium px-4 py-2 rounded-sm
            transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
-    @apply bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-4 py-2 rounded-lg transition-colors;
+    @apply bg-tv-border hover:bg-[#363a45] text-tv-text font-medium px-4 py-2 rounded-sm transition-colors;
   }
   .input {
-    @apply w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none
-           focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    @apply w-full bg-tv-bg border border-tv-border rounded-sm px-3 py-2 text-sm text-tv-text
+           focus:outline-none focus:ring-1 focus:ring-tv-blue focus:border-tv-blue
+           placeholder:text-tv-muted;
   }
   .label {
-    @apply text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block;
+    @apply text-xs font-medium text-tv-muted uppercase tracking-wide mb-1 block;
   }
   .badge-positive {
-    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800;
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-tv-green/20 text-tv-green;
   }
   .badge-negative {
-    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800;
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-tv-red/20 text-tv-red;
   }
 }
