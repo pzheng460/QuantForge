@@ -515,6 +515,9 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 **统计显著性（最少交易次数）**
 阶段 1 通过标准改为：`in_sample_sharpe >= 1.0` 且 `in_sample_trades >= 10`。交易次数不足 10 时阶段失败，汇总表显示原因。阶段 3 输出中交易次数 < 10 同样触发 `(low trade count)` 警告。
 
+**TradingView 兼容指标**
+`TradeRecord` 新增两个可选字段：`entry_time`（建仓 K 线时间戳）和 `bars_held`（持仓 K 线数）。`PerformanceAnalyzer.calculate_metrics()` 新增 TV 对齐指标：`net_profit`（净利润 $）、`gross_profit`、`gross_loss`、`commission_paid`、`avg_trade_dollar`、`avg_trade_pct`、`avg_bars_held`（全部/盈利/亏损）、`open_pl`（未平仓盈亏）。新方法：`trade_sharpe_ratio()`（逐笔交易收益率 Sharpe，按交易频率年化）和 `tv_compatible_report(bh_return_pct=None)`（输出与 TradingView Strategy Tester 格式一致的报告）。`runner.run_single()` 打印扩展后的 BACKTEST RESULTS 块。
+
 ### 本地数据缓存与多源验证
 
 `nexustrader/backtest/data/database.py` 提供 SQLite 缓存层：

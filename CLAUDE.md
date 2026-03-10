@@ -524,6 +524,9 @@ The `sma_trend` strategy resamples 1h bars to daily close, computes rolling SMA,
 **Statistical Significance (Min Trades)**
 Stage 1 pass now requires both `in_sample_sharpe >= 1.0` AND `in_sample_trades >= 10`. If trade count < 10 the stage fails and the reason is shown in the summary table. Trade count < 10 also triggers a `(low trade count)` warning in Stage 3 output.
 
+**TradingView-Compatible Metrics**
+`TradeRecord` has two new optional fields: `entry_time` (bar timestamp when position opened) and `bars_held` (number of bars held). `PerformanceAnalyzer` now includes TV-aligned metrics in `calculate_metrics()`: `net_profit` ($), `gross_profit`, `gross_loss`, `commission_paid`, `avg_trade_dollar`, `avg_trade_pct`, `avg_bars_held` (all/winning/losing), `open_pl`. New methods: `trade_sharpe_ratio()` (per-trade return Sharpe, annualised by trade frequency) and `tv_compatible_report(bh_return_pct=None)` (formatted report matching TradingView Strategy Tester layout). `run_single()` in `runner.py` now prints the full expanded metrics block.
+
 ### Local Data Cache & Multi-Source Validation
 
 `nexustrader/backtest/data/database.py` provides a SQLite cache for historical kline data:
