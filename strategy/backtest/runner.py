@@ -257,21 +257,30 @@ class BacktestRunner:
         print(f"Exchange: {self.profile.name}")
         print(f"Leverage: {self.leverage}x")
         print(f"Period: {data.index[0].date()} to {data.index[-1].date()}")
-        print(f"Total Return: {metrics['total_return_pct']:+.2f}%  (B&H: {bh_return:+.2f}%)")
-        print(f"Max Drawdown: {metrics['max_drawdown_pct']:.2f}%")
+        print(f"Net Profit:    ${metrics['net_profit']:+,.2f}")
+        print(f"Total Return:  {metrics['total_return_pct']:+.2f}%  (B&H: {bh_return:+.2f}%)")
+        print(f"Gross Profit:  ${metrics['gross_profit']:,.2f}   Gross Loss: ${metrics['gross_loss']:,.2f}")
+        print(f"Commission:    ${metrics['commission_paid']:,.2f}")
+        if metrics.get('open_pl', 0) != 0:
+            print(f"Open PL:       ${metrics['open_pl']:+,.2f}")
+        print(f"Max Drawdown:  {metrics['max_drawdown_pct']:.2f}%")
         sharpe_str = f"{metrics['sharpe_ratio']:.2f}"
         if sharpe_lo is not None:
             sharpe_str += f"  [95% CI: {sharpe_lo:.2f}, {sharpe_hi:.2f}]"
-        print(f"Sharpe Ratio: {sharpe_str}")
+        print(f"Sharpe Ratio:  {sharpe_str}")
         print(f"Sortino Ratio: {metrics['sortino_ratio']:.2f}")
-        print(f"Calmar Ratio: {metrics['calmar_ratio']:.2f}")
+        print(f"Calmar Ratio:  {metrics['calmar_ratio']:.2f}")
         total_trades = metrics['total_trades']
         trade_warning = "  ⚠ Low trade count" if total_trades < 10 else ""
-        print(f"Total Trades: {total_trades}{trade_warning}")
-        print(f"Win Rate: {metrics['win_rate_pct']:.1f}%")
+        print(f"Total Trades:  {total_trades}{trade_warning}")
+        print(f"Win Rate:      {metrics['win_rate_pct']:.1f}%")
+        print(f"Avg Trade:     ${metrics['avg_trade_dollar']:+,.2f}  ({metrics['avg_trade_pct']:+.2f}%)")
+        print(f"Avg Win:       ${metrics['avg_win']:,.2f}   Avg Loss: ${metrics['avg_loss']:,.2f}")
         print(f"Profit Factor: {metrics['profit_factor']:.2f}")
+        if metrics.get('avg_bars_held', 0) > 0:
+            print(f"Avg Bars Held: {metrics['avg_bars_held']:.1f}  (win: {metrics['avg_bars_held_winning']:.1f}, loss: {metrics['avg_bars_held_losing']:.1f})")
         if funding_paid != 0:
-            print(f"Funding Paid: ${funding_paid:.2f}")
+            print(f"Funding Paid:  ${funding_paid:.2f}")
         print(f"{'=' * 60}")
 
         result_dict = {

@@ -94,6 +94,8 @@ class TradeRecord:
     capital_after: float = 0.0
     entry_price: Optional[float] = None
     exit_reason: str = ""  # "signal", "stop_loss", "take_profit"
+    entry_time: Optional[datetime] = None  # Bar timestamp when position was opened
+    bars_held: int = 0  # Number of bars the position was held
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert trade to dictionary."""
@@ -109,6 +111,8 @@ class TradeRecord:
             "capital_after": self.capital_after,
             "entry_price": self.entry_price,
             "exit_reason": self.exit_reason,
+            "entry_time": self.entry_time.isoformat() if isinstance(self.entry_time, datetime) else self.entry_time,
+            "bars_held": self.bars_held,
         }
 
     @classmethod
@@ -117,6 +121,10 @@ class TradeRecord:
         timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
+
+        entry_time = data.get("entry_time")
+        if isinstance(entry_time, str):
+            entry_time = datetime.fromisoformat(entry_time)
 
         return cls(
             timestamp=timestamp,
@@ -130,6 +138,8 @@ class TradeRecord:
             capital_after=data.get("capital_after", 0.0),
             entry_price=data.get("entry_price"),
             exit_reason=data.get("exit_reason", ""),
+            entry_time=entry_time,
+            bars_held=data.get("bars_held", 0),
         )
 
 

@@ -98,6 +98,9 @@ class PerformanceAnalyzer:
         # Trade statistics
         metrics.update(self._calculate_trade_stats())
 
+        # TradingView-compatible metrics
+        metrics.update(self._calculate_tv_metrics())
+
         return metrics
 
     def _calculate_return_metrics(self) -> Dict[str, float]:
@@ -283,6 +286,8 @@ class PerformanceAnalyzer:
         return {
             "total_trades": total_trades,
             "win_rate_pct": win_rate,
+            "gross_profit": gross_profit,
+            "gross_loss": gross_loss,
             "profit_factor": profit_factor,
             "avg_win": avg_win,
             "avg_loss": avg_loss,
@@ -294,6 +299,140 @@ class PerformanceAnalyzer:
             "max_consecutive_losses": max_con_losses,
             "avg_trade_duration_hours": avg_trade_duration_hours,
         }
+
+    def _calculate_tv_metrics(self) -> Dict[str, float]:
+        """Calculate TradingView Strategy Tester-compatible metrics."""
+        closing_trades = [t for t in self.trades if t.pnl != 0]
+        total_trades = len(closing_trades)
+
+        # Commission paid (sum of all trade fees)
+        commission_paid = sum(t.fee for t in self.trades)
+
+        # Net profit ($)
+        final_equity = self.equity_curve.iloc[-1]
+        net_profit = final_equity - self.initial_capital
+
+        # Avg trade ($ and %)
+        if total_trades > 0:
+            avg_trade_dollar = net_profit / total_trades
+            avg_trade_pct = sum(t.pnl_pct for t in closing_trades) / total_trades
+        else:
+            avg_trade_dollar = 0.0
+            avg_trade_pct = 0.0
+
+        # Avg bars held (overall, winning, losing) — requires bars_held field
+        winning = [t for t in closing_trades if t.pnl > 0]
+        losing = [t for t in closing_trades if t.pnl < 0]
+
+        bars_all = [t.bars_held for t in closing_trades if t.bars_held > 0]
+        bars_winning = [t.bars_held for t in winning if t.bars_held > 0]
+        bars_losing = [t.bars_held for t in losing if t.bars_held > 0]
+
+        avg_bars_held = sum(bars_all) / len(bars_all) if bars_all else 0.0
+        avg_bars_held_winning = sum(bars_winning) / len(bars_winning) if bars_winning else 0.0
+        avg_bars_held_losing = sum(bars_losing) / len(bars_losing) if bars_losing else 0.0
+
+        # Open PL (unrealized) — non-zero only when last trade leaves an open position
+        open_pl = 0.0
+        if self.trades:
+            last_trade = self.trades[-1]
+            if last_trade.position_after != 0:
+                # Find the capital after the most recent flat (closed) state
+                last_closed_capital = self.initial_capital
+                for t in reversed(self.trades):
+                    if t.position_after == 0:
+                        last_closed_capital = t.capital_after
+                        break
+                open_pl = final_equity - last_closed_capital
+
+        return {
+            "net_profit": net_profit,
+            "commission_paid": commission_paid,
+            "avg_trade_dollar": avg_trade_dollar,
+            "avg_trade_pct": avg_trade_pct,
+            "avg_bars_held": avg_bars_held,
+            "avg_bars_held_winning": avg_bars_held_winning,
+            "avg_bars_held_losing": avg_bars_held_losing,
+            "open_pl": open_pl,
+        }
+
+    def trade_sharpe_ratio(self) -> float:
+        """Compute trade-based Sharpe ratio (per-trade returns, annualised by trade frequency).
+
+        TradingView's Strategy Tester uses individual trade returns rather than bar-level
+        equity curve returns.  This method mirrors that approach.
+        """
+        closing_trades = [t for t in self.trades if t.pnl != 0]
+        if len(closing_trades) < 2:
+            return 0.0
+        returns = np.array([t.pnl_pct / 100.0 for t in closing_trades])
+        std = returns.std()
+        if std < 1e-12:
+            return 0.0
+        # Annualise: estimate trades per year from equity curve time span
+        if len(self.equity_curve) >= 2:
+            span_secs = (
+                self.equity_curve.index[-1] - self.equity_curve.index[0]
+            ).total_seconds()
+            span_years = span_secs / (365.25 * 86400)
+            trades_per_year = len(closing_trades) / span_years if span_years > 0 else len(closing_trades)
+        else:
+            trades_per_year = len(closing_trades)
+        return float(returns.mean() / std * np.sqrt(trades_per_year))
+
+    def tv_compatible_report(self, bh_return_pct: Optional[float] = None) -> str:
+        """Return a TradingView Strategy Tester-compatible formatted report string.
+
+        Args:
+            bh_return_pct: Optional buy-and-hold return % for the same period.
+                           Pass this from the runner where price data is available.
+        """
+        metrics = self.calculate_metrics()
+        tv = self._calculate_tv_metrics()
+        trade_sharpe = self.trade_sharpe_ratio()
+        bh = bh_return_pct if bh_return_pct is not None else 0.0
+
+        lines = [
+            "=" * 62,
+            "TRADINGVIEW STRATEGY TESTER — COMPATIBLE REPORT",
+            "=" * 62,
+            "",
+            "OVERVIEW",
+            f"  Net Profit:             ${tv['net_profit']:>+12,.2f}   ({metrics['total_return_pct']:+.2f}%)",
+            f"  Gross Profit:           ${metrics['gross_profit']:>12,.2f}",
+            f"  Gross Loss:             ${metrics['gross_loss']:>12,.2f}",
+            f"  Buy & Hold Return:      {'':>13}{bh:+.2f}%",
+            f"  Max Drawdown:           {'':>13}{metrics['max_drawdown_pct']:.2f}%",
+            f"  Commission Paid:        ${tv['commission_paid']:>12,.2f}",
+            f"  Open PL:                ${tv['open_pl']:>+12,.2f}",
+            "",
+            "RATIOS",
+            f"  Sharpe (equity curve):  {'':>13}{metrics['sharpe_ratio']:.2f}",
+            f"  Sharpe (trade-based):   {'':>13}{trade_sharpe:.2f}",
+            f"  Sortino:                {'':>13}{metrics['sortino_ratio']:.2f}",
+            f"  Calmar:                 {'':>13}{metrics['calmar_ratio']:.2f}",
+            f"  Profit Factor:          {'':>13}{metrics['profit_factor']:.2f}",
+            f"  Payoff Ratio:           {'':>13}{metrics['payoff_ratio']:.2f}",
+            "",
+            "TRADE STATISTICS",
+            f"  Total Trades:           {'':>13}{metrics['total_trades']}",
+            f"  Win Rate:               {'':>13}{metrics['win_rate_pct']:.1f}%",
+            f"  Avg Trade:              ${tv['avg_trade_dollar']:>+12,.2f}   ({tv['avg_trade_pct']:+.2f}%)",
+            f"  Avg Winning Trade:      ${metrics['avg_win']:>12,.2f}",
+            f"  Avg Losing Trade:       ${metrics['avg_loss']:>12,.2f}",
+            f"  Largest Win:            ${metrics['largest_win']:>12,.2f}",
+            f"  Largest Loss:           ${metrics['largest_loss']:>12,.2f}",
+            f"  Max Consec. Wins:       {'':>13}{metrics['max_consecutive_wins']}",
+            f"  Max Consec. Losses:     {'':>13}{metrics['max_consecutive_losses']}",
+        ]
+        if tv["avg_bars_held"] > 0:
+            lines += [
+                f"  Avg Bars Held:          {'':>13}{tv['avg_bars_held']:.1f}",
+                f"  Avg Bars (winning):     {'':>13}{tv['avg_bars_held_winning']:.1f}",
+                f"  Avg Bars (losing):      {'':>13}{tv['avg_bars_held_losing']:.1f}",
+            ]
+        lines += ["=" * 62]
+        return "\n".join(lines)
 
     def get_daily_returns(self) -> pd.Series:
         """
