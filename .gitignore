@@ -37,4 +37,5 @@ yaml-config/
 *.log
 *.json
 *.html
-appendonlydir/
+appendonlydir/node_modules/
+node_modules/
