@@ -1,0 +1,10 @@
+//@version=5
+strategy("EMA Cross 5/13", overlay=true, initial_capital=1000000)
+fast_len = input.int(5, title="Fast Length")
+slow_len = input.int(13, title="Slow Length")
+fast = ta.ema(close, fast_len)
+slow = ta.ema(close, slow_len)
+if ta.crossover(fast, slow)
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(fast, slow)
+    strategy.close("Long")

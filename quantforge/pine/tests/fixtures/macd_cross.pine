@@ -1,0 +1,10 @@
+//@version=5
+strategy("MACD Cross", overlay=true, initial_capital=1000000)
+fast = input.int(12, title="Fast Length")
+slow = input.int(26, title="Slow Length")
+signal_len = input.int(9, title="Signal Length")
+[macd_line, signal_line, hist] = ta.macd(close, fast, slow, signal_len)
+if ta.crossover(macd_line, signal_line)
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(macd_line, signal_line)
+    strategy.close("Long")

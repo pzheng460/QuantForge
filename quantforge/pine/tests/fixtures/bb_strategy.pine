@@ -1,0 +1,12 @@
+//@version=5
+strategy("Bollinger Bands", overlay=true, initial_capital=1000000)
+bb_len = input.int(20, title="BB Length")
+bb_mult = input.float(2.0, title="BB Mult")
+basis = ta.sma(close, bb_len)
+dev = bb_mult * ta.stdev(close, bb_len)
+upper = basis + dev
+lower = basis - dev
+if close < lower
+    strategy.entry("Long", strategy.long)
+if close > upper
+    strategy.close("Long")
