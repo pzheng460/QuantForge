@@ -578,9 +578,24 @@ The Pine Script engine (`quantforge/pine/`) provides a parser, interpreter, and 
 # Backtest a .pine file on exchange data
 python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
 
-# Transpile Pine Script to Python
+# Transpile Pine Script to standalone Python (fetches data, computes indicators, runs backtest independently)
 python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
+python strategy.py  # runs standalone — no Pine interpreter dependency
 ```
+
+### Pine Transpiler
+
+The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contained Python scripts** that:
+- Embed TA calculator classes matching TradingView exactly (EMA with SMA seed, RSI with Wilder/RMA smoothing, etc.)
+- Track positions and execute orders with next-bar-open semantics
+- Fetch OHLCV data via ccxt or accept a `list[list]` of `[timestamp, open, high, low, close, volume]`
+- Compute P&L independently — no Pine interpreter dependency
+
+**TA mappings**: `ta.ema` → `_EMACalc`, `ta.sma` → `_SMACalc`, `ta.rsi` → `_RSICalc`, `ta.macd` → `_MACDCalc`, `ta.stdev` → `_StdevCalc`, `ta.atr` → `_ATRCalc`, `ta.adx` → `_ADXCalc`, `ta.bb` → `_BBCalc`, `ta.stoch` → `_StochCalc`, `ta.crossover`/`ta.crossunder` → `_crossover`/`_crossunder` with prev-bar tracking, `ta.highest`/`ta.lowest` → `_HighestCalc`/`_LowestCalc`, `ta.change` → `_ChangeCalc`
+
+**Strategy mappings**: `strategy.entry` → `tracker.queue_entry()`, `strategy.close` → `tracker.queue_close()` (orders execute at next bar's open price)
+
+**Parity guarantee**: Transpiled code produces identical trades and PnL to the Pine interpreter on the same data. Validated by 21 parity tests across 6 fixture strategies (EMA Cross, MACD, RSI, BB, etc.) with synthetic data.
 
 ### Supported ta.* Functions
 
@@ -595,7 +610,7 @@ python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
 ### Pine Tests
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 55 tests
+uv run pytest quantforge/pine/tests/ -v  # 76 tests (55 interpreter/parser + 21 transpiler parity)
 ```
 
 ## Claude Code Memories

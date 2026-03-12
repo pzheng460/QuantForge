@@ -323,8 +323,8 @@ class TestTranspiler:
             ],
         )
         code = transpile(script)
-        assert "class MyStrat" in code
-        assert "ta_ema" in code or "ta.ema" in code
+        assert "MyStrat" in code
+        assert "_EMACalc" in code or "_calc_" in code
 
     def test_if_stmt_transpile(self):
         script = Script(

@@ -569,9 +569,24 @@ Pine Script 引擎（`quantforge/pine/`）提供 TradingView 兼容的 Pine Scri
 # 在交易所数据上回测 .pine 文件
 python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
 
-# 将 Pine Script 转译为 Python
+# 将 Pine Script 转译为独立可运行的 Python（自动获取数据、计算指标、独立运行回测）
 python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
+python strategy.py  # 独立运行 — 不依赖 Pine 解释器
 ```
+
+### Pine 转译器
+
+转译器（`quantforge/pine/transpiler/codegen.py`）生成**自包含的 Python 脚本**：
+- 内嵌与 TradingView 完全一致的 TA 计算器类（EMA 使用 SMA 种子、RSI 使用 Wilder/RMA 平滑等）
+- 使用下一根 K 线开盘价执行语义跟踪仓位和执行订单
+- 通过 ccxt 获取 OHLCV 数据或接受 `list[list]` 格式的 `[timestamp, open, high, low, close, volume]`
+- 独立计算盈亏 — 不依赖 Pine 解释器
+
+**TA 映射**：`ta.ema` → `_EMACalc`、`ta.sma` → `_SMACalc`、`ta.rsi` → `_RSICalc`、`ta.macd` → `_MACDCalc`、`ta.stdev` → `_StdevCalc`、`ta.atr` → `_ATRCalc`、`ta.adx` → `_ADXCalc`、`ta.bb` → `_BBCalc`、`ta.stoch` → `_StochCalc`、`ta.crossover`/`ta.crossunder` → 带前一根 K 线值跟踪的 `_crossover`/`_crossunder`、`ta.highest`/`ta.lowest` → `_HighestCalc`/`_LowestCalc`、`ta.change` → `_ChangeCalc`
+
+**策略映射**：`strategy.entry` → `tracker.queue_entry()`、`strategy.close` → `tracker.queue_close()`（订单在下一根 K 线开盘价执行）
+
+**一致性保证**：转译后的代码在相同数据上产生与 Pine 解释器完全一致的交易和盈亏。通过 21 个一致性测试覆盖 6 个策略（EMA 交叉、MACD、RSI、BB 等）验证。
 
 ### 支持的 ta.* 函数
 
@@ -586,7 +601,7 @@ python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
 ### Pine 测试
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 55个测试
+uv run pytest quantforge/pine/tests/ -v  # 76个测试（55个解释器/解析器 + 21个转译器一致性）
 ```
 
 ## Claude Code 记忆

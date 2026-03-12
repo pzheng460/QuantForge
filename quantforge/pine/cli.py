@@ -190,7 +190,7 @@ def _run_transpile(args: argparse.Namespace) -> None:
 
     source = pine_file.read_text()
     ast = parse(source)
-    python_code = transpile(ast)
+    python_code = transpile(ast, pine_source=source)
 
     if args.output:
         output = Path(args.output)
