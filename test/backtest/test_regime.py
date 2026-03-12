@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.analysis.regime import (
+from quantforge.backtest.analysis.regime import (
     RegimeClassifier,
     MarketRegime,
     SimpleRegime,

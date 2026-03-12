@@ -1,9 +1,9 @@
 import pytest
 import asyncio
 import time
-from nexustrader.schema import Order, ExchangeType
-from nexustrader.constants import OrderStatus, OrderSide, OrderType
-from nexustrader.core.registry import OrderRegistry
+from quantforge.schema import Order, ExchangeType
+from quantforge.constants import OrderStatus, OrderSide, OrderType
+from quantforge.core.registry import OrderRegistry
 
 
 @pytest.fixture

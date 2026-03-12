@@ -22,15 +22,15 @@ Install from PyPI
 
 .. code-block:: bash
 
-   pip install nexustrader
+   pip install quantforge
 
 Install from source
 -------------------
 
 .. code-block:: bash
 
-   git clone https://github.com/RiverTrading/NexusTrader
-   cd NexusTrader
+   git clone https://github.com/RiverTrading/QuantForge
+   cd QuantForge
    poetry install 
 
 
@@ -41,8 +41,8 @@ In the newest version, redis is not required. You can specify the `storage_backe
 
 .. code-block:: python
 
-   from nexustrader.config import Config
-   from nexustrader.constants import StorageType
+   from quantforge.config import Config
+   from quantforge.constants import StorageType
 
    config = Config(
        storage_backend=StorageType.SQLITE,
@@ -56,10 +56,10 @@ First, create a ``.env`` file in the root directory of the project and add the f
 
 .. code-block:: bash
 
-   NEXUS_REDIS_HOST=127.0.0.1
-   NEXUS_REDIS_PORT=6379
-   NEXUS_REDIS_DB=0
-   NEXUS_REDIS_PASSWORD=your_password
+   QUANTFORGE_REDIS_HOST=127.0.0.1
+   QUANTFORGE_REDIS_PORT=6379
+   QUANTFORGE_REDIS_DB=0
+   QUANTFORGE_REDIS_PASSWORD=your_password
 
 Create the ``docker-compose.yml`` file to the root directory of the project 
 
@@ -72,12 +72,12 @@ Create the ``docker-compose.yml`` file to the root directory of the project
         container_name: redis
         restart: always
         ports:
-           - '${NEXUS_REDIS_PORT}:6379'
+           - '${QUANTFORGE_REDIS_PORT}:6379'
         volumes:
            - redis_data:/data
-        command: redis-server --appendonly yes --requirepass ${NEXUS_REDIS_PASSWORD}
+        command: redis-server --appendonly yes --requirepass ${QUANTFORGE_REDIS_PASSWORD}
         environment:
-           - REDIS_PASSWORD=${NEXUS_REDIS_PASSWORD}
+           - REDIS_PASSWORD=${QUANTFORGE_REDIS_PASSWORD}
 
 Run the following command to start the Redis container:
 
@@ -87,4 +87,4 @@ Run the following command to start the Redis container:
 
 .. note::
 
-   Currently, NexusTrader only tested on Linux and MacOS. Windows is not supported yet.
+   Currently, QuantForge only tested on Linux and MacOS. Windows is not supported yet.

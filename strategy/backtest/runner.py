@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 
-from nexustrader.backtest import (
+from quantforge.backtest import (
     BacktestConfig,
     GridSearchOptimizer,
     ParameterGrid,
@@ -25,7 +25,7 @@ from nexustrader.backtest import (
     WalkForwardAnalyzer,
     WindowType,
 )
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 from strategy.backtest.exchange_profiles import get_profile
 from strategy.backtest.registry import get_strategy
 
@@ -247,7 +247,7 @@ class BacktestRunner:
         config_name = strategy_config.name if strategy_config else "Custom"
         bh_return = _bh_return_pct(data, self.leverage)
 
-        from nexustrader.backtest.analysis.performance import infer_periods_per_year
+        from quantforge.backtest.analysis.performance import infer_periods_per_year
         ppy = infer_periods_per_year(result.equity_curve.index)
         sharpe_lo, sharpe_hi = _bootstrap_sharpe_ci(result.equity_curve, ppy)
 
@@ -637,7 +637,7 @@ class BacktestRunner:
         holdout_metrics = analyzer.calculate_metrics()
 
         # Monte Carlo: bootstrap 95% CI for holdout Sharpe
-        from nexustrader.backtest.analysis.performance import infer_periods_per_year
+        from quantforge.backtest.analysis.performance import infer_periods_per_year
         ppy = infer_periods_per_year(holdout_result.equity_curve.index)
         sharpe_lo, sharpe_hi = _bootstrap_sharpe_ci(holdout_result.equity_curve, ppy)
 

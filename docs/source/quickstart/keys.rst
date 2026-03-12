@@ -23,6 +23,6 @@ Then you can access the api key and secret by using the following code:
 
 .. code-block:: python
 
-   from nexustrader.constants import settings
+   from quantforge.constants import settings
    print(settings.BYBIT.TESTNET.api_key)
    print(settings.BYBIT.TESTNET.secret)

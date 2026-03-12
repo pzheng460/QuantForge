@@ -1,7 +1,7 @@
-nexustrader.exchange.bybit.schema
+quantforge.exchange.bybit.schema
 =====================================
 
-.. currentmodule:: nexustrader.exchange.bybit.schema
+.. currentmodule:: quantforge.exchange.bybit.schema
 
 This module defines the data structures and schemas used for Bybit API responses and WebSocket messages. It includes market data structures, order types, position information, and wallet balance schemas.
 

@@ -1,16 +1,16 @@
 from typing import Any
 
-from nexustrader.config import (
+from quantforge.config import (
     BasicConfig,
     Config,
     PublicConnectorConfig,
     WebConfig,
 )
-from nexustrader.constants import ExchangeType
-from nexustrader.exchange.binance import BinanceAccountType
-from nexustrader.strategy import Strategy
-from nexustrader.engine import Engine
-from nexustrader.web import create_strategy_app
+from quantforge.constants import ExchangeType
+from quantforge.exchange.binance import BinanceAccountType
+from quantforge.strategy import Strategy
+from quantforge.engine import Engine
+from quantforge.web import create_strategy_app
 
 
 class BinanceWebCallbackStrategy(Strategy):

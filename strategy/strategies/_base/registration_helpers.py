@@ -277,7 +277,7 @@ def make_export_config(
     ) -> str:
         min_hold = int(params.get("min_holding_bars", 4))
         cooldown = max(1, min_hold // 2)
-        suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+        suffix = profile.quantforge_symbol_suffix if profile else ".BITGET"
 
         # Build config lines
         config_lines = []

@@ -1,7 +1,7 @@
-nexustrader.base.connector
+quantforge.base.connector
 ===============================
 
-.. currentmodule:: nexustrader.base.connector
+.. currentmodule:: quantforge.base.connector
 
 The PublicConnector is used to get the public data from the exchange. The PrivateConnector is used to get the private data from the exchange.
 

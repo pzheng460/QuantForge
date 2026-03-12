@@ -1,7 +1,7 @@
-nexustrader.core.cache
+quantforge.core.cache
 ===============================
 
-.. currentmodule:: nexustrader.core.cache
+.. currentmodule:: quantforge.core.cache
 
 This module contains the AsyncCache class, which is responsible for managing in-memory and persistent storage of trading data.
 

@@ -1,4 +1,4 @@
-nexustrader.core
+quantforge.core
 ===============================
 
 .. toctree::

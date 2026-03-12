@@ -1,13 +1,13 @@
-from nexustrader.config import (
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType, KlineInterval
-from nexustrader.exchange import BybitAccountType
-from nexustrader.schema import Kline
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType, KlineInterval
+from quantforge.exchange import BybitAccountType
+from quantforge.schema import Kline
+from quantforge.engine import Engine
 
 
 class Demo(Strategy):

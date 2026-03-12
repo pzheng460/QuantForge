@@ -1,7 +1,7 @@
-nexustrader.exchange.binance.rest_api
+quantforge.exchange.binance.rest_api
 =========================================
 
-.. currentmodule:: nexustrader.exchange.binance.rest_api
+.. currentmodule:: quantforge.exchange.binance.rest_api
 
 The Binance REST API client implements API endpoints for Binance exchange, providing methods for order management, market data, and account operations. It supports both mainnet and testnet environments.
 

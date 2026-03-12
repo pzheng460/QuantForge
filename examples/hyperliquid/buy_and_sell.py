@@ -1,16 +1,16 @@
-from nexustrader.constants import settings
+from quantforge.constants import settings
 from decimal import Decimal
-from nexustrader.config import (
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     PrivateConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType, OrderSide, OrderType
-from nexustrader.exchange import HyperLiquidAccountType
-from nexustrader.schema import BookL1, Order
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType, OrderSide, OrderType
+from quantforge.exchange import HyperLiquidAccountType
+from quantforge.schema import BookL1, Order
+from quantforge.engine import Engine
 
 
 HYPER_API_KEY = settings.HYPER.TESTNET.API_KEY

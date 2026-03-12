@@ -1,7 +1,7 @@
-nexustrader.exchange.binance.exchange
+quantforge.exchange.binance.exchange
 ===========================================
 
-.. currentmodule:: nexustrader.exchange.binance.exchange
+.. currentmodule:: quantforge.exchange.binance.exchange
 
 This module implements the exchange manager for Binance, handling market data synchronization and trading operations.
 

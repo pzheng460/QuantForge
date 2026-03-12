@@ -1,7 +1,7 @@
-nexustrader.base.ems
+quantforge.base.ems
 =========================
 
-.. currentmodule:: nexustrader.base.ems
+.. currentmodule:: quantforge.base.ems
 
 This module contains the ExecutionManagementSystem class, which is responsible for managing the execution of trading orders.
 

@@ -1,9 +1,9 @@
-nexustrader.indicator
+quantforge.indicator
 =======================
 
-.. currentmodule:: nexustrader.indicator
+.. currentmodule:: quantforge.indicator
 
-.. automodule:: nexustrader.indicator
+.. automodule:: quantforge.indicator
     :members:
     :undoc-members:
     :show-inheritance:

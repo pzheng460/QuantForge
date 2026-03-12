@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.analysis.report import ReportGenerator
-from nexustrader.backtest.result import BacktestConfig, BacktestResult, TradeRecord
-from nexustrader.constants import KlineInterval
+from quantforge.backtest.analysis.report import ReportGenerator
+from quantforge.backtest.result import BacktestConfig, BacktestResult, TradeRecord
+from quantforge.constants import KlineInterval
 
 
 class TestReportGeneratorBasic:

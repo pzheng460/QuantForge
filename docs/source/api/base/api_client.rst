@@ -1,7 +1,7 @@
-nexustrader.base.api_client
+quantforge.base.api_client
 ===============================
 
-.. currentmodule:: nexustrader.base.api_client
+.. currentmodule:: quantforge.base.api_client
 
 The ApiClient class is used to interact with the trading API.
 

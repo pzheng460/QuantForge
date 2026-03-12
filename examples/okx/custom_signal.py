@@ -3,18 +3,18 @@ import msgspec
 from zmq.asyncio import Context
 from decimal import Decimal
 
-from nexustrader.constants import settings
-from nexustrader.config import (
+from quantforge.constants import settings
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     PrivateConnectorConfig,
     BasicConfig,
     ZeroMQSignalConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType, OrderSide
-from nexustrader.exchange import OkxAccountType
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType, OrderSide
+from quantforge.exchange import OkxAccountType
+from quantforge.engine import Engine
 from collections import defaultdict
 
 

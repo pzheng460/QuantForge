@@ -1,7 +1,7 @@
-nexustrader.core.log
+quantforge.core.log
 ===============================
 
-.. currentmodule:: nexustrader.core.log
+.. currentmodule:: quantforge.core.log
 
 The SpdLog class is responsible for creating and managing loggers with various features.
 

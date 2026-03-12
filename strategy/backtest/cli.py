@@ -30,7 +30,7 @@ from strategy.backtest.utils import (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Unified backtest framework for NexusTrader strategies.",
+        description="Unified backtest framework for QuantForge strategies.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -216,7 +216,7 @@ async def async_main(args: argparse.Namespace) -> None:
 
     # Show database stats and exit
     if args.db_stats:
-        from nexustrader.backtest.data.database import KlineDatabase
+        from quantforge.backtest.data.database import KlineDatabase
 
         db = KlineDatabase()
         stats = db.stats()

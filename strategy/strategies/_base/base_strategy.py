@@ -19,15 +19,15 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from nexustrader.constants import (
+from quantforge.constants import (
     DataType,
     KlineInterval,
     OrderSide,
     OrderType,
 )
-from nexustrader.indicator import Indicator
-from nexustrader.schema import Kline, Order
-from nexustrader.strategy import Strategy
+from quantforge.indicator import Indicator
+from quantforge.schema import Kline, Order
+from quantforge.strategy import Strategy
 
 from strategy.strategies._base.performance import PerformanceTracker
 

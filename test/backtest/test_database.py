@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.data.database import KlineDatabase
-from nexustrader.backtest.data.cached_provider import CachedDataProvider, ValidatedData
+from quantforge.backtest.data.database import KlineDatabase
+from quantforge.backtest.data.cached_provider import CachedDataProvider, ValidatedData
 
 
 # ---------------------------------------------------------------------------

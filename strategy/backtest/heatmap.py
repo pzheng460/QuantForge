@@ -23,13 +23,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from nexustrader.backtest import (
+from quantforge.backtest import (
     BacktestConfig,
     CostConfig,
     PerformanceAnalyzer,
     VectorizedBacktest,
 )
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 
 def _apply_signal_delay(signals: np.ndarray) -> np.ndarray:
     """Shift signals right by 1 bar: signal from bar i executes at bar i+1."""

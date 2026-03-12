@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.data.funding_rate import FundingRateProvider
+from quantforge.backtest.data.funding_rate import FundingRateProvider
 
 
 class TestFundingRateProvider:

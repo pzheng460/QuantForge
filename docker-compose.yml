@@ -13,12 +13,12 @@ services:
     container_name: redis
     restart: always
     ports:
-      - '${NEXUS_REDIS_PORT}:6379'
+      - '${QUANTFORGE_REDIS_PORT}:6379'
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --requirepass ${NEXUS_REDIS_PASSWORD}
+    command: redis-server --appendonly yes --requirepass ${QUANTFORGE_REDIS_PASSWORD}
     environment:
-      - REDIS_PASSWORD=${NEXUS_REDIS_PASSWORD}
+      - REDIS_PASSWORD=${QUANTFORGE_REDIS_PASSWORD}
 
   loki:
     image: grafana/loki:3.3.1
@@ -44,11 +44,11 @@ services:
     image: postgres:17.5-alpine
     container_name: postgres
     ports:
-      - '${NEXUS_PG_PORT}:5432'
+      - '${QUANTFORGE_PG_PORT}:5432'
     environment:
-      - POSTGRES_USER=${NEXUS_PG_USER}
-      - POSTGRES_PASSWORD=${NEXUS_PG_PASSWORD}
-      - POSTGRES_DB=${NEXUS_PG_DB}
+      - POSTGRES_USER=${QUANTFORGE_PG_USER}
+      - POSTGRES_PASSWORD=${QUANTFORGE_PG_PASSWORD}
+      - POSTGRES_DB=${QUANTFORGE_PG_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

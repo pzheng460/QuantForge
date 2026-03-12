@@ -25,7 +25,7 @@ Usage
 
 .. code-block:: python
 
-    from nexustrader.schema import InstrumentId
+    from quantforge.schema import InstrumentId
 
     ## create an instrument id
     instrument_id = InstrumentId.from_str("BTCUSDT-PERP.BYBIT")

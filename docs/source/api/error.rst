@@ -1,13 +1,13 @@
-nexustrader.error
+quantforge.error
 ====================
 
-.. currentmodule:: nexustrader.error
+.. currentmodule:: quantforge.error
 
 
-NexusTraderError
+QuantForgeError
 ~~~~~~~~~~~~~~~~~~
 
-.. automodule:: nexustrader.error
+.. automodule:: quantforge.error
     :members:
     :undoc-members:
     :show-inheritance:

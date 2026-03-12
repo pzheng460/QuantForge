@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 from datetime import datetime, timezone
 
 from strategy.backtest.registry import (

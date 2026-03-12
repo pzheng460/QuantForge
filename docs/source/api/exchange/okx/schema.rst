@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.schema
+quantforge.exchange.okx.schema
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.schema
+.. currentmodule:: quantforge.exchange.okx.schema
 
 This module defines data structures and models for OKX exchange API responses and WebSocket messages.
 

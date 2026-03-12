@@ -53,7 +53,7 @@ Using Config File
       apps : [
          {
             name: 'demo',
-            interpreter: '/root/NexusTrader/.venv/bin/python',
+            interpreter: '/root/QuantForge/.venv/bin/python',
             cmd: 'demo.py',
             args: '--name test --age 25 --city shanghai',
             instances: 1,

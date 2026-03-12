@@ -1,9 +1,9 @@
-nexustrader.schema
+quantforge.schema
 ====================
 
-.. currentmodule:: nexustrader.schema
+.. currentmodule:: quantforge.schema
 
-.. automodule:: nexustrader.schema
+.. automodule:: quantforge.schema
     :members:
     :undoc-members:
     :show-inheritance:

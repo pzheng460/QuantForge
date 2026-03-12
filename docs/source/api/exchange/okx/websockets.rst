@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.websockets
+quantforge.exchange.okx.websockets
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.websockets
+.. currentmodule:: quantforge.exchange.okx.websockets
 
 This module implements the WebSocket client for OKX exchange, providing both public and private data stream functionality.
 

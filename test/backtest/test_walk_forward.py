@@ -14,16 +14,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.optimization.walk_forward import (
+from quantforge.backtest.optimization.walk_forward import (
     WalkForwardAnalyzer,
     WalkForwardResult,
     WindowType,
 )
-from nexustrader.backtest.optimization.grid_search import ParameterGrid
-from nexustrader.backtest.engine.vectorized import Signal
-from nexustrader.backtest.engine.cost_model import CostConfig
-from nexustrader.backtest.result import BacktestConfig
-from nexustrader.constants import KlineInterval
+from quantforge.backtest.optimization.grid_search import ParameterGrid
+from quantforge.backtest.engine.vectorized import Signal
+from quantforge.backtest.engine.cost_model import CostConfig
+from quantforge.backtest.result import BacktestConfig
+from quantforge.constants import KlineInterval
 
 
 class TestWindowType:

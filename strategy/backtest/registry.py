@@ -10,7 +10,7 @@ and CLI to work with any registered strategy.
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 
 
 @dataclass

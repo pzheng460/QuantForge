@@ -8,7 +8,7 @@ Bybit provides multiple account types. For testing environment, you can use acco
 
 .. code-block:: python
 
-    from nexustrader.exchange.bybit import BybitAccountType
+    from quantforge.exchange.bybit import BybitAccountType
 
     account_type = BybitAccountType.LINEAR  # or other account types
     
@@ -44,9 +44,9 @@ The most important part is the ``config`` object. You need to pass the ``config`
 
 .. code-block:: python
 
-    from nexustrader.constants import settings
-    from nexustrader.exchange.bybit import BybitAccountType
-    from nexustrader.config import Config, PublicConnectorConfig, PrivateConnectorConfig, BasicConfig
+    from quantforge.constants import settings
+    from quantforge.exchange.bybit import BybitAccountType
+    from quantforge.config import Config, PublicConnectorConfig, PrivateConnectorConfig, BasicConfig
 
     BYBIT_API_KEY = settings.BYBIT.TESTNET.api_key
     BYBIT_SECRET = settings.BYBIT.TESTNET.secret

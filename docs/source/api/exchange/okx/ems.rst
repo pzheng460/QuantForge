@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.ems
+quantforge.exchange.okx.ems
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.ems
+.. currentmodule:: quantforge.exchange.okx.ems
 
 This module implements the Execution Management System (EMS) for OKX exchange, handling order submission and management across different account types.
 

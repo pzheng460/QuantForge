@@ -1,4 +1,4 @@
-nexustrader.exchange.binance
+quantforge.exchange.binance
 ===============================
 
 .. toctree::

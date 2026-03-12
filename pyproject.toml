@@ -1,5 +1,5 @@
 [project]
-name = "nexustrader"
+name = "quantforge"
 version = "0.2.36"
 description = "fastest python trading bot"
 authors = [
@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [project.scripts]
-nexustrader-cli = "nexustrader.cli.main:main"
+quantforge-cli = "quantforge.cli.main:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

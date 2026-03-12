@@ -1,16 +1,16 @@
-from nexustrader.constants import settings
-from nexustrader.config import (
+from quantforge.constants import settings
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     BasicConfig,
     MockConnectorConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType
-from nexustrader.exchange import BinanceAccountType
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType
+from quantforge.exchange import BinanceAccountType
+from quantforge.engine import Engine
 
-from nexustrader.constants import OrderSide, OrderType
+from quantforge.constants import OrderSide, OrderType
 from decimal import Decimal
 
 

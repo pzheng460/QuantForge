@@ -29,17 +29,17 @@ def _build_exchange_config(exchange: str, demo: bool):
     Returns (exchange_type, account_type, basic_config_dict,
              public_conn_configs, private_conn_configs, is_testnet).
     """
-    from nexustrader.config import (
+    from quantforge.config import (
         BasicConfig,
         PrivateConnectorConfig,
         PublicConnectorConfig,
     )
-    from nexustrader.constants import ExchangeType, settings
+    from quantforge.constants import ExchangeType, settings
 
     exchange = exchange.lower()
 
     if exchange == "bitget":
-        from nexustrader.exchange import BitgetAccountType
+        from quantforge.exchange import BitgetAccountType
 
         if demo:
             account_type = BitgetAccountType.UTA_DEMO
@@ -62,7 +62,7 @@ def _build_exchange_config(exchange: str, demo: bool):
             testnet=testnet,
         )
     elif exchange == "binance":
-        from nexustrader.exchange import BinanceAccountType
+        from quantforge.exchange import BinanceAccountType
 
         if demo:
             account_type = BinanceAccountType.USD_M_FUTURE_TESTNET
@@ -82,7 +82,7 @@ def _build_exchange_config(exchange: str, demo: bool):
             testnet=testnet,
         )
     elif exchange == "bybit":
-        from nexustrader.exchange import BybitAccountType
+        from quantforge.exchange import BybitAccountType
 
         if demo:
             account_type = BybitAccountType.CONTRACT_TESTNET
@@ -102,7 +102,7 @@ def _build_exchange_config(exchange: str, demo: bool):
             testnet=testnet,
         )
     elif exchange == "okx":
-        from nexustrader.exchange import OkxAccountType
+        from quantforge.exchange import OkxAccountType
 
         if demo:
             account_type = OkxAccountType.DEMO
@@ -308,8 +308,8 @@ def main():
     strat.set_config_info(args.mesa, selected.name)
 
     # --- Build engine ---
-    from nexustrader.config import Config, LogConfig
-    from nexustrader.engine import Engine
+    from quantforge.config import Config, LogConfig
+    from quantforge.engine import Engine
 
     config = Config(
         strategy_id=f"{args.strategy}_{selected.name.lower().replace(' ', '_')}",

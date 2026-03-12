@@ -199,7 +199,7 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
         from strategy.backtest.exchange_profiles import get_profile
         from strategy.backtest.runner import BacktestRunner, _bh_return_pct, _bootstrap_sharpe_ci
         from strategy.backtest.utils import PERIODS, fetch_data, fetch_funding_rates
-        from nexustrader.backtest.analysis.performance import (
+        from quantforge.backtest.analysis.performance import (
             PerformanceAnalyzer,
             infer_periods_per_year,
         )

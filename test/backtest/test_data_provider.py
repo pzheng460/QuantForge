@@ -15,10 +15,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.data.provider import DataProvider
-from nexustrader.backtest.data.ccxt_provider import CCXTDataProvider
-from nexustrader.backtest.data.file_provider import FileDataProvider
-from nexustrader.constants import KlineInterval
+from quantforge.backtest.data.provider import DataProvider
+from quantforge.backtest.data.ccxt_provider import CCXTDataProvider
+from quantforge.backtest.data.file_provider import FileDataProvider
+from quantforge.constants import KlineInterval
 
 
 class TestDataProviderInterface:

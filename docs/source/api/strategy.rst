@@ -1,7 +1,7 @@
-nexustrader.strategy
+quantforge.strategy
 ====================
 
-.. currentmodule:: nexustrader.strategy
+.. currentmodule:: quantforge.strategy
 
 Strategy
 --------

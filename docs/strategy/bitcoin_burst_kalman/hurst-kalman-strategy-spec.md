@@ -4,7 +4,7 @@
 
 ## Overview
 
-在 NexusTrader 框架下为 Bitget 交易所实现比特币赫斯特-卡尔曼量化交易策略。该策略使用赫斯特指数（Hurst Exponent）判定市场状态，使用卡尔曼滤波（Kalman Filter）追踪真实价值，根据市场状态切换均值回归和趋势跟踪两种交易模式。
+在 QuantForge 框架下为 Bitget 交易所实现比特币赫斯特-卡尔曼量化交易策略。该策略使用赫斯特指数（Hurst Exponent）判定市场状态，使用卡尔曼滤波（Kalman Filter）追踪真实价值，根据市场状态切换均值回归和趋势跟踪两种交易模式。
 
 ## Problem Statement
 
@@ -14,7 +14,7 @@
 
 ### In Scope
 - 核心算法实现（Hurst R/S 分析、Kalman 滤波器）
-- NexusTrader 实盘策略（Bitget Demo 模拟盘）
+- QuantForge 实盘策略（Bitget Demo 模拟盘）
 - vectorbt 历史回测脚本
 - 单元测试（核心算法）
 - 多交易对支持（各自独立状态和仓位）
@@ -48,8 +48,8 @@
 - [ ] 输出回测报告：总收益、夏普比率、最大回撤
 - [ ] 脚本可运行：`uv run python strategy/live/hurst_kalman_backtest.py`
 
-### US-3: NexusTrader 指标类实现
-**Description:** 作为策略开发者，我需要 NexusTrader Indicator 类封装核心算法。
+### US-3: QuantForge 指标类实现
+**Description:** 作为策略开发者，我需要 QuantForge Indicator 类封装核心算法。
 
 **Acceptance Criteria:**
 - [ ] `HurstKalmanIndicator` 继承 `Indicator` 基类
@@ -95,7 +95,7 @@ strategy/live/
 ├── hurst_kalman/
 │   ├── __init__.py
 │   ├── core.py              # 纯 numpy 核心算法
-│   ├── indicator.py         # NexusTrader Indicator 封装
+│   ├── indicator.py         # QuantForge Indicator 封装
 │   ├── strategy.py          # 实盘策略主体
 │   └── backtest.py          # vectorbt 回测脚本
 test/strategy/
@@ -209,7 +209,7 @@ class HurstKalmanConfig:
 - [ ] 生成回测报告
 - **Verification:** `uv run python strategy/live/hurst_kalman/backtest.py`
 
-### Phase 3: NexusTrader 指标封装
+### Phase 3: QuantForge 指标封装
 - [ ] 实现 `HurstKalmanIndicator` 类
 - [ ] 实现 warmup 逻辑
 - [ ] 实现信号生成接口

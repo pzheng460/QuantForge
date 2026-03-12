@@ -1,7 +1,7 @@
-nexustrader.config
+quantforge.config
 ====================
 
-.. currentmodule:: nexustrader.config
+.. currentmodule:: quantforge.config
 
 Configuration Classes
 -------------------------
@@ -9,7 +9,7 @@ Configuration Classes
 Config
 ~~~~~~
 
-.. automodule:: nexustrader.config
+.. automodule:: quantforge.config
     :members:
     :undoc-members:
     :show-inheritance:

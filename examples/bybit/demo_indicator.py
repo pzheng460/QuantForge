@@ -1,17 +1,17 @@
-from nexustrader.constants import settings
-from nexustrader.config import (
+from quantforge.constants import settings
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType
-from nexustrader.exchange import BybitAccountType
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType
+from quantforge.exchange import BybitAccountType
+from quantforge.engine import Engine
 
-from nexustrader.indicator import Indicator
-from nexustrader.constants import DataType
-from nexustrader.schema import Kline, BookL1, BookL2, Trade
+from quantforge.indicator import Indicator
+from quantforge.constants import DataType
+from quantforge.schema import Kline, BookL1, BookL2, Trade
 
 
 BYBIT_API_KEY = settings.BYBIT.LIVE.ACCOUNT1.API_KEY

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Dict
 
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 from strategy.backtest.config import StrategyConfig
 from strategy.backtest.registry import (
     HeatmapConfig,
@@ -114,7 +114,7 @@ def _export_config(
     """Export optimized parameters as config code."""
     min_hold = int(params.get("min_holding_bars", 1))
     cooldown = int(params.get("cooldown_bars", 0))
-    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    suffix = profile.quantforge_symbol_suffix if profile else ".BITGET"
     return f"""
 # =============================================================================
 # OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})

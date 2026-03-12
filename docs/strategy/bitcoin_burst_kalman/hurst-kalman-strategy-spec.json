@@ -3,11 +3,11 @@
   "slug": "hurst-kalman-strategy",
   "created": "2026-01-30",
   "status": "approved",
-  "overview": "在 NexusTrader 框架下为 Bitget 交易所实现比特币赫斯特-卡尔曼量化交易策略",
+  "overview": "在 QuantForge 框架下为 Bitget 交易所实现比特币赫斯特-卡尔曼量化交易策略",
   "scope": {
     "in_scope": [
       "核心算法实现（Hurst R/S 分析、Kalman 滤波器）",
-      "NexusTrader 实盘策略（Bitget Demo 模拟盘）",
+      "QuantForge 实盘策略（Bitget Demo 模拟盘）",
       "vectorbt 历史回测脚本",
       "单元测试（核心算法）",
       "多交易对支持",
@@ -42,7 +42,7 @@
     },
     {
       "id": "US-3",
-      "title": "NexusTrader 指标类实现",
+      "title": "QuantForge 指标类实现",
       "acceptance_criteria": [
         "HurstKalmanIndicator 继承 Indicator 基类",
         "支持 warmup_period=150",
@@ -93,7 +93,7 @@
     },
     {
       "id": 3,
-      "name": "NexusTrader 指标封装",
+      "name": "QuantForge 指标封装",
       "tasks": ["HurstKalmanIndicator 类", "warmup 逻辑", "信号生成接口"],
       "verification": "uvx ruff check strategy/bitget/hurst_kalman/"
     },

@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from nexustrader.constants import KlineInterval, OrderSide
+from quantforge.constants import KlineInterval, OrderSide
 from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,

@@ -1,5 +1,5 @@
 import pytest
-from nexustrader.core.entity import is_redis_available, get_redis_client_if_available
+from quantforge.core.entity import is_redis_available, get_redis_client_if_available
 
 
 def test_redis_availability():

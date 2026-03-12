@@ -2,7 +2,7 @@
 
 ## Overview
 
-为 NexusTrader 框架实现一个完备的回测模块，放置于 `nexustrader/backtest/` 目录下，供所有策略复用。采用混合架构：向量化回测用于快速参数优化，事件驱动回测用于最终验证（复用现有 Strategy 基类）。
+为 QuantForge 框架实现一个完备的回测模块，放置于 `quantforge/backtest/` 目录下，供所有策略复用。采用混合架构：向量化回测用于快速参数优化，事件驱动回测用于最终验证（复用现有 Strategy 基类）。
 
 ## Problem Statement
 
@@ -46,7 +46,7 @@
 - [ ] `PostgreSQLDataProvider` 从现有 PostgreSQL 后端读取
 - [ ] 所有 provider 返回相同的 `pd.DataFrame` 格式（timestamp, open, high, low, close, volume）
 - [ ] 单元测试覆盖每个 provider：`uv run pytest test/backtest/test_data_provider.py`
-- [ ] 类型检查通过：`uvx ruff check nexustrader/backtest/data/`
+- [ ] 类型检查通过：`uvx ruff check quantforge/backtest/data/`
 
 ### US-2: 资金费率获取
 
@@ -191,7 +191,7 @@
 ### 目录结构
 
 ```
-nexustrader/backtest/
+quantforge/backtest/
 ├── __init__.py
 ├── data/
 │   ├── __init__.py
@@ -310,7 +310,7 @@ class Optimizer(ABC):
 
 ### Phase 1: 数据层 (Data Layer)
 
-- [ ] 创建 `nexustrader/backtest/` 目录结构
+- [ ] 创建 `quantforge/backtest/` 目录结构
 - [ ] 实现 `DataProvider` 基类
 - [ ] 实现 `CCXTDataProvider`
 - [ ] 实现 `FileDataProvider`
@@ -321,7 +321,7 @@ class Optimizer(ABC):
 ```bash
 uv run pytest test/backtest/test_data_provider.py -v
 uv run pytest test/backtest/test_funding_rate.py -v
-uvx ruff check nexustrader/backtest/data/
+uvx ruff check quantforge/backtest/data/
 ```
 
 ### Phase 2: 回测引擎 (Backtest Engine)
@@ -337,7 +337,7 @@ uvx ruff check nexustrader/backtest/data/
 uv run pytest test/backtest/test_vectorized.py -v
 uv run pytest test/backtest/test_event_driven.py -v
 uv run pytest test/backtest/test_cost_model.py -v
-uvx ruff check nexustrader/backtest/engine/
+uvx ruff check quantforge/backtest/engine/
 ```
 
 ### Phase 3: 指标与报告 (Metrics & Report)
@@ -352,7 +352,7 @@ uvx ruff check nexustrader/backtest/engine/
 uv run pytest test/backtest/test_metrics.py -v
 uv run pytest test/backtest/test_regime.py -v
 uv run pytest test/backtest/test_report.py -v
-uvx ruff check nexustrader/backtest/analysis/
+uvx ruff check quantforge/backtest/analysis/
 ```
 
 ### Phase 4: 优化工具 (Optimization Tools)
@@ -369,7 +369,7 @@ uv run pytest test/backtest/test_grid_search.py -v
 uv run pytest test/backtest/test_optuna.py -v
 uv run pytest test/backtest/test_walk_forward.py -v
 uv run python examples/backtest_example.py --help
-uvx ruff check nexustrader/backtest/
+uvx ruff check quantforge/backtest/
 ```
 
 ## Definition of Done
@@ -378,7 +378,7 @@ This feature is complete when:
 - [ ] All 12 user stories pass their acceptance criteria
 - [ ] All 4 implementation phases verified
 - [ ] All tests pass: `uv run pytest test/backtest/ -v`
-- [ ] Types/lint check: `uvx ruff check nexustrader/backtest/`
+- [ ] Types/lint check: `uvx ruff check quantforge/backtest/`
 - [ ] Performance benchmarks met (NFR-1, NFR-2)
 
 ## Ralph Loop Command
@@ -396,7 +396,7 @@ CRITICAL RULE: For each module, write tests FIRST before implementation.
 
 VERIFICATION (run after each phase):
 - uv run pytest test/backtest/ -v
-- uvx ruff check nexustrader/backtest/
+- uvx ruff check quantforge/backtest/
 
 ESCAPE HATCH: After 20 iterations without progress:
 - Document what's blocking in the spec file under 'Implementation Notes'

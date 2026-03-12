@@ -1,7 +1,7 @@
-nexustrader.exchange.bybit.websockets
+quantforge.exchange.bybit.websockets
 ==========================================
 
-.. currentmodule:: nexustrader.exchange.bybit.websockets
+.. currentmodule:: quantforge.exchange.bybit.websockets
 
 The Bybit WebSocket client provides real-time market data and trading information through WebSocket connections. It supports both public and private channels with automatic authentication and rate limiting.
 

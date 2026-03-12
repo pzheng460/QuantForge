@@ -1,7 +1,7 @@
-nexustrader.base.oms
+quantforge.base.oms
 ========================
 
-.. currentmodule:: nexustrader.base.oms
+.. currentmodule:: quantforge.base.oms
 
 This module contains the OrderManagementSystem class, which is responsible for managing the execution of trading orders.
 

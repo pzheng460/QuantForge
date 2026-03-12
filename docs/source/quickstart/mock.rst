@@ -1,12 +1,12 @@
 Set up mock trading
 ======================
 
-NexusTrader provides a mock trading environment to test your trading strategies without risking any real money. In this section, we will show you how to set up mock trading.
+QuantForge provides a mock trading environment to test your trading strategies without risking any real money. In this section, we will show you how to set up mock trading.
 
 Mock Trading Account
 ---------------------
 
-Though in the real trading environment, you need to set up a real trading account for the exchanges, in the mock trading environment, you can use the mock trading account provided by the NexusTrader. There are 
+Though in the real trading environment, you need to set up a real trading account for the exchanges, in the mock trading environment, you can use the mock trading account provided by the QuantForge. There are 
 only three types of mock trading accounts:
 
 - SPOT_MOCK
@@ -17,8 +17,8 @@ For each exchange, just set the ``account_type`` to the corresponding mock tradi
 
 .. code-block:: python
 
-    from nexustrader.config import Config
-    from nexustrader.exchange.binance import BinanceAccountType
+    from quantforge.config import Config
+    from quantforge.exchange.binance import BinanceAccountType
 
     config = Config(
          strategy_id="strategy_mock",

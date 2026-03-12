@@ -1,4 +1,4 @@
-nexustrader.base
+quantforge.base
 =================
 
 .. toctree::

@@ -1,9 +1,9 @@
-from nexustrader.config import Config, PublicConnectorConfig, BasicConfig
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType
-from nexustrader.exchange import BinanceAccountType
-from nexustrader.schema import FundingRate, IndexPrice, MarkPrice
-from nexustrader.engine import Engine
+from quantforge.config import Config, PublicConnectorConfig, BasicConfig
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType
+from quantforge.exchange import BinanceAccountType
+from quantforge.schema import FundingRate, IndexPrice, MarkPrice
+from quantforge.engine import Engine
 
 
 class Demo(Strategy):

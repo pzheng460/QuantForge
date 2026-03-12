@@ -1,9 +1,9 @@
-nexustrader.constants
+quantforge.constants
 ===========================
 
-.. currentmodule:: nexustrader.constants
+.. currentmodule:: quantforge.constants
 
-.. automodule:: nexustrader.constants
+.. automodule:: quantforge.constants
     :members:
     :undoc-members:
     :show-inheritance:

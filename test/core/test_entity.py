@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from nexustrader.core.entity import TaskManager
+from quantforge.core.entity import TaskManager
 
 
 @pytest.mark.asyncio

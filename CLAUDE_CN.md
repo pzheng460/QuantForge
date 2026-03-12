@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-NexusTrader 是一个基于 Python 3.11+ 构建的专业级量化交易平台，专注于跨多交易所的高性能、低延迟交易。采用模块化、事件驱动架构，核心组件由 Rust 驱动，以实现极致性能。
+QuantForge 是一个基于 Python 3.11+ 构建的专业级量化交易平台，专注于跨多交易所的高性能、低延迟交易。采用模块化、事件驱动架构，核心组件由 Rust 驱动，以实现极致性能。
 
 ## 开发命令
 
@@ -55,16 +55,16 @@ pm2 start ecosystem.config.js
 ## 架构概览
 
 ### 核心组件
-- **Engine（引擎）**：管理所有交易系统的中央协调器（`nexustrader/engine.py`）
-- **Strategy（策略）**：支持多种执行模式的交易逻辑基类（`nexustrader/strategy.py`）
+- **Engine（引擎）**：管理所有交易系统的中央协调器（`quantforge/engine.py`）
+- **Strategy（策略）**：支持多种执行模式的交易逻辑基类（`quantforge/strategy.py`）
 - **Connectors（连接器）**：交易所专用的公共（行情数据）和私有（交易）连接器
 - **EMS**（执行管理系统）：订单提交与执行
 - **OMS**（订单管理系统）：订单状态跟踪与管理
-- **Cache（缓存）**：高性能数据缓存层（`nexustrader/core/cache.py`）
-- **Registry（注册表）**：订单和组件跟踪（`nexustrader/core/registry.py`）
+- **Cache（缓存）**：高性能数据缓存层（`quantforge/core/cache.py`）
+- **Registry（注册表）**：订单和组件跟踪（`quantforge/core/registry.py`）
 
 ### 交易所集成
-每个交易所在 `nexustrader/exchange/{exchange}/` 下遵循统一模式：
+每个交易所在 `quantforge/exchange/{exchange}/` 下遵循统一模式：
 - **PublicConnector**：行情数据 WebSocket 流
 - **PrivateConnector**：账户数据和订单执行
 - **EMS/OMS**：交易所专用订单管理
@@ -88,16 +88,16 @@ pm2 start ecosystem.config.js
 ## 关键文件位置
 
 ### 核心框架
-- `nexustrader/engine.py` - 主交易引擎
-- `nexustrader/strategy.py` - 策略基类
-- `nexustrader/config.py` - 配置管理
-- `nexustrader/schema.py` - 数据结构与模式
-- `nexustrader/indicator.py` - 技术指标框架
+- `quantforge/engine.py` - 主交易引擎
+- `quantforge/strategy.py` - 策略基类
+- `quantforge/config.py` - 配置管理
+- `quantforge/schema.py` - 数据结构与模式
+- `quantforge/indicator.py` - 技术指标框架
 
 ### 基类
-- `nexustrader/base/connector.py` - 连接器基类实现
-- `nexustrader/base/ems.py` - 执行管理基类
-- `nexustrader/base/oms.py` - 订单管理基类
+- `quantforge/base/connector.py` - 连接器基类实现
+- `quantforge/base/ems.py` - 执行管理基类
+- `quantforge/base/oms.py` - 订单管理基类
 
 ### 交易所实现
 每个交易所目录包含：
@@ -116,25 +116,25 @@ pm2 start ecosystem.config.js
 - `strategy/runner.py` - 支持 LiveConfig 的任意策略通用 CLI 运行器
 
 ### 配置与数据
-- `nexustrader/constants.py` - 枚举和常量
-- `nexustrader/backends/` - 数据库后端（Redis、PostgreSQL、SQLite）
+- `quantforge/constants.py` - 枚举和常量
+- `quantforge/backends/` - 数据库后端（Redis、PostgreSQL、SQLite）
 
 ## 环境配置
 
 复制 `env.example` 为 `.env` 并进行配置：
 ```bash
 # Redis 配置
-NEXUS_REDIS_HOST=127.0.0.1
-NEXUS_REDIS_PORT=6379
-NEXUS_REDIS_DB=0
-NEXUS_REDIS_PASSWORD=your_redis_password
+QUANTFORGE_REDIS_HOST=127.0.0.1
+QUANTFORGE_REDIS_PORT=6379
+QUANTFORGE_REDIS_DB=0
+QUANTFORGE_REDIS_PASSWORD=your_redis_password
 
 # PostgreSQL 配置
-NEXUS_PG_HOST=localhost
-NEXUS_PG_PORT=5432
-NEXUS_PG_USER=postgres
-NEXUS_PG_PASSWORD=your_postgres_password
-NEXUS_PG_DATABASE=postgres
+QUANTFORGE_PG_HOST=localhost
+QUANTFORGE_PG_PORT=5432
+QUANTFORGE_PG_USER=postgres
+QUANTFORGE_PG_PASSWORD=your_postgres_password
+QUANTFORGE_PG_DATABASE=postgres
 ```
 
 ## 自定义指标开发
@@ -492,7 +492,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 `sma_trend` 策略将 1h K 线重采样为日线收盘价，计算滚动 SMA 后前向填充回 1h。信号评估（收盘价 vs SMA）仅在日线收盘 K 线上执行——每个日历日的最后一根 1h K 线（`is_daily_close=True`）。所有日内 K 线返回 HOLD，防止 1h 价格噪声产生虚假交叉信号。回测引擎的 1-bar 信号延迟已防止预知偏差（bar i 的信号在 bar i+1 执行），因此 SMA 本身无需 `.shift(1)`。
 
 **Sharpe 年化自动推断**
-`PerformanceAnalyzer` 和 `VectorizedBacktest._calculate_metrics()` 通过 `infer_periods_per_year()`（`nexustrader/backtest/analysis/performance.py`）从权益曲线的 DatetimeIndex 中位数推断每年周期数。无需手动配置——1h 策略自动使用约 8766，而非错误的 15m 常量 35040。
+`PerformanceAnalyzer` 和 `VectorizedBacktest._calculate_metrics()` 通过 `infer_periods_per_year()`（`quantforge/backtest/analysis/performance.py`）从权益曲线的 DatetimeIndex 中位数推断每年周期数。无需手动配置——1h 策略自动使用约 8766，而非错误的 15m 常量 35040。
 
 **UTC 时间约定**
 `strategy/backtest/utils.py` 和 `cli.py` 使用 `datetime.now(timezone.utc).replace(tzinfo=None)` 代替 `datetime.now()`。因为 `calendar.timegm()` 将无时区 datetime 当作 UTC 处理，若使用本地时间会产生偏移（如 UTC+8 偏移 8 小时），导致交易所 API 因未来时间戳拒绝请求。
@@ -520,13 +520,13 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 
 ### 本地数据缓存与多源验证
 
-`nexustrader/backtest/data/database.py` 提供 SQLite 缓存层：
-- **KlineDatabase**: 存储 OHLCV 数据至 `~/.nexustrader/data/klines.db`（可配置）
+`quantforge/backtest/data/database.py` 提供 SQLite 缓存层：
+- **KlineDatabase**: 存储 OHLCV 数据至 `~/.quantforge/data/klines.db`（可配置）
 - API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
 - 唯一约束: `(exchange, symbol, interval, timestamp)`
 - 使用 `calendar.timegm()` 确保时区安全的 UTC 时间戳转换
 
-`nexustrader/backtest/data/cached_provider.py` 提供智能缓存 + 验证：
+`quantforge/backtest/data/cached_provider.py` 提供智能缓存 + 验证：
 - **CachedDataProvider**: `fetch()` 先查缓存，仅拉取缺失区间
 - **ValidatedData**: `fetch_and_validate()` 跨交易所对比数据
 - 返回: `primary_data`, `validation_report`, `anomalies`, `is_valid`
@@ -537,7 +537,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 
 ### 蒙特卡洛模拟与压力测试
 
-`nexustrader/backtest/simulation/` 子模块提供策略稳健性评估的统计模拟功能：
+`quantforge/backtest/simulation/` 子模块提供策略稳健性评估的统计模拟功能：
 
 | 模块 | 类 | 用途 |
 |------|-----|------|
@@ -551,7 +551,7 @@ uv run python -m strategy.strategies.funding_rate.live --mesa 0
 所有类接受 OHLCV DataFrame（DatetimeIndex，列：open/high/low/close/volume），输出相同格式的合成路径列表。GBM/JD 使用 `infer_periods_per_year()` 计算 dt。
 
 ```python
-from nexustrader.backtest.simulation import (
+from quantforge.backtest.simulation import (
     BlockBootstrap, GBMGenerator, JumpDiffusionGenerator,
     StressTestGenerator, SimulationReport,
 )
@@ -565,7 +565,7 @@ from nexustrader.backtest.simulation import (
 - 每次代码变更后同步更新 CLAUDE.md 和 CLAUDE_CN.md，然后 commit 并 push 到 dev 分支
 
 ### CLI 使用注意事项
-- 不要在 Claude Code 中运行 nexustrader-cli moniter
+- 不要在 Claude Code 中运行 quantforge-cli moniter
 
 ### Ruff 使用
 - 使用 `uvx ruff check` 检查当前目录所有文件

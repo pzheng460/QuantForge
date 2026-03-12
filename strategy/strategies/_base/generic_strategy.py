@@ -20,9 +20,9 @@ import dataclasses
 from decimal import Decimal
 from typing import Any, List, Optional
 
-from nexustrader.constants import OrderSide, PositionSide
-from nexustrader.indicator import Indicator
-from nexustrader.schema import FundingRate
+from quantforge.constants import OrderSide, PositionSide
+from quantforge.indicator import Indicator
+from quantforge.schema import FundingRate
 
 from strategy.backtest.registry import LiveConfig, get_strategy
 from strategy.strategies._base.base_strategy import BaseQuantStrategy, PositionState

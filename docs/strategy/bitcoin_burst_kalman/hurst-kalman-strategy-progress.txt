@@ -13,7 +13,7 @@ Verification: uv run pytest test/strategy/test_hurst_kalman.py -v ✓ (18 passed
 - [DONE] 生成回测报告
 Verification: uv run python strategy/bitget/hurst_kalman/backtest.py ✓
 
-## Phase 3: NexusTrader 指标封装
+## Phase 3: QuantForge 指标封装
 - [DONE] 实现 HurstKalmanIndicator 类
 - [DONE] 实现 warmup 逻辑
 - [DONE] 实现信号生成接口

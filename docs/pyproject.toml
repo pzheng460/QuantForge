@@ -1,4 +1,4 @@
 [tool.esbonio.sphinx]
 buildCommand = ["sphinx-build", "-M", "html", "source", "build"]
-pythonCommand = ["/root/NexusTrader/.venv/bin/python"]
+pythonCommand = ["/root/QuantForge/.venv/bin/python"]
 confDir = "${workspaceFolder}/docs/source"

@@ -298,7 +298,7 @@ uv run python -m strategy.runner --list
 ### 4.2 使用 Testnet 配置
 
 ```python
-from nexustrader.exchange import BitgetAccountType
+from quantforge.exchange import BitgetAccountType
 
 config = Config(
     basic_config={

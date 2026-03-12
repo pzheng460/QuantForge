@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NexusTrader is a professional-grade quantitative trading platform built with Python 3.11+ that focuses on high-performance, low-latency trading across multiple exchanges. It features a modular, event-driven architecture with Rust-powered core components for maximum performance.
+QuantForge is a professional-grade quantitative trading platform built with Python 3.11+ that focuses on high-performance, low-latency trading across multiple exchanges. It features a modular, event-driven architecture with Rust-powered core components for maximum performance.
 
 ## Development Commands
 
@@ -55,16 +55,16 @@ pm2 start ecosystem.config.js
 ## Architecture Overview
 
 ### Core Components
-- **Engine**: Central orchestrator managing all trading systems (`nexustrader/engine.py`)
-- **Strategy**: Base class for trading logic with multiple execution modes (`nexustrader/strategy.py`)
+- **Engine**: Central orchestrator managing all trading systems (`quantforge/engine.py`)
+- **Strategy**: Base class for trading logic with multiple execution modes (`quantforge/strategy.py`)
 - **Connectors**: Exchange-specific public (market data) and private (trading) connectors
 - **EMS** (Execution Management System): Order submission and execution
 - **OMS** (Order Management System): Order state tracking and management
-- **Cache**: High-performance data caching layer (`nexustrader/core/cache.py`)
-- **Registry**: Order and component tracking (`nexustrader/core/registry.py`)
+- **Cache**: High-performance data caching layer (`quantforge/core/cache.py`)
+- **Registry**: Order and component tracking (`quantforge/core/registry.py`)
 
 ### Exchange Integration
-Each exchange follows a consistent pattern in `nexustrader/exchange/{exchange}/`:
+Each exchange follows a consistent pattern in `quantforge/exchange/{exchange}/`:
 - **PublicConnector**: Market data WebSocket streams
 - **PrivateConnector**: Account data and order execution
 - **EMS/OMS**: Exchange-specific order management
@@ -88,16 +88,16 @@ Supported exchanges:
 ## Key File Locations
 
 ### Core Framework
-- `nexustrader/engine.py` - Main trading engine
-- `nexustrader/strategy.py` - Strategy base class
-- `nexustrader/config.py` - Configuration management
-- `nexustrader/schema.py` - Data structures and schemas
-- `nexustrader/indicator.py` - Technical indicators framework
+- `quantforge/engine.py` - Main trading engine
+- `quantforge/strategy.py` - Strategy base class
+- `quantforge/config.py` - Configuration management
+- `quantforge/schema.py` - Data structures and schemas
+- `quantforge/indicator.py` - Technical indicators framework
 
 ### Base Classes
-- `nexustrader/base/connector.py` - Base connector implementations
-- `nexustrader/base/ems.py` - Base execution management
-- `nexustrader/base/oms.py` - Base order management
+- `quantforge/base/connector.py` - Base connector implementations
+- `quantforge/base/ems.py` - Base execution management
+- `quantforge/base/oms.py` - Base order management
 
 ### Exchange Implementations
 Each exchange directory contains:
@@ -117,25 +117,25 @@ Each exchange directory contains:
 - `strategy/runner.py` - Generic CLI runner for any strategy with LiveConfig
 
 ### Configuration and Data
-- `nexustrader/constants.py` - Enums and constants
-- `nexustrader/backends/` - Database backends (Redis, PostgreSQL, SQLite)
+- `quantforge/constants.py` - Enums and constants
+- `quantforge/backends/` - Database backends (Redis, PostgreSQL, SQLite)
 
 ## Environment Configuration
 
 Copy `env.example` to `.env` and configure:
 ```bash
 # Redis Configuration
-NEXUS_REDIS_HOST=127.0.0.1
-NEXUS_REDIS_PORT=6379
-NEXUS_REDIS_DB=0
-NEXUS_REDIS_PASSWORD=your_redis_password
+QUANTFORGE_REDIS_HOST=127.0.0.1
+QUANTFORGE_REDIS_PORT=6379
+QUANTFORGE_REDIS_DB=0
+QUANTFORGE_REDIS_PASSWORD=your_redis_password
 
 # PostgreSQL Configuration  
-NEXUS_PG_HOST=localhost
-NEXUS_PG_PORT=5432
-NEXUS_PG_USER=postgres
-NEXUS_PG_PASSWORD=your_postgres_password
-NEXUS_PG_DATABASE=postgres
+QUANTFORGE_PG_HOST=localhost
+QUANTFORGE_PG_PORT=5432
+QUANTFORGE_PG_USER=postgres
+QUANTFORGE_PG_PASSWORD=your_postgres_password
+QUANTFORGE_PG_DATABASE=postgres
 ```
 
 ## Custom Indicator Development
@@ -501,7 +501,7 @@ When `funding_rates` is empty/None, `use_funding_rate=False` is passed to `CostC
 The `sma_trend` strategy resamples 1h bars to daily close, computes rolling SMA, then forward-fills back to 1h. Signal evaluation (close vs SMA) is gated to daily-close bars only — the last 1h bar of each calendar day (`is_daily_close=True`). All intraday bars return HOLD, preventing 1h price noise from generating false crossovers. The runner's 1-bar signal delay already prevents look-ahead (signal from bar i executes at bar i+1), so no `.shift(1)` on the SMA itself is needed. The `sma_funding` strategy inherits the same daily-close gating for its trend leg; `pre_update_hook` injects `is_daily_close = (kline.start_hour == 23)` in live mode.
 
 **Sharpe Annualisation (Auto-Inferred)**
-`PerformanceAnalyzer` and `VectorizedBacktest._calculate_metrics()` infer `periods_per_year` from the equity curve's DatetimeIndex via `infer_periods_per_year()` (`nexustrader/backtest/analysis/performance.py`). No manual configuration needed — 1h strategies automatically use ~8766 instead of the incorrect 15m constant 35040.
+`PerformanceAnalyzer` and `VectorizedBacktest._calculate_metrics()` infer `periods_per_year` from the equity curve's DatetimeIndex via `infer_periods_per_year()` (`quantforge/backtest/analysis/performance.py`). No manual configuration needed — 1h strategies automatically use ~8766 instead of the incorrect 15m constant 35040.
 
 **UTC Datetime Convention**
 `strategy/backtest/utils.py` and `cli.py` use `datetime.now(timezone.utc).replace(tzinfo=None)` instead of `datetime.now()`.  Since `calendar.timegm()` treats naive datetimes as UTC, using local time would produce timestamps offset by the system timezone (e.g. +8h in UTC+8), causing exchange APIs to reject requests with future timestamps.
@@ -529,13 +529,13 @@ Stage 1 pass now requires both `in_sample_sharpe >= 1.0` AND `in_sample_trades >
 
 ### Local Data Cache & Multi-Source Validation
 
-`nexustrader/backtest/data/database.py` provides a SQLite cache for historical kline data:
-- **KlineDatabase**: Stores OHLCV bars in `~/.nexustrader/data/klines.db` (configurable)
+`quantforge/backtest/data/database.py` provides a SQLite cache for historical kline data:
+- **KlineDatabase**: Stores OHLCV bars in `~/.quantforge/data/klines.db` (configurable)
 - API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
 - Unique constraint: `(exchange, symbol, interval, timestamp)`
 - Uses `calendar.timegm()` for timezone-safe UTC epoch conversion
 
-`nexustrader/backtest/data/cached_provider.py` provides smart caching + validation:
+`quantforge/backtest/data/cached_provider.py` provides smart caching + validation:
 - **CachedDataProvider**: `fetch()` checks cache first, only pulls gaps from exchange
 - **ValidatedData**: `fetch_and_validate()` compares data across multiple exchanges
 - Returns: `primary_data`, `validation_report`, `anomalies`, `is_valid`
@@ -546,7 +546,7 @@ Tests: `uv run pytest test/backtest/test_database.py -v` (20 tests)
 
 ### Monte Carlo Simulation & Stress Testing
 
-The `nexustrader/backtest/simulation/` submodule provides statistical simulation capabilities for strategy robustness assessment:
+The `quantforge/backtest/simulation/` submodule provides statistical simulation capabilities for strategy robustness assessment:
 
 | Module | Class | Purpose |
 |--------|-------|---------|
@@ -560,7 +560,7 @@ The `nexustrader/backtest/simulation/` submodule provides statistical simulation
 All classes accept OHLCV DataFrames (DatetimeIndex, columns: open/high/low/close/volume) and produce `List[pd.DataFrame]` of synthetic paths in the same format. GBM/JD use `infer_periods_per_year()` for dt calculation.
 
 ```python
-from nexustrader.backtest.simulation import (
+from quantforge.backtest.simulation import (
     BlockBootstrap, GBMGenerator, JumpDiffusionGenerator,
     StressTestGenerator, SimulationReport,
 )
@@ -574,7 +574,7 @@ Tests: `uv run pytest test/backtest/test_simulation.py -v` (23 tests)
 - After every code change: update CLAUDE.md and CLAUDE_CN.md, then commit and push to dev branch
 
 ### CLI Usage Warnings
-- Do not run nexustrader-cli moniter in claude code
+- Do not run quantforge-cli moniter in claude code
 
 ### Ruff Usage
 - Lint all files in the current directory with `uvx ruff check`

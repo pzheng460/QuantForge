@@ -15,13 +15,13 @@ import pickle
 import pytest
 from decimal import Decimal
 
-from nexustrader.base import MockLinearConnector
-from nexustrader.core.entity import TaskManager
-from nexustrader.core.nautilius_core import MessageBus, LiveClock
-from nexustrader.core.cache import AsyncCache
-from nexustrader.schema import ExchangeType, BookL1, PositionSide
-from nexustrader.constants import OrderSide, OrderType, OrderStatus
-from nexustrader.exchange.binance.constants import BinanceAccountType
+from quantforge.base import MockLinearConnector
+from quantforge.core.entity import TaskManager
+from quantforge.core.nautilius_core import MessageBus, LiveClock
+from quantforge.core.cache import AsyncCache
+from quantforge.schema import ExchangeType, BookL1, PositionSide
+from quantforge.constants import OrderSide, OrderType, OrderStatus
+from quantforge.exchange.binance.constants import BinanceAccountType
 from nautilus_trader.model.identifiers import TraderId
 
 SYMBOL = "BTCUSDT-PERP.BINANCE"

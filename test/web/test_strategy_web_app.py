@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from nexustrader.web import create_strategy_app
+from quantforge.web import create_strategy_app
 
 
 def test_strategy_app_binds_self_method():

@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from nexustrader.backtest import (
+from quantforge.backtest import (
     BacktestConfig,
     GridSearchOptimizer,
     ParameterGrid,

@@ -1,4 +1,4 @@
-nexustrader.exchange.bybit
+quantforge.exchange.bybit
 =================================
 
 .. toctree::

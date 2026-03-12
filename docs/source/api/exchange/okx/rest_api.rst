@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.rest_api
+quantforge.exchange.okx.rest_api
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.rest_api
+.. currentmodule:: quantforge.exchange.okx.rest_api
 
 This module implements the REST API client for OKX exchange, providing methods to interact with various OKX API endpoints.
 

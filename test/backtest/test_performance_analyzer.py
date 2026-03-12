@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.analysis.performance import PerformanceAnalyzer
-from nexustrader.backtest.result import TradeRecord
+from quantforge.backtest.analysis.performance import PerformanceAnalyzer
+from quantforge.backtest.result import TradeRecord
 
 
 class TestPerformanceAnalyzerBasicMetrics:

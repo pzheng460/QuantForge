@@ -1,7 +1,7 @@
-nexustrader.exchange.binance.schema
+quantforge.exchange.binance.schema
 =====================================
 
-.. currentmodule:: nexustrader.exchange.binance.schema
+.. currentmodule:: quantforge.exchange.binance.schema
 
 This module defines the data structures and models used for Binance exchange API responses. It provides type-safe data models for market data, orders, trades, and other exchange-specific data structures.
 

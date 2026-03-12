@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.exchange
+quantforge.exchange.okx.exchange
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.exchange
+.. currentmodule:: quantforge.exchange.okx.exchange
 
 This module implements the exchange manager for OKX, handling market data loading and symbol management.
 

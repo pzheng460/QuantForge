@@ -14,13 +14,13 @@ import pandas as pd
 import pytest
 from datetime import datetime, timedelta
 
-from nexustrader.backtest import (
+from quantforge.backtest import (
     BacktestConfig,
     CostConfig,
     Signal,
     VectorizedBacktest,
 )
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 
 
 # =============================================================================

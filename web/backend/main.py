@@ -1,4 +1,4 @@
-"""FastAPI application — NexusTrader Web Backend."""
+"""FastAPI application — QuantForge Web Backend."""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from web.backend.routers import strategies, backtest, optimize, live
 
 app = FastAPI(
-    title="NexusTrader API",
+    title="QuantForge API",
     description="Backtest, strategy configuration, and live monitoring API",
     version="1.0.0",
 )

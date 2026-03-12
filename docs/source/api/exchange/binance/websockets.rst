@@ -1,7 +1,7 @@
-nexustrader.exchange.binance.websockets
+quantforge.exchange.binance.websockets
 ================================================
 
-.. currentmodule:: nexustrader.exchange.binance.websockets
+.. currentmodule:: quantforge.exchange.binance.websockets
 
 This module implements WebSocket client for Binance exchange, providing real-time market data and user data streams.
 

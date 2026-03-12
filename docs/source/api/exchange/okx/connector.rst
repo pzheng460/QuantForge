@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.connector
+quantforge.exchange.okx.connector
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.connector
+.. currentmodule:: quantforge.exchange.okx.connector
 
 This module implements WebSocket connectors for OKX exchange, providing both public and private data stream handling.
 

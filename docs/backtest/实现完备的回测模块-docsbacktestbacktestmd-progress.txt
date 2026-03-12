@@ -4,13 +4,13 @@
 
 ## Phase 1: Data Layer
 Status: [PENDING]
-- [ ] 创建 nexustrader/backtest/ 目录结构
+- [ ] 创建 quantforge/backtest/ 目录结构
 - [ ] 实现 DataProvider 基类
 - [ ] 实现 CCXTDataProvider
 - [ ] 实现 FileDataProvider
 - [ ] 实现 FundingRateProvider
 - [ ] 编写完整测试套件
-Verification: uv run pytest test/backtest/test_data*.py -v && uvx ruff check nexustrader/backtest/data/
+Verification: uv run pytest test/backtest/test_data*.py -v && uvx ruff check quantforge/backtest/data/
 
 ## Phase 2: Backtest Engine
 Status: [PENDING]
@@ -19,7 +19,7 @@ Status: [PENDING]
 - [ ] 实现 EventDrivenBacktest 事件驱动引擎
 - [ ] 实现 BacktestResult 数据类
 - [ ] 编写完整测试套件
-Verification: uv run pytest test/backtest/test_*backtest*.py -v && uvx ruff check nexustrader/backtest/engine/
+Verification: uv run pytest test/backtest/test_*backtest*.py -v && uvx ruff check quantforge/backtest/engine/
 
 ## Phase 3: Metrics & Report
 Status: [PENDING]
@@ -27,7 +27,7 @@ Status: [PENDING]
 - [ ] 实现 RegimeClassifier 市场状态分类
 - [ ] 实现 ReportGenerator HTML 报告生成
 - [ ] 编写完整测试套件
-Verification: uv run pytest test/backtest/test_metrics.py test_regime.py test_report.py -v && uvx ruff check nexustrader/backtest/analysis/
+Verification: uv run pytest test/backtest/test_metrics.py test_regime.py test_report.py -v && uvx ruff check quantforge/backtest/analysis/
 
 ## Phase 4: Optimization Tools
 Status: [PENDING]

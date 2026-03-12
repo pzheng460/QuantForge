@@ -45,7 +45,7 @@ class TestExchangeProfiles:
 
     def test_cost_config_generation(self):
         """cost_config() should return a CostConfig with correct fees."""
-        from nexustrader.backtest import CostConfig
+        from quantforge.backtest import CostConfig
 
         profile = get_profile("bitget")
         cc = profile.cost_config()
@@ -54,16 +54,16 @@ class TestExchangeProfiles:
         assert cc.taker_fee == profile.taker_fee
         assert cc.slippage_pct == profile.slippage_pct
 
-    def test_nexus_symbol(self):
-        """nexus_symbol() should produce correct NexusTrader symbol format."""
+    def test_quantforge_symbol(self):
+        """quantforge_symbol() should produce correct QuantForge symbol format."""
         profile = get_profile("binance")
-        sym = profile.nexus_symbol("BTCUSDT-PERP")
+        sym = profile.quantforge_symbol("BTCUSDT-PERP")
         assert sym == "BTCUSDT-PERP.BINANCE"
 
-    def test_nexus_symbol_default(self):
-        """nexus_symbol() default base should work."""
+    def test_quantforge_symbol_default(self):
+        """quantforge_symbol() default base should work."""
         profile = get_profile("okx")
-        sym = profile.nexus_symbol()
+        sym = profile.quantforge_symbol()
         assert sym.endswith(".OKX")
         assert "BTCUSDT-PERP" in sym
 
@@ -74,6 +74,6 @@ class TestExchangeProfiles:
             assert profile.name, f"{name} missing display name"
             assert profile.ccxt_id, f"{name} missing ccxt_id"
             assert profile.default_symbol, f"{name} missing default_symbol"
-            assert profile.nexus_symbol_suffix, f"{name} missing nexus_symbol_suffix"
+            assert profile.quantforge_symbol_suffix, f"{name} missing quantforge_symbol_suffix"
             assert profile.maker_fee > 0, f"{name} maker_fee should be positive"
             assert profile.taker_fee > 0, f"{name} taker_fee should be positive"

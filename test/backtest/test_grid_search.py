@@ -15,15 +15,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nexustrader.backtest.optimization.grid_search import (
+from quantforge.backtest.optimization.grid_search import (
     GridSearchOptimizer,
     ParameterGrid,
     OptimizationResult,
 )
-from nexustrader.backtest.engine.vectorized import VectorizedBacktest, Signal
-from nexustrader.backtest.engine.cost_model import CostConfig
-from nexustrader.backtest.result import BacktestConfig, BacktestResult
-from nexustrader.constants import KlineInterval
+from quantforge.backtest.engine.vectorized import VectorizedBacktest, Signal
+from quantforge.backtest.engine.cost_model import CostConfig
+from quantforge.backtest.result import BacktestConfig, BacktestResult
+from quantforge.constants import KlineInterval
 
 
 class TestParameterGrid:

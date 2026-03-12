@@ -39,3 +39,4 @@ yaml-config/
 *.html
 appendonlydir/node_modules/
 node_modules/
+appendonlydir/

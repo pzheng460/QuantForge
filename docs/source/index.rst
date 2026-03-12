@@ -1,4 +1,4 @@
-Welcome to NexusTrader's documentation!
+Welcome to QuantForge's documentation!
 =========================================
 .. |python-versions| image:: https://img.shields.io/badge/python-3.11%20|%203.12-blue
    :alt: Python Versions
@@ -6,7 +6,7 @@ Welcome to NexusTrader's documentation!
 .. |docs| image:: https://img.shields.io/badge/docs-passing-brightgreen
    :alt: Documentation Status
 
-.. |version| image:: https://img.shields.io/pypi/v/nexustrader?&color=blue
+.. |version| image:: https://img.shields.io/pypi/v/quantforge?&color=blue
    :alt: Version
 
 
@@ -15,7 +15,7 @@ Welcome to NexusTrader's documentation!
 Introduction
 -----------------
 
-NexusTrader is a professional-grade open-source quantitative trading platform, specifically designed for **large capital
+QuantForge is a professional-grade open-source quantitative trading platform, specifically designed for **large capital
 management** and **complex strategy development**, dedicated to providing high-performance, scalable, and user-friendly
 quantitative trading solutions.
 
@@ -24,18 +24,18 @@ Core Advantages
 
 - 🚀 **Professionally Optimized Order Algorithms**: Deep optimization for algorithmic orders including TWAP, effectively reducing market impact costs. Users can easily integrate their own execution signals to achieve more efficient and precise order execution.
 - 💰 **Professional Arbitrage Strategy Support**: Provides professional optimization for various arbitrage strategies, including funding rate arbitrage and cross-exchange arbitrage, supporting real-time tracking and trading of thousandsof trading pairs to help users easily capture arbitrage opportunities.
-- 🚧 **Full-Featured Quantitative Trading Framework**: Users don't need to build frameworks or handle complex exchange interface details themselves. NexusTrader has integrated professional position management, order management, fundmanagement, and statistical analysis modules, allowing users to focus on writing strategy logic and quickly implement quantitative trading.
+- 🚧 **Full-Featured Quantitative Trading Framework**: Users don't need to build frameworks or handle complex exchange interface details themselves. QuantForge has integrated professional position management, order management, fundmanagement, and statistical analysis modules, allowing users to focus on writing strategy logic and quickly implement quantitative trading.
 - 🚀 **Multi-Market Support and High Scalability**: Supports large-scale multi-market tracking and high-frequency strategy execution, covering a wide range of trading instruments, making it an ideal choice for professional trading needs.
 
-Why NexusTrader Is More Efficient?
+Why QuantForge Is More Efficient?
 ------------------------------------
 
 - **Enhanced Event Loop Performance**:
-  NexusTrader leverages `uvloop <https://github.com/MagicStack/uvloop>`_, a high-performance event loop, delivering speeds up to 2-4 times faster than Python's default asyncio loop.
+  QuantForge leverages `uvloop <https://github.com/MagicStack/uvloop>`_, a high-performance event loop, delivering speeds up to 2-4 times faster than Python's default asyncio loop.
 - **High-Performance WebSocket Framework**:
   Built with `picows <https://github.com/tarasko/picows>`_, a Cython-based WebSocket library that matches the speed of C++'s Boost.Beast, significantly outperforming Python alternatives like websockets and aiohttp.
 - **Optimized Data Serialization**:
-  Utilizing `msgspec` for serialization and deserialization, NexusTrader achieves unmatched efficiency, surpassing tools like ``orjson``, ``ujson``, and ``json``. All data classes are implemented with ``msgspec.Struct`` for maximum performance.
+  Utilizing `msgspec` for serialization and deserialization, QuantForge achieves unmatched efficiency, surpassing tools like ``orjson``, ``ujson``, and ``json``. All data classes are implemented with ``msgspec.Struct`` for maximum performance.
 - **Scalable Order Management**:
   Orders are handled efficiently using ``asyncio.Queue``, ensuring seamless processing even at high volumes.
 - **Rust-Powered Core Components**:
@@ -44,7 +44,7 @@ Why NexusTrader Is More Efficient?
 Architecture(Data Flow)
 ----------------------------
 
-The core of nexustrader is the ``Connector``, which is responsible for connecting to the exchange and data flow. Through the ``PublicConnector``, users can access market data from the exchange, and through the ``PrivateConnector``, users can execute trades and receive callbacks for trade data. Orders are submitted through the ``OrderExecutionSystem``, which is responsible for submitting orders to the exchange and obtaining the order ID from the exchange. Order status management is handled by the ``OrderManagementSystem``, which is responsible for managing the status of orders and sending them to the ``Strategy``.
+The core of quantforge is the ``Connector``, which is responsible for connecting to the exchange and data flow. Through the ``PublicConnector``, users can access market data from the exchange, and through the ``PrivateConnector``, users can execute trades and receive callbacks for trade data. Orders are submitted through the ``OrderExecutionSystem``, which is responsible for submitting orders to the exchange and obtaining the order ID from the exchange. Order status management is handled by the ``OrderManagementSystem``, which is responsible for managing the status of orders and sending them to the ``Strategy``.
 
 .. image:: ./_static/arch.png
    :alt: Data Flow Diagram

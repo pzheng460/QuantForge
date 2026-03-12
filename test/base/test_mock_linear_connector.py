@@ -1,10 +1,10 @@
 import pytest
 from decimal import Decimal
 from typing import Dict
-from nexustrader.schema import PositionSide
-from nexustrader.constants import OrderStatus, OrderSide, OrderType
-from nexustrader.exchange.binance.constants import BinanceAccountType
-from nexustrader.base import MockLinearConnector
+from quantforge.schema import PositionSide
+from quantforge.constants import OrderStatus, OrderSide, OrderType
+from quantforge.exchange.binance.constants import BinanceAccountType
+from quantforge.base import MockLinearConnector
 
 
 @pytest.fixture

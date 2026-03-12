@@ -1,7 +1,7 @@
-nexustrader.exchange.binance.oms
+quantforge.exchange.binance.oms
 =====================================
 
-.. currentmodule:: nexustrader.exchange.binance.oms
+.. currentmodule:: quantforge.exchange.binance.oms
 
 This module implements the Order Management System (OMS) for Binance exchange, handling order processing and position tracking.
 

@@ -1,41 +1,29 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/source/_static/logo-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/source/_static/logo-light.png">
-  <img alt="nexustrader Logo" src="docs/source/_static/logo-light.png">
+  <img alt="quantforge Logo" src="docs/source/_static/logo-light.png">
 </picture>
 
 
 ---
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)![Version](https://img.shields.io/pypi/v/nexustrader?&color=blue)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)![Version](https://img.shields.io/pypi/v/quantforge?&color=blue)
 
-- **WebSite**: https://nexustrader.quantweb3.ai/
-- **Docs**: https://nexustrader.readthedocs.io/en/latest/
+- **WebSite**: https://quantforge.quantweb3.ai/
+- **Docs**: https://quantforge.readthedocs.io/en/latest/
 - **Support**: [quantweb3.ai@gmail.com](mailto:quantweb3.ai@gmail.com)
 
-```python
-                ###############################################################
-                ##                                                           ##
-                ##                                                           ##
-                ##         ███    ██ ███████ ██   ██ ██    ██ ███████        ##
-                ##         ████   ██ ██       ██ ██  ██    ██ ██             ##
-                ##         ██ ██  ██ █████     ███   ██    ██ ███████        ##
-                ##         ██  ██ ██ ██       ██ ██  ██    ██      ██        ##
-                ##         ██   ████ ███████ ██   ██  ██████  ███████        ##
-                ##                                                           ##
-                ##                                                           ##
-                ##     ████████ ██████   █████  ██████   ███████ ██████      ##
-                ##        ██    ██   ██ ██   ██ ██   ██  ██      ██   ██     ##
-                ##        ██    ██████  ███████ ██   ██  █████   ██████      ##
-                ##        ██    ██   ██ ██   ██ ██   ██  ██      ██   ██     ##
-                ##        ██    ██   ██ ██   ██ ██████   ███████ ██   ██     ##
-                ##                                                           ##
-                ##                                                           ##
-                ###############################################################
+```
+ ██████  ██    ██  █████  ███    ██ ████████ ███████  ██████  ██████   ██████  ███████
+██    ██ ██    ██ ██   ██ ████   ██    ██    ██      ██    ██ ██   ██ ██       ██
+██    ██ ██    ██ ███████ ██ ██  ██    ██    █████   ██    ██ ██████  ██   ███ █████
+██    ██ ██    ██ ██   ██ ██  ██ ██    ██    ██      ██    ██ ██   ██ ██    ██ ██
+ ██████   ██████  ██   ██ ██   ████    ██    ██       ██████  ██   ██  ██████  ███████
+```
 ```
 ## Introduction
 
-NexusTrader is a professional-grade open-source quantitative trading platform, specifically designed for **large capital
+QuantForge is a professional-grade open-source quantitative trading platform, specifically designed for **large capital
 management** and **complex strategy development**, dedicated to providing high-performance, scalable, and user-friendly
 quantitative trading solutions.
 
@@ -50,19 +38,19 @@ quantitative trading solutions.
    including funding rate arbitrage and cross-exchange arbitrage, supporting real-time tracking and trading of thousands
    of trading pairs to help users easily capture arbitrage opportunities.
 - 🚧 **Full-Featured Quantitative Trading Framework：** Users don't need to build frameworks or handle complex exchange
-   interface details themselves. NexusTrader has integrated professional position management, order management, fund
+   interface details themselves. QuantForge has integrated professional position management, order management, fund
    management, and statistical analysis modules, allowing users to focus on writing strategy logic and quickly implement
    quantitative trading.
 - 🚀 **Multi-Market Support and High Scalability：** Supports large-scale multi-market tracking and high-frequency strategy
    execution, covering a wide range of trading instruments, making it an ideal choice for professional trading needs.
 
-### Why NexusTrader Is More Efficient?
+### Why QuantForge Is More Efficient?
 
-  - **Enhanced Event Loop Performance**: NexusTrader leverages [uvloop](https://github.com/MagicStack/uvloop), a high-performance event loop, delivering speeds up to 2-4 times faster than Python's default asyncio loop.
+  - **Enhanced Event Loop Performance**: QuantForge leverages [uvloop](https://github.com/MagicStack/uvloop), a high-performance event loop, delivering speeds up to 2-4 times faster than Python's default asyncio loop.
 
   - **High-Performance WebSocket Framework**: Built with [picows](https://github.com/tarasko/picows), a Cython-based WebSocket library that matches the speed of C++'s Boost.Beast, significantly outperforming Python alternatives like websockets and aiohttp.
 
-  - **Optimized Data Serialization**: Utilizing `msgspec` for serialization and deserialization, NexusTrader achieves unmatched efficiency, surpassing tools like `orjson`, `ujson`, and `json`. All data classes are implemented with `msgspec.Struct` for maximum performance.
+  - **Optimized Data Serialization**: Utilizing `msgspec` for serialization and deserialization, QuantForge achieves unmatched efficiency, surpassing tools like `orjson`, `ujson`, and `json`. All data classes are implemented with `msgspec.Struct` for maximum performance.
 
   - **Scalable Order Management**: Orders are handled efficiently using `asyncio.Queue`, ensuring seamless processing even at high volumes.
 
@@ -72,7 +60,7 @@ quantitative trading solutions.
 
 | Framework                                                    | Websocket Package                                            | Data Serialization                                 | Strategy Support | Advantages                                         | Disadvantages                                     |
 | ------------------------------------------------------------ | ------------------------------------------------------------ | -------------------------------------------------- | ---------------- | -------------------------------------------------- | ------------------------------------------------- |
-| **NexusTrader**                                              | [picows](https://picows.readthedocs.io/en/stable/introduction.html#installation) | [msgspec](https://jcristharif.com/msgspec/)        | ✅                | Professionally optimized for speed and low latency | Requires some familiarity with async workflows    |
+| **QuantForge**                                              | [picows](https://picows.readthedocs.io/en/stable/introduction.html#installation) | [msgspec](https://jcristharif.com/msgspec/)        | ✅                | Professionally optimized for speed and low latency | Requires some familiarity with async workflows    |
 | [HummingBot](https://github.com/hummingbot/hummingbot?tab=readme-ov-file) | aiohttp                                                      | [ujson](https://pypi.org/project/ujson/)           | ✅                | Widely adopted with robust community support       | Slower WebSocket handling and limited flexibility |
 | [Freqtrade](https://github.com/freqtrade/freqtrade)          | websockets                                                   | [orjson](https://github.com/ijl/orjson)            | ✅                | Flexible strategy support                          | Higher resource consumption                       |
 | [crypto-feed](https://github.com/bmoscon/cryptofeed)         | [websockets](https://websockets.readthedocs.io/en/stable/)   | [yapic.json](https://pypi.org/project/yapic.json/) | ❌                | Simple design for feed-only use                    | Lacks trading support and advanced features       |
@@ -124,34 +112,34 @@ sudo apt-get install build-essential
 ### From PyPI
 
 ```bash
-pip install nexustrader
+pip install quantforge
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/RiverTrading/NexusTrader
-cd NexusTrader
+git clone https://github.com/RiverTrading/QuantForge
+cd QuantForge
 poetry install
 ```
 
 > **Note**
-> more details can be found in the [installation guide](https://nexustrader.readthedocs.io/en/latest/installation.html)
+> more details can be found in the [installation guide](https://quantforge.readthedocs.io/en/latest/installation.html)
 
 ### Quick Start
 
-Here's a basic example of how to use nexustrader, demonstrating a simple buy and sell strategy on OKX.
+Here's a basic example of how to use quantforge, demonstrating a simple buy and sell strategy on OKX.
 
 ```python
 from decimal import Decimal
 
-from nexustrader.constants import settings
-from nexustrader.config import Config, PublicConnectorConfig, PrivateConnectorConfig, BasicConfig
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType, OrderSide, OrderType
-from nexustrader.exchange.okx import OkxAccountType
-from nexustrader.schema import BookL1, Order
-from nexustrader.engine import Engine
+from quantforge.constants import settings
+from quantforge.config import Config, PublicConnectorConfig, PrivateConnectorConfig, BasicConfig
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType, OrderSide, OrderType
+from quantforge.exchange.okx import OkxAccountType
+from quantforge.schema import BookL1, Order
+from quantforge.engine import Engine
 
 # Retrieve API credentials from settings
 OKX_API_KEY = settings.OKX.DEMO_1.api_key
@@ -241,14 +229,14 @@ if __name__ == "__main__":
 
 ### Web Callbacks
 
-NexusTrader can host FastAPI endpoints alongside a running strategy. Define an application with
-`nexustrader.web.create_strategy_app`, decorate a method that accepts `self`, and enable the web server in your config.
+QuantForge can host FastAPI endpoints alongside a running strategy. Define an application with
+`quantforge.web.create_strategy_app`, decorate a method that accepts `self`, and enable the web server in your config.
 
 ```python
 from fastapi import Body
 
-from nexustrader.web import create_strategy_app
-from nexustrader.config import WebConfig
+from quantforge.web import create_strategy_app
+from quantforge.config import WebConfig
 
 
 class Demo(Strategy):
@@ -279,7 +267,7 @@ class. For instance, to switch to Binance, you can adjust the configuration as f
 `BTCUSDT-PERP.BINANCE`.
 
 ```python
-from nexustrader.exchange.binance import BinanceAccountType
+from quantforge.exchange.binance import BinanceAccountType
 
 config = Config(
     strategy_id="buy_and_sell_binance",
@@ -311,7 +299,7 @@ config = Config(
 
 ## Multi-Mode Support
 
-nexustrader supports multiple modes of operation to cater to different trading strategies and requirements. Each mode
+quantforge supports multiple modes of operation to cater to different trading strategies and requirements. Each mode
 allows for flexibility in how trading logic is executed based on market conditions or specific triggers.
 
 ### Event-Driven Mode
@@ -367,17 +355,17 @@ class Demo3(Strategy):
 
 ## Define Your Own Indicator
 
-NexusTrader provides a powerful framework for creating custom indicators with built-in warmup functionality. This allows your indicators to automatically fetch historical data and prepare themselves before live trading begins.
+QuantForge provides a powerful framework for creating custom indicators with built-in warmup functionality. This allows your indicators to automatically fetch historical data and prepare themselves before live trading begins.
 
 Here's an example of creating a custom Moving Average indicator with automatic warmup:
 
 ```python
 from collections import deque
-from nexustrader.indicator import Indicator
-from nexustrader.constants import KlineInterval, DataType
-from nexustrader.schema import Kline, BookL1, BookL2, Trade
-from nexustrader.strategy import Strategy
-from nexustrader.exchange.bybit import BybitAccountType
+from quantforge.indicator import Indicator
+from quantforge.constants import KlineInterval, DataType
+from quantforge.schema import Kline, BookL1, BookL2, Trade
+from quantforge.strategy import Strategy
+from quantforge.exchange.bybit import BybitAccountType
 
 class MovingAverageIndicator(Indicator):
     def __init__(self, period: int = 20):
@@ -477,7 +465,7 @@ This approach ensures your indicators have sufficient historical data before mak
 
 ## Contributing
 
-Thank you for considering contributing to nexustrader! We greatly appreciate any effort to help improve the project. If
+Thank you for considering contributing to quantforge! We greatly appreciate any effort to help improve the project. If
 you have an idea for an enhancement or a bug fix, the first step is to open
 an [issue](https://github.com/Quantweb3-ai/tradebot-pro/issues) on GitHub. This allows us to discuss your proposal and
 ensure it aligns with the project's goals, while also helping to avoid duplicate efforts.
@@ -490,7 +478,7 @@ Contributor License Agreement (CLA) to ensure it can be included in the project.
 > Pull requests should be directed to the `main` branch (the default branch), where new features and improvements are
 > integrated before release.
 
-Thank you again for your interest in nexustrader! We look forward to reviewing your contributions and collaborating with
+Thank you again for your interest in quantforge! We look forward to reviewing your contributions and collaborating with
 you to make the project even better.
 
 ## VIP Privileges
@@ -528,20 +516,24 @@ Connect with us on your favorite platforms:
 We recommend exploring related tools and projects that can enhance your trading workflows:
 
 - **[Nexus](https://github.com/Quantweb3-ai/nexus):** A robust exchange interface optimization solution that integrates
-  seamlessly with trading bots like nexustrader, enabling faster and more reliable trading execution.
+  seamlessly with trading bots like quantforge, enabling faster and more reliable trading execution.
+
+## Attribution
+
+QuantForge was originally forked from [NexusTrader](https://github.com/RiverTrading/NexusTrader) by RiverTrading / Quantweb3. We gratefully acknowledge the NexusTrader project and its contributors for the foundational work.
 
 ## License
 
-Nexustrader is available on GitHub under the MIT License. Contributions to the project are welcome and require the
+QuantForge is available on GitHub under the MIT License. Contributions to the project are welcome and require the
 completion of a Contributor License Agreement (CLA). Please review the contribution guidelines and submit a pull
 request. See the [LICENSE](./LICENSE) file for details.
 
 ## Star History
 
-<a href="https://www.star-history.com/#Quantweb3-com/NexusTrader&Date">
+<a href="https://www.star-history.com/#Quantweb3-com/QuantForge&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Quantweb3-com/NexusTrader&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Quantweb3-com/NexusTrader&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Quantweb3-com/NexusTrader&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Quantweb3-com/QuantForge&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Quantweb3-com/QuantForge&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Quantweb3-com/QuantForge&type=Date" />
  </picture>
 </a>

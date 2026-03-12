@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from nexustrader.constants import KlineInterval
+from quantforge.constants import KlineInterval
 from strategy.backtest.registry import (
     HeatmapConfig,
     LiveConfig,

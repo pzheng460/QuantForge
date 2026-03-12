@@ -91,7 +91,7 @@ def _export_config(
     """Export optimized parameters as config code."""
     min_hold = int(params.get("min_holding_bars", 4))
     cooldown = max(1, min_hold // 2)
-    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    suffix = profile.quantforge_symbol_suffix if profile else ".BITGET"
     return f"""
 # =============================================================================
 # OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})

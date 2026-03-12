@@ -1,7 +1,7 @@
 """
 Generic indicator wrapper for any SignalCore class.
 
-Wraps any signal core from strategy/indicators/ into a NexusTrader Indicator,
+Wraps any signal core from strategy/indicators/ into a QuantForge Indicator,
 handling bar confirmation, warmup, and signal generation generically.
 
 Usage:
@@ -19,9 +19,9 @@ import inspect
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple, Type
 
-from nexustrader.constants import KlineInterval
-from nexustrader.indicator import Indicator
-from nexustrader.schema import BookL1, BookL2, Kline, Trade
+from quantforge.constants import KlineInterval
+from quantforge.indicator import Indicator
+from quantforge.schema import BookL1, BookL2, Kline, Trade
 
 
 class Signal(Enum):

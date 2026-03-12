@@ -19,10 +19,10 @@ from typing import Any, Dict
 
 import pandas as pd
 
-from nexustrader.backtest import BacktestConfig, CostConfig
-from nexustrader.backtest.data.ccxt_provider import CCXTDataProvider
-from nexustrader.backtest.data.funding_rate import FundingRateProvider
-from nexustrader.constants import KlineInterval
+from quantforge.backtest import BacktestConfig, CostConfig
+from quantforge.backtest.data.ccxt_provider import CCXTDataProvider
+from quantforge.backtest.data.funding_rate import FundingRateProvider
+from quantforge.constants import KlineInterval
 
 
 # =============================================================================
@@ -140,7 +140,7 @@ async def fetch_data(
             print(f"Fetched {len(data)} bars")
             return data
 
-    from nexustrader.backtest.data.cached_provider import (
+    from quantforge.backtest.data.cached_provider import (
         CachedDataProvider,
         _INTERVAL_STR,
     )
@@ -219,9 +219,9 @@ async def validate_data(
         sources: List of exchange names to compare.
 
     Returns:
-        :class:`~nexustrader.backtest.data.cached_provider.ValidatedData`.
+        :class:`~quantforge.backtest.data.cached_provider.ValidatedData`.
     """
-    from nexustrader.backtest.data.cached_provider import CachedDataProvider
+    from quantforge.backtest.data.cached_provider import CachedDataProvider
 
     if start_date is None:
         start_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(

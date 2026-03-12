@@ -2,7 +2,7 @@ import pytest
 import time
 from decimal import Decimal
 from copy import copy
-from nexustrader.schema import (
+from quantforge.schema import (
     Order,
     ExchangeType,
     BookL1,
@@ -12,14 +12,14 @@ from nexustrader.schema import (
     PositionSide,
     Balance,
 )
-from nexustrader.constants import OrderStatus, OrderSide, OrderType, KlineInterval
-from nexustrader.core.cache import AsyncCache
-from nexustrader.exchange.binance.constants import BinanceAccountType
+from quantforge.constants import OrderStatus, OrderSide, OrderType, KlineInterval
+from quantforge.core.cache import AsyncCache
+from quantforge.exchange.binance.constants import BinanceAccountType
 
 
 @pytest.fixture
 async def async_cache(task_manager, message_bus, order_registry) -> AsyncCache:  # type: ignore
-    from nexustrader.core.cache import AsyncCache
+    from quantforge.core.cache import AsyncCache
 
     cache = AsyncCache(
         strategy_id="auto-test-strategy",

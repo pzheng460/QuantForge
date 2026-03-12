@@ -1,7 +1,7 @@
-nexustrader.exchange.okx.error
+quantforge.exchange.okx.error
 =====================================
 
-.. currentmodule:: nexustrader.exchange.okx.error
+.. currentmodule:: quantforge.exchange.okx.error
 
 This module defines custom exception classes for handling OKX exchange-specific errors, including HTTP errors and API request errors.
 

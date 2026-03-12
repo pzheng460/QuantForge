@@ -1,12 +1,12 @@
-from nexustrader.config import (
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType, KlineInterval
-from nexustrader.exchange import BinanceAccountType
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType, KlineInterval
+from quantforge.exchange import BinanceAccountType
+from quantforge.engine import Engine
 
 from datetime import datetime, timedelta
 

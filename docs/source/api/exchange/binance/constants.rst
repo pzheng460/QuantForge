@@ -1,7 +1,7 @@
-nexustrader.exchange.binance.constants
+quantforge.exchange.binance.constants
 ==========================================
 
-.. currentmodule:: nexustrader.exchange.binance.constants
+.. currentmodule:: quantforge.exchange.binance.constants
 
 This module contains all Binance-specific constants and enums used throughout the Binance connector implementation.
 

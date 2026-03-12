@@ -1,14 +1,14 @@
-from nexustrader.config import (
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType
-from nexustrader.constants import BookLevel
-from nexustrader.exchange import OkxAccountType
-from nexustrader.schema import BookL2
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType
+from quantforge.constants import BookLevel
+from quantforge.exchange import OkxAccountType
+from quantforge.schema import BookL2
+from quantforge.engine import Engine
 
 
 class Demo(Strategy):

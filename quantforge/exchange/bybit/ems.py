@@ -1,0 +1,98 @@
+import asyncio
+from typing import Dict, List
+from decimal import Decimal
+from quantforge.constants import AccountType, SubmitType
+from quantforge.schema import OrderSubmit, InstrumentId
+from quantforge.core.cache import AsyncCache
+from quantforge.core.nautilius_core import MessageBus, LiveClock
+from quantforge.core.entity import TaskManager
+from quantforge.core.registry import OrderRegistry
+from quantforge.exchange.bybit import BybitAccountType
+from quantforge.exchange.bybit.schema import BybitMarket
+from quantforge.base import ExecutionManagementSystem
+
+
+class BybitExecutionManagementSystem(ExecutionManagementSystem):
+    _market: Dict[str, BybitMarket]
+
+    def __init__(
+        self,
+        market: Dict[str, BybitMarket],
+        cache: AsyncCache,
+        msgbus: MessageBus,
+        clock: LiveClock,
+        task_manager: TaskManager,
+        registry: OrderRegistry,
+        is_mock: bool = False,
+    ):
+        super().__init__(
+            market=market,
+            cache=cache,
+            msgbus=msgbus,
+            clock=clock,
+            task_manager=task_manager,
+            registry=registry,
+            is_mock=is_mock,
+        )
+        self._bybit_account_type: BybitAccountType = None
+
+    def _build_order_submit_queues(self):
+        for account_type in self._private_connectors.keys():
+            if isinstance(account_type, BybitAccountType):
+                self._order_submit_queues[account_type] = asyncio.Queue()
+
+    def _set_account_type(self):
+        account_types = self._private_connectors.keys()
+        self._bybit_account_type = (
+            BybitAccountType.UNIFIED_TESTNET
+            if BybitAccountType.UNIFIED_TESTNET in account_types
+            else BybitAccountType.UNIFIED
+        )
+
+    def _instrument_id_to_account_type(
+        self, instrument_id: InstrumentId
+    ) -> AccountType:
+        if self._is_mock:
+            if instrument_id.is_spot:
+                return BybitAccountType.SPOT_MOCK
+            elif instrument_id.is_linear:
+                return BybitAccountType.LINEAR_MOCK
+            elif instrument_id.is_inverse:
+                return BybitAccountType.INVERSE_MOCK
+        else:
+            return self._bybit_account_type
+
+    def _submit_order(
+        self,
+        order: OrderSubmit | List[OrderSubmit],
+        submit_type: SubmitType,
+        account_type: AccountType | None = None,
+    ):
+        if isinstance(order, list):
+            if not account_type:
+                account_type = self._instrument_id_to_account_type(
+                    order[0].instrument_id
+                )
+
+            # Split batch orders into chunks of 20
+            for i in range(0, len(order), 20):
+                batch = order[i : i + 20]
+                self._order_submit_queues[account_type].put_nowait((batch, submit_type))
+        else:
+            if not account_type:
+                account_type = self._instrument_id_to_account_type(order.instrument_id)
+            self._order_submit_queues[account_type].put_nowait((order, submit_type))
+
+    def _get_min_order_amount(
+        self, symbol: str, market: BybitMarket, px: float
+    ) -> Decimal:
+        min_order_qty = float(market.info.lotSizeFilter.minOrderQty)
+        min_order_amt = float(
+            market.info.lotSizeFilter.minOrderAmt
+            or market.info.lotSizeFilter.minNotionalValue
+        )
+        min_order_amount = max(min_order_amt * 1.02 / px, min_order_qty)
+        min_order_amount = self._amount_to_precision(
+            symbol, min_order_amount, mode="ceil"
+        )
+        return min_order_amount

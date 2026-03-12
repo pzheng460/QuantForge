@@ -1,4 +1,4 @@
-nexustrader.exchange
+quantforge.exchange
 =================================
 
 .. toctree::

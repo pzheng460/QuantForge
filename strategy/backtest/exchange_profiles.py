@@ -8,7 +8,7 @@ unified backtest framework to parameterize cost models and data fetching.
 from dataclasses import dataclass
 from typing import Dict
 
-from nexustrader.backtest import CostConfig
+from quantforge.backtest import CostConfig
 
 
 @dataclass
@@ -18,7 +18,7 @@ class ExchangeProfile:
     name: str  # e.g. "Binance"
     ccxt_id: str  # e.g. "binance"
     default_symbol: str  # e.g. "BTC/USDT:USDT"
-    nexus_symbol_suffix: str  # e.g. ".BINANCE"
+    quantforge_symbol_suffix: str  # e.g. ".BINANCE"
     maker_fee: float
     taker_fee: float
     slippage_pct: float = 0.0005
@@ -32,9 +32,9 @@ class ExchangeProfile:
             use_funding_rate=use_funding_rate,
         )
 
-    def nexus_symbol(self, base: str = "BTCUSDT-PERP") -> str:
-        """Build a NexusTrader symbol string."""
-        return f"{base}{self.nexus_symbol_suffix}"
+    def quantforge_symbol(self, base: str = "BTCUSDT-PERP") -> str:
+        """Build a QuantForge symbol string."""
+        return f"{base}{self.quantforge_symbol_suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ PROFILES: Dict[str, ExchangeProfile] = {
         name="Bitget",
         ccxt_id="bitget",
         default_symbol="BTC/USDT:USDT",
-        nexus_symbol_suffix=".BITGET",
+        quantforge_symbol_suffix=".BITGET",
         maker_fee=0.0002,
         taker_fee=0.0005,
     ),
@@ -53,7 +53,7 @@ PROFILES: Dict[str, ExchangeProfile] = {
         name="Binance",
         ccxt_id="binance",
         default_symbol="BTC/USDT:USDT",
-        nexus_symbol_suffix=".BINANCE",
+        quantforge_symbol_suffix=".BINANCE",
         maker_fee=0.0002,
         taker_fee=0.0004,
     ),
@@ -61,7 +61,7 @@ PROFILES: Dict[str, ExchangeProfile] = {
         name="OKX",
         ccxt_id="okx",
         default_symbol="BTC/USDT:USDT",
-        nexus_symbol_suffix=".OKX",
+        quantforge_symbol_suffix=".OKX",
         maker_fee=0.0002,
         taker_fee=0.0005,
     ),
@@ -69,7 +69,7 @@ PROFILES: Dict[str, ExchangeProfile] = {
         name="Bybit",
         ccxt_id="bybit",
         default_symbol="BTC/USDT:USDT",
-        nexus_symbol_suffix=".BYBIT",
+        quantforge_symbol_suffix=".BYBIT",
         maker_fee=0.0002,
         taker_fee=0.0005,
     ),
@@ -77,7 +77,7 @@ PROFILES: Dict[str, ExchangeProfile] = {
         name="Hyperliquid",
         ccxt_id="hyperliquid",
         default_symbol="BTC/USDT:USDT",
-        nexus_symbol_suffix=".HYPERLIQUID",
+        quantforge_symbol_suffix=".HYPERLIQUID",
         maker_fee=0.0002,
         taker_fee=0.0005,
     ),

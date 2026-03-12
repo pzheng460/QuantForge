@@ -1,15 +1,15 @@
 import math
-from nexustrader.constants import settings
-from nexustrader.config import (
+from quantforge.constants import settings
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     PrivateConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType, OrderSide, OrderType
-from nexustrader.exchange import BybitAccountType
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType, OrderSide, OrderType
+from quantforge.exchange import BybitAccountType
+from quantforge.engine import Engine
 
 
 BYBIT_API_KEY = settings.BYBIT.LIVE.ACCOUNT2.API_KEY

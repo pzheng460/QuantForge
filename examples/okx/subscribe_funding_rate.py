@@ -1,15 +1,15 @@
-from nexustrader.constants import settings
-from nexustrader.config import (
+from quantforge.constants import settings
+from quantforge.config import (
     Config,
     PublicConnectorConfig,
     PrivateConnectorConfig,
     BasicConfig,
 )
-from nexustrader.strategy import Strategy
-from nexustrader.constants import ExchangeType
-from nexustrader.exchange import OkxAccountType
-from nexustrader.schema import FundingRate, IndexPrice, MarkPrice
-from nexustrader.engine import Engine
+from quantforge.strategy import Strategy
+from quantforge.constants import ExchangeType
+from quantforge.exchange import OkxAccountType
+from quantforge.schema import FundingRate, IndexPrice, MarkPrice
+from quantforge.engine import Engine
 
 
 OKX_API_KEY = settings.OKX.DEMO_1.API_KEY

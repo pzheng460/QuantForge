@@ -1124,7 +1124,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nexustrader"
+name = "quantforge"
 version = "0.2.36"
 source = { editable = "." }
 dependencies = [

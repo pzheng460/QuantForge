@@ -1,10 +1,10 @@
 import pytest
 import time
-from nexustrader.core.entity import TaskManager
-from nexustrader.core.nautilius_core import MessageBus, LiveClock
-from nexustrader.core.registry import OrderRegistry
+from quantforge.core.entity import TaskManager
+from quantforge.core.nautilius_core import MessageBus, LiveClock
+from quantforge.core.registry import OrderRegistry
 from nautilus_trader.model.identifiers import TraderId
-from nexustrader.schema import ExchangeType, BookL1
+from quantforge.schema import ExchangeType, BookL1
 import pickle
 
 """
@@ -121,7 +121,7 @@ def bookl1_mock() -> BookL1Mock:
 
 @pytest.fixture
 async def cache(task_manager, message_bus, order_registry, bookl1_mock: BookL1Mock):
-    from nexustrader.core.cache import AsyncCache
+    from quantforge.core.cache import AsyncCache
 
     cache = AsyncCache(
         strategy_id="strategy-mock",

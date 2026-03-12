@@ -63,7 +63,7 @@ def _export_config(
     hw = params.get("hurst_window", 100)
     min_hold = max(2, hw // 12)
     cooldown = max(1, min_hold // 2)
-    suffix = profile.nexus_symbol_suffix if profile else ".BITGET"
+    suffix = profile.quantforge_symbol_suffix if profile else ".BITGET"
     code = f"""
 # =============================================================================
 # OPTIMIZED CONFIG (Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")})

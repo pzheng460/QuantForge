@@ -1,7 +1,7 @@
-nexustrader.exchange.bybit.constants
+quantforge.exchange.bybit.constants
 ===========================================
 
-.. currentmodule:: nexustrader.exchange.bybit.constants
+.. currentmodule:: quantforge.exchange.bybit.constants
 
 This module contains all Bybit-specific constants and enums used throughout the Bybit connector implementation.
 
