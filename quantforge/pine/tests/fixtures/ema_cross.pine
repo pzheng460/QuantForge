@@ -1,0 +1,14 @@
+//@version=5
+strategy("EMA Crossover", overlay=true)
+
+fast_len = 10
+slow_len = 21
+
+fast_ema = ta.ema(close, fast_len)
+slow_ema = ta.ema(close, slow_len)
+
+if ta.crossover(fast_ema, slow_ema)
+    strategy.entry("Long", strategy.long)
+
+if ta.crossunder(fast_ema, slow_ema)
+    strategy.close("Long")
