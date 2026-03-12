@@ -1,17 +1,9 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/source/_static/logo-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/source/_static/logo-light.png">
-  <img alt="quantforge Logo" src="docs/source/_static/logo-light.png">
-</picture>
+# ⚒️ QuantForge
 
+> High-performance crypto quantitative trading framework for strategy development, backtesting, and live execution.
 
----
-
-![License](https://img.shields.io/badge/license-MIT-blue.svg)![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)![Version](https://img.shields.io/pypi/v/quantforge?&color=blue)
-
-- **WebSite**: https://quantforge.quantweb3.ai/
-- **Docs**: https://quantforge.readthedocs.io/en/latest/
-- **Support**: [quantweb3.ai@gmail.com](mailto:quantweb3.ai@gmail.com)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)
 
 ```
  ██████  ██    ██  █████  ███    ██ ████████ ███████  ██████  ██████   ██████  ███████
@@ -20,520 +12,241 @@
 ██    ██ ██    ██ ██   ██ ██  ██ ██    ██    ██      ██    ██ ██   ██ ██    ██ ██
  ██████   ██████  ██   ██ ██   ████    ██    ██       ██████  ██   ██  ██████  ███████
 ```
-```
-## Introduction
 
-QuantForge is a professional-grade open-source quantitative trading platform, specifically designed for **large capital
-management** and **complex strategy development**, dedicated to providing high-performance, scalable, and user-friendly
-quantitative trading solutions.
+---
 
-## Overview
+## What is QuantForge?
 
-### Core Advantages
+QuantForge is a Python framework for building, backtesting, and deploying crypto trading strategies. It connects to major exchanges via high-performance WebSocket feeds, provides a clean strategy API, and includes a TradingView-style backtest visualization UI.
 
-- 🚀 **Professionally Optimized Order Algorithms：** Deep optimization for algorithmic orders including TWAP, effectively
-   reducing market impact costs. Users can easily integrate their own execution signals to achieve more efficient and
-   precise order execution.
-- 💰 **Professional Arbitrage Strategy Support：** Provides professional optimization for various arbitrage strategies,
-   including funding rate arbitrage and cross-exchange arbitrage, supporting real-time tracking and trading of thousands
-   of trading pairs to help users easily capture arbitrage opportunities.
-- 🚧 **Full-Featured Quantitative Trading Framework：** Users don't need to build frameworks or handle complex exchange
-   interface details themselves. QuantForge has integrated professional position management, order management, fund
-   management, and statistical analysis modules, allowing users to focus on writing strategy logic and quickly implement
-   quantitative trading.
-- 🚀 **Multi-Market Support and High Scalability：** Supports large-scale multi-market tracking and high-frequency strategy
-   execution, covering a wide range of trading instruments, making it an ideal choice for professional trading needs.
+**Key capabilities:**
+- 🏗️ **Strategy Framework** — Event-driven, timer-based, or custom signal strategies with minimal boilerplate
+- 📊 **Backtesting Engine** — Historical data replay with TradingView-style chart visualization (lightweight-charts v5)
+- 🔌 **Multi-Exchange** — Binance, OKX, Bybit, Bitget, Hyperliquid — unified API
+- ⚡ **High Performance** — uvloop + picows (Cython WebSocket) + msgspec serialization + Rust core components
+- 📈 **Indicators** — Custom indicator framework with automatic warmup from historical data
+- 🛠️ **Order Management** — Professional OMS/EMS with position tracking, PnL monitoring, and algorithmic execution (TWAP)
 
-### Why QuantForge Is More Efficient?
+## Performance
 
-  - **Enhanced Event Loop Performance**: QuantForge leverages [uvloop](https://github.com/MagicStack/uvloop), a high-performance event loop, delivering speeds up to 2-4 times faster than Python's default asyncio loop.
+QuantForge is built for speed:
 
-  - **High-Performance WebSocket Framework**: Built with [picows](https://github.com/tarasko/picows), a Cython-based WebSocket library that matches the speed of C++'s Boost.Beast, significantly outperforming Python alternatives like websockets and aiohttp.
+| Component | Technology | Advantage |
+|---|---|---|
+| Event Loop | [uvloop](https://github.com/MagicStack/uvloop) | 2-4x faster than default asyncio |
+| WebSocket | [picows](https://github.com/tarasko/picows) | Cython-based, C++ Boost.Beast-level speed |
+| Serialization | [msgspec](https://jcristharif.com/msgspec/) | Faster than orjson/ujson |
+| Core Bus & Clock | Rust ([nautilus](https://github.com/nautechsystems/nautilus_trader)) | Memory-safe, zero-cost abstractions |
 
-  - **Optimized Data Serialization**: Utilizing `msgspec` for serialization and deserialization, QuantForge achieves unmatched efficiency, surpassing tools like `orjson`, `ujson`, and `json`. All data classes are implemented with `msgspec.Struct` for maximum performance.
+## Supported Exchanges
 
-  - **Scalable Order Management**: Orders are handled efficiently using `asyncio.Queue`, ensuring seamless processing even at high volumes.
+| Binance | OKX | Bybit | Bitget | Hyperliquid |
+|:---:|:---:|:---:|:---:|:---:|
+| ✅ Spot/Futures | ✅ Spot/Futures | ✅ Linear | ✅ UTA/Futures | ✅ Perps |
 
-  - **Rust-Powered Core Components**: Core modules such as the MessageBus and Clock are implemented in Rust, combining Rust's speed and reliability with Python's flexibility through the [nautilius](https://github.com/nautilius/nautilius) framework.
-
-### Comparison with Other Frameworks
-
-| Framework                                                    | Websocket Package                                            | Data Serialization                                 | Strategy Support | Advantages                                         | Disadvantages                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------ | -------------------------------------------------- | ---------------- | -------------------------------------------------- | ------------------------------------------------- |
-| **QuantForge**                                              | [picows](https://picows.readthedocs.io/en/stable/introduction.html#installation) | [msgspec](https://jcristharif.com/msgspec/)        | ✅                | Professionally optimized for speed and low latency | Requires some familiarity with async workflows    |
-| [HummingBot](https://github.com/hummingbot/hummingbot?tab=readme-ov-file) | aiohttp                                                      | [ujson](https://pypi.org/project/ujson/)           | ✅                | Widely adopted with robust community support       | Slower WebSocket handling and limited flexibility |
-| [Freqtrade](https://github.com/freqtrade/freqtrade)          | websockets                                                   | [orjson](https://github.com/ijl/orjson)            | ✅                | Flexible strategy support                          | Higher resource consumption                       |
-| [crypto-feed](https://github.com/bmoscon/cryptofeed)         | [websockets](https://websockets.readthedocs.io/en/stable/)   | [yapic.json](https://pypi.org/project/yapic.json/) | ❌                | Simple design for feed-only use                    | Lacks trading support and advanced features       |
-| [ccxt](https://github.com/bmoscon/cryptofeed)                | [aiohttp](https://docs.aiohttp.org/en/stable/client_reference.html) | json                                               | ❌                | Great REST API support                             | Limited WebSocket performance                     |
-| [binance-futures-connector](https://github.com/binance/binance-futures-connector-python) | [websocket-client](https://websocket-client.readthedocs.io/en/latest/examples.html) | json                                               | ❌                | Optimized for Binance-specific integration         | Limited to Binance Futures                        |
-| [python-okx](https://github.com/okxapi/python-okx)           | websockets                                                   | json                                               | ❌                | Dedicated to OKX trading                           | Limited to OKX platform                           |
-| [unicorn-binance-websocket-api](https://github.com/LUCIT-Systems-and-Development/unicorn-binance-websocket-api) | websockets                                                   | [ujson](https://pypi.org/project/ujson/)           | ❌                | Easy-to-use for Binance users                      | Restricted to Binance and resource-heavy          |
-
-### Architecture (data flow)
-The core of Tradebot is the `Connector`, which is responsible for connecting to the exchange and data flow. Through the `PublicConnector`, users can access market data from the exchange, and through the `PrivateConnector`, users can execute trades and receive callbacks for trade data. Orders are submitted through the ``OrderExecutionSystem``, which is responsible for submitting orders to the exchange and obtaining the order ID from the exchange. Order status management is handled by the `OrderManagementSystem`, which is responsible for managing the status of orders and sending them to the `Strategy`.
-
-![Architecture](docs/source/_static/arch.png "architecture")
-
-### Features
-
-- 🌍 Multi-Exchange Integration: Effortlessly connect to top exchanges like Binance, Bybit, and OKX, with an extensible design to support additional platforms.
-- ⚡ Asynchronous Operations: Built on asyncio for highly efficient, scalable performance, even during high-frequency trading.
-- 📡 Real-Time Data Streaming: Reliable WebSocket support for live market data, order book updates, and trade execution notifications.
-- 📊 Advanced Order Management: Execute diverse order types (limit, market, stop) with optimized, professional-grade order handling.
-- 📋 Account Monitoring: Real-time tracking of balances, positions, and PnL across multiple exchanges with integrated monitoring tools.
-- 🛠️ Modular Architecture: Flexible framework to add exchanges, instruments, or custom strategies with ease.
-- 🔄 Strategy Execution & Backtesting: Seamlessly transition from strategy testing to live trading with built-in tools.
-- 📈 Scalability: Designed to handle large-scale, multi-market operations for retail and institutional traders alike.
-- 💰 Risk & Fund Management: Optimize capital allocation and control risk exposure with integrated management tools.
-- 🔔 Instant Notifications: Stay updated with alerts for trades, market changes, and custom conditions.
-
-### Supported Exchanges
-
-| OKX  | Binance  | BYBIT    | HYPERLIQUID | BITGET |
-| --------| ------ | ------- | ------- | ------- |
-| <img src="https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/9a411426-3711-47d4-9c1a-dcf72973ddfc/dfj37e6-d8b49926-d115-4368-9de8-09a80077fb4f.png/v1/fill/w_1280,h_1280/okx_okb_logo_by_saphyl_dfj37e6-fullview.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7ImhlaWdodCI6Ijw9MTI4MCIsInBhdGgiOiJcL2ZcLzlhNDExNDI2LTM3MTEtNDdkNC05YzFhLWRjZjcyOTczZGRmY1wvZGZqMzdlNi1kOGI0OTkyNi1kMTE1LTQzNjgtOWRlOC0wOWE4MDA3N2ZiNGYucG5nIiwid2lkdGgiOiI8PTEyODAifV1dLCJhdWQiOlsidXJuOnNlcnZpY2U6aW1hZ2Uub3BlcmF0aW9ucyJdfQ.kH6v6nu55xLephOzAFFhD2uCYkmFdLsBoTkSuQvtBpo" width="100"> | <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Binance_Logo.svg/768px-Binance_Logo.svg.png" width="100"> | <img src="https://brandlogo.org/wp-content/uploads/2024/02/Bybit-Logo.png" width="100"> | <img src="https://avatars.githubusercontent.com/u/129421375?s=280&v=4" width="100"> | <img src="https://s2.coinmarketcap.com/static/img/coins/200x200/11092.png" width="100"> |
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
 - Redis
-- Poetry (recommended)
-- build-essential
+- [uv](https://github.com/astral-sh/uv) (recommended) or pip
 
-### Install Build Essentials
-
-```bash
-sudo apt-get update
-sudo apt-get install build-essential
-```
-
-### From PyPI
+### Installation
 
 ```bash
-pip install quantforge
-```
-
-### From Source
-
-```bash
-git clone https://github.com/RiverTrading/QuantForge
+# From source
+git clone https://github.com/pzheng460/QuantForge.git
 cd QuantForge
-poetry install
+uv venv && uv pip install -e .
+
+# Or with pip
+pip install -e .
 ```
 
-> **Note**
-> more details can be found in the [installation guide](https://quantforge.readthedocs.io/en/latest/installation.html)
+### Configuration
 
-### Quick Start
+Create `.keys/.secrets.toml` with your exchange API credentials:
 
-Here's a basic example of how to use quantforge, demonstrating a simple buy and sell strategy on OKX.
+```toml
+[BITGET]
+[BITGET.UTA_DEMO]
+api_key = "your_api_key"
+secret = "your_secret"
+passphrase = "your_passphrase"
+```
+
+### Hello World Strategy
 
 ```python
 from decimal import Decimal
-
-from quantforge.constants import settings
-from quantforge.config import Config, PublicConnectorConfig, PrivateConnectorConfig, BasicConfig
 from quantforge.strategy import Strategy
-from quantforge.constants import ExchangeType, OrderSide, OrderType
-from quantforge.exchange.okx import OkxAccountType
-from quantforge.schema import BookL1, Order
-from quantforge.engine import Engine
+from quantforge.constants import OrderSide, OrderType
+from quantforge.schema import BookL1
 
-# Retrieve API credentials from settings
-OKX_API_KEY = settings.OKX.DEMO_1.api_key
-OKX_SECRET = settings.OKX.DEMO_1.secret
-OKX_PASSPHRASE = settings.OKX.DEMO_1.passphrase
-
-
-class Demo(Strategy):
-    def __init__(self):
-        super().__init__()
-        self.subscribe_bookl1(symbols=["BTCUSDT-PERP.OKX"])  # Subscribe to the order book for the specified symbol
-        self.signal = True  # Initialize signal to control order execution
-
-    def on_failed_order(self, order: Order):
-        print(order)  # Log failed orders
-
-    def on_pending_order(self, order: Order):
-        print(order)  # Log pending orders
-
-    def on_accepted_order(self, order: Order):
-        print(order)  # Log accepted orders
-
-    def on_partially_filled_order(self, order: Order):
-        print(order)  # Log partially filled orders
-
-    def on_filled_order(self, order: Order):
-        print(order)  # Log filled orders
-
-    def on_bookl1(self, bookl1: BookL1):
-        if self.signal:  # Check if the signal is active
-            # Create a market buy order
-            self.create_order(
-                symbol="BTCUSDT-PERP.OKX",
-                side=OrderSide.BUY,
-                type=OrderType.MARKET,
-                amount=Decimal("0.1"),
-            )
-            # Create a market sell order
-            self.create_order(
-                symbol="BTCUSDT-PERP.OKX",
-                side=OrderSide.SELL,
-                type=OrderType.MARKET,
-                amount=Decimal("0.1"),
-            )
-            self.signal = False  # Deactivate the signal after placing orders
-
-
-# Configuration for the trading strategy
-config = Config(
-    strategy_id="okx_buy_and_sell",
-    user_id="user_test",
-    strategy=Demo(),
-    basic_config={
-        ExchangeType.OKX: BasicConfig(
-            api_key=OKX_API_KEY,
-            secret=OKX_SECRET,
-            passphrase=OKX_PASSPHRASE,
-            testnet=True,  # Use testnet for safe trading
-        )
-    },
-    public_conn_config={
-        ExchangeType.OKX: [
-            PublicConnectorConfig(
-                account_type=OkxAccountType.DEMO,  # Specify demo account type
-            )
-        ]
-    },
-    private_conn_config={
-        ExchangeType.OKX: [
-            PrivateConnectorConfig(
-                account_type=OkxAccountType.DEMO,  # Specify demo account type
-            )
-        ]
-    }
-)
-
-# Initialize the trading engine with the configuration
-engine = Engine(config)
-
-if __name__ == "__main__":
-    try:
-        engine.start()  # Start the trading engine
-    finally:
-        engine.dispose()  # Ensure resources are cleaned up
-
-```
-
-### Web Callbacks
-
-QuantForge can host FastAPI endpoints alongside a running strategy. Define an application with
-`quantforge.web.create_strategy_app`, decorate a method that accepts `self`, and enable the web server in your config.
-
-```python
-from fastapi import Body
-
-from quantforge.web import create_strategy_app
-from quantforge.config import WebConfig
-
-
-class Demo(Strategy):
-    web_app = create_strategy_app(title="Demo strategy API")
-
-    @web_app.post("/toggle")
-    async def on_web_cb(self, payload: dict = Body(...)):
-        self.signal = payload.get("signal", True)
-        return {"signal": self.signal}
-
-
-config = Config(
-    strategy_id="demo",
-    user_id="user",
-    strategy=Demo(),
-    basic_config={...},
-    public_conn_config={...},
-    private_conn_config={...},
-    web_config=WebConfig(enabled=True, host="127.0.0.1", port=9000),
-)
-```
-
-When the engine starts, it binds the strategy instance to the FastAPI routes and serves them in the background using
-Uvicorn. Routes automatically disappear once the engine stops.
-
-This example illustrates how easy it is to switch between different exchanges and strategies by modifying the `config`
-class. For instance, to switch to Binance, you can adjust the configuration as follows, and change the symbol to
-`BTCUSDT-PERP.BINANCE`.
-
-```python
-from quantforge.exchange.binance import BinanceAccountType
-
-config = Config(
-    strategy_id="buy_and_sell_binance",
-    user_id="user_test",
-    strategy=Demo(),
-    basic_config={
-        ExchangeType.BINANCE: BasicConfig(
-            api_key=BINANCE_API_KEY,
-            secret=BINANCE_SECRET,
-            testnet=True,  # Use testnet for safe trading
-        )
-    },
-    public_conn_config={
-        ExchangeType.BINANCE: [
-            PublicConnectorConfig(
-                account_type=BinanceAccountType.USD_M_FUTURE_TESTNET,  # Specify account type for Binance
-            )
-        ]
-    },
-    private_conn_config={
-        ExchangeType.BINANCE: [
-            PrivateConnectorConfig(
-                account_type=BinanceAccountType.USD_M_FUTURE_TESTNET,  # Specify account type for Binance
-            )
-        ]
-    }
-)
-```
-
-## Multi-Mode Support
-
-quantforge supports multiple modes of operation to cater to different trading strategies and requirements. Each mode
-allows for flexibility in how trading logic is executed based on market conditions or specific triggers.
-
-### Event-Driven Mode
-
-In this mode, trading logic is executed in response to real-time market events. The methods `on_bookl1`, `on_trade`, and
-`on_kline` are triggered whenever relevant data is updated, allowing for immediate reaction to market changes.
-
-```python
-class Demo(Strategy):
+class SimpleStrategy(Strategy):
     def __init__(self):
         super().__init__()
         self.subscribe_bookl1(symbols=["BTCUSDT-PERP.BINANCE"])
+        self.triggered = False
 
     def on_bookl1(self, bookl1: BookL1):
-        # implement the trading logic Here
-        pass
+        if not self.triggered:
+            self.create_order(
+                symbol="BTCUSDT-PERP.BINANCE",
+                side=OrderSide.BUY,
+                type=OrderType.MARKET,
+                amount=Decimal("0.001"),
+            )
+            self.triggered = True
 ```
 
-### Timer Mode
+## Strategy Modes
 
-This mode allows you to schedule trading logic to run at specific intervals. You can use the `schedule` method to define
-when your trading algorithm should execute, making it suitable for strategies that require periodic checks or actions.
+### Event-Driven
+React to real-time market data (order book, trades, klines):
 
 ```python
-class Demo2(Strategy):
-    def __init__(self):
-        super().__init__()
-        self.schedule(self.algo, trigger="interval", seconds=1)
+def on_bookl1(self, bookl1: BookL1):
+    # Your logic on every book update
+    pass
 
-    def algo(self):
-        # run every 1 second
-        # implement the trading logic Here
-        pass
+def on_kline(self, kline: Kline):
+    # Your logic on every kline
+    pass
 ```
 
-### Custom Signal Mode
-
-In this mode, trading logic is executed based on custom signals. You can define your own signals and use the
-`on_custom_signal` method to trigger trading actions when these signals are received. This is particularly useful for
-integrating with external systems or custom event sources.
+### Timer-Based
+Execute logic at fixed intervals:
 
 ```python
-class Demo3(Strategy):
-    def __init__(self):
-        super().__init__()
-        self.signal = True
+def __init__(self):
+    super().__init__()
+    self.schedule(self.algo, trigger="interval", seconds=60)
 
-    def on_custom_signal(self, signal: object):
-        # implement the trading logic Here,
-        # signal can be any object, it is up to you to define the signal
-        pass
+def algo(self):
+    # Runs every 60 seconds
+    pass
 ```
 
-## Define Your Own Indicator
-
-QuantForge provides a powerful framework for creating custom indicators with built-in warmup functionality. This allows your indicators to automatically fetch historical data and prepare themselves before live trading begins.
-
-Here's an example of creating a custom Moving Average indicator with automatic warmup:
+### Custom Signal
+Integrate external signals:
 
 ```python
-from collections import deque
+def on_custom_signal(self, signal: object):
+    # React to any custom signal object
+    pass
+```
+
+## Custom Indicators
+
+Build indicators with automatic warmup from historical data:
+
+```python
 from quantforge.indicator import Indicator
-from quantforge.constants import KlineInterval, DataType
-from quantforge.schema import Kline, BookL1, BookL2, Trade
-from quantforge.strategy import Strategy
-from quantforge.exchange.bybit import BybitAccountType
+from quantforge.constants import KlineInterval
 
-class MovingAverageIndicator(Indicator):
-    def __init__(self, period: int = 20):
+class EMA(Indicator):
+    def __init__(self, period: int):
         super().__init__(
             params={"period": period},
-            name=f"MA_{period}",
-            warmup_period=period * 2,  # Define warmup period
-            warmup_interval=KlineInterval.MINUTE_1,  # Define warmup interval
+            name=f"EMA_{period}",
+            warmup_period=period * 2,
+            warmup_interval=KlineInterval.HOUR_1,
         )
         self.period = period
-        self.prices = deque(maxlen=period)
-        self.current_ma = None
+        self.value = None
+        self._k = 2 / (period + 1)
 
-    def handle_kline(self, kline: Kline):
-        if not kline.confirm:  # Only process confirmed klines
-            return
-
-        self.prices.append(kline.close)
-
-        # Calculate moving average if we have enough data
-        if len(self.prices) >= self.period:
-            self.current_ma = sum(self.prices) / len(self.prices)
-
-    def handle_bookl1(self, bookl1: BookL1):
-        pass  # Implement if needed
-
-    def handle_bookl2(self, bookl2: BookL2):
-        pass  # Implement if needed
-
-    def handle_trade(self, trade: Trade):
-        pass  # Implement if needed
-
-    @property
-    def value(self):
-        return self.current_ma
-
-class MyStrategy(Strategy):
-    def __init__(self):
-        super().__init__()
-        self.symbol = "UNIUSDT-PERP.BYBIT"
-        self.ma_20 = MovingAverageIndicator(period=20)
-        self.ma_50 = MovingAverageIndicator(period=50)
-
-    def on_start(self):
-        # Subscribe to kline data
-        self.subscribe_kline(
-            symbols=self.symbol,
-            interval=KlineInterval.MINUTE_1,
-        )
-
-        # Register indicators with automatic warmup
-        self.register_indicator(
-            symbols=self.symbol,
-            indicator=self.ma_20,
-            data_type=DataType.KLINE,
-            account_type=BybitAccountType.LINEAR,
-        )
-
-        self.register_indicator(
-            symbols=self.symbol,
-            indicator=self.ma_50,
-            data_type=DataType.KLINE,
-            account_type=BybitAccountType.LINEAR,
-        )
-
-    def on_kline(self, kline: Kline):
-        # Wait for indicators to warm up
-        if not self.ma_20.is_warmed_up or not self.ma_50.is_warmed_up:
-            self.log.info("Indicators still warming up...")
-            return
-
+    def handle_kline(self, kline):
         if not kline.confirm:
             return
-
-        if self.ma_20.value and self.ma_50.value:
-            self.log.info(
-                f"MA20: {self.ma_20.value:.4f}, MA50: {self.ma_50.value:.4f}, "
-                f"Current Price: {kline.close:.4f}"
-            )
-
-            # Simple golden cross strategy
-            if self.ma_20.value > self.ma_50.value:
-                self.log.info("Golden Cross - Bullish signal!")
-            elif self.ma_20.value < self.ma_50.value:
-                self.log.info("Death Cross - Bearish signal!")
+        if self.value is None:
+            self.value = kline.close
+        else:
+            self.value = kline.close * self._k + self.value * (1 - self._k)
 ```
 
-#### Key Features of Custom Indicators:
+Register in your strategy:
 
-1. **Automatic Warmup**: Set `warmup_period` and `warmup_interval` to automatically fetch historical data
-2. **Data Handlers**: Implement `handle_kline`, `handle_bookl1`, `handle_bookl2`, and `handle_trade` as needed
-3. **Value Property**: Expose your indicator's current value through the `value` property
-4. **Warmup Status**: Check `is_warmed_up` property to ensure indicator is ready before using
-5. **Flexible Parameters**: Pass custom parameters through the `params` dictionary
+```python
+self.ema_fast = EMA(period=5)
+self.register_indicator(
+    symbols="BTCUSDT-PERP.BITGET",
+    indicator=self.ema_fast,
+    data_type=DataType.KLINE,
+    account_type=BitgetAccountType.UTA_DEMO,
+)
+```
 
-This approach ensures your indicators have sufficient historical data before making trading decisions, improving the reliability and accuracy of your trading strategies.
+## Backtesting
 
-## Contributing
+Run backtests with historical data and visualize results in a TradingView-style UI:
 
-Thank you for considering contributing to quantforge! We greatly appreciate any effort to help improve the project. If
-you have an idea for an enhancement or a bug fix, the first step is to open
-an [issue](https://github.com/Quantweb3-ai/tradebot-pro/issues) on GitHub. This allows us to discuss your proposal and
-ensure it aligns with the project's goals, while also helping to avoid duplicate efforts.
+```bash
+uv run python -m strategy.backtest.runner
+```
 
-When you're ready to start working on your contribution, please review the guidelines in
-the [CONTRIBUTING.md](./CONTRIBUTING.md) file. Depending on the nature of your contribution, you may also need to sign a
-Contributor License Agreement (CLA) to ensure it can be included in the project.
+The web UI serves on `http://localhost:5173` with interactive charts, trade markers, equity curves, and performance metrics.
 
-> **Note**
-> Pull requests should be directed to the `main` branch (the default branch), where new features and improvements are
-> integrated before release.
+## Web Callbacks
 
-Thank you again for your interest in quantforge! We look forward to reviewing your contributions and collaborating with
-you to make the project even better.
+Expose FastAPI endpoints alongside a running strategy:
 
-## VIP Privileges
+```python
+from quantforge.web import create_strategy_app
+from quantforge.config import WebConfig
 
-Trading on our platform is free. Become a VIP customer to enjoy exclusive technical support privileges for $499 per month ([Subscription Here](https://quantweb3.ai/subscribe/ ))—or get VIP status at no cost by opening an account through our partnership links.
+class MyStrategy(Strategy):
+    web_app = create_strategy_app(title="My Strategy API")
 
-Our partners include global leading trading platforms like Bybit, OKX, ZFX, Bison and others. By opening an account through our referral links, you'll enjoy these benefits:
+    @web_app.post("/toggle")
+    async def toggle(self, payload: dict = Body(...)):
+        self.signal = payload.get("signal", True)
+        return {"signal": self.signal}
 
-Instant Account Benefits
+# In config:
+web_config = WebConfig(enabled=True, host="127.0.0.1", port=9000)
+```
 
-1. Trading Fee Discounts: Exclusive discounts to lower your trading costs.
-2. VIP Service Support: Contact us after opening your account to become our VIP customer. Enjoy exclusive events and benefits for the ultimate VIP experience.
+## Architecture
 
-Act now and join our VIP program!
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  Exchange    │────▶│  PublicConnector  │────▶│  Strategy   │
+│  WebSocket   │     │  (Market Data)   │     │  (Your Code)│
+└─────────────┘     └──────────────────┘     └──────┬──────┘
+                                                     │
+┌─────────────┐     ┌──────────────────┐            │
+│  Exchange    │◀───│  PrivateConnector │◀───────────┘
+│  REST API    │     │  (OMS / EMS)     │   create_order()
+└─────────────┘     └──────────────────┘
+```
 
-> Click the links below to register
+- **PublicConnector**: Streams market data (BookL1, Kline, Trade)
+- **PrivateConnector**: Manages orders, positions, account state
+- **OMS (Order Management System)**: Tracks order lifecycle
+- **EMS (Execution System)**: Submits orders, handles fills
 
-- [Bybit](https://partner.bybit.com/b/90899)
-- [OKX](http://www.okx.com/join/80353297)
-- [ZFX](https://zfx.link/46dFByp)
-- [Bison](https://m.bison.com/#/register?invitationCode=1002)
+## Project Structure
 
-## Social
+```
+quantforge/
+├── core/           # MessageBus, Clock, config
+├── exchange/       # Exchange connectors (Binance, OKX, Bybit, Bitget, Hyperliquid)
+├── indicator/      # Indicator framework with warmup
+├── backtest/       # Backtesting engine & analysis
+├── web/            # FastAPI web server
+└── schema/         # Data models (msgspec Structs)
 
-Connect with us on your favorite platforms:
-
-[![X (Twitter)](https://img.shields.io/badge/X_(Twitter)-000000?logo=x&logoColor=white)](https://x.com/quantweb3_ai) Stay updated with our latest news, features, and announcements.
-
-[![Discord](https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/BR8VGRrXFr) Join our community to discuss ideas, get support, and connect with other users.
-
-[![Telegram](https://img.shields.io/badge/Telegram-26A5E4?logo=telegram&logoColor=white)](https://t.me/+6e2MtXxoibM2Yzlk) Receive instant updates and engage in real-time discussions.
-
-## See Also
-
-We recommend exploring related tools and projects that can enhance your trading workflows:
-
-- **[Nexus](https://github.com/Quantweb3-ai/nexus):** A robust exchange interface optimization solution that integrates
-  seamlessly with trading bots like quantforge, enabling faster and more reliable trading execution.
+strategy/           # Strategy implementations
+web/frontend/       # TradingView-style backtest UI
+```
 
 ## Attribution
 
-QuantForge was originally forked from [NexusTrader](https://github.com/RiverTrading/NexusTrader) by RiverTrading / Quantweb3. We gratefully acknowledge the NexusTrader project and its contributors for the foundational work.
+QuantForge was originally forked from [NexusTrader](https://github.com/RiverTrading/NexusTrader) by RiverTrading / Quantweb3. We gratefully acknowledge the foundational work of the NexusTrader project and its contributors.
 
 ## License
 
-QuantForge is available on GitHub under the MIT License. Contributions to the project are welcome and require the
-completion of a Contributor License Agreement (CLA). Please review the contribution guidelines and submit a pull
-request. See the [LICENSE](./LICENSE) file for details.
-
-## Star History
-
-<a href="https://www.star-history.com/#Quantweb3-com/QuantForge&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Quantweb3-com/QuantForge&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Quantweb3-com/QuantForge&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Quantweb3-com/QuantForge&type=Date" />
- </picture>
-</a>
+MIT — see [LICENSE](./LICENSE) for details.
