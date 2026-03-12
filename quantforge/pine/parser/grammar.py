@@ -35,18 +35,18 @@ PINE_GRAMMAR = r"""
 
     tuple_assign_stmt: "[" NAME ("," NAME)+ "]" "=" expr
 
-    func_def: NAME "(" func_def_params? ")" "=>" (expr | _NL _INDENT statement+ _DEDENT)
+    func_def: NAME "(" func_def_params? ")" "=>" (expr | _NL _INDENT (_NL* statement)+ _NL* _DEDENT)
 
     func_def_params: func_def_param ("," func_def_param)*
     func_def_param: NAME ("=" expr)?
 
-    if_stmt: "if" expr _NL _INDENT statement+ _DEDENT (else_if_clause)* (else_clause)?
-    else_if_clause: "else" "if" expr _NL _INDENT statement+ _DEDENT
-    else_clause: "else" _NL _INDENT statement+ _DEDENT
+    if_stmt: "if" expr _NL _INDENT (_NL* statement)+ _NL* _DEDENT (else_if_clause)* (else_clause)?
+    else_if_clause: "else" "if" expr _NL _INDENT (_NL* statement)+ _NL* _DEDENT
+    else_clause: "else" _NL _INDENT (_NL* statement)+ _NL* _DEDENT
 
-    for_stmt: "for" NAME "=" expr "to" expr ("by" expr)? _NL _INDENT statement+ _DEDENT
-    for_in_stmt: "for" NAME "in" expr _NL _INDENT statement+ _DEDENT
-    while_stmt: "while" expr _NL _INDENT statement+ _DEDENT
+    for_stmt: "for" NAME "=" expr "to" expr ("by" expr)? _NL _INDENT (_NL* statement)+ _NL* _DEDENT
+    for_in_stmt: "for" NAME "in" expr _NL _INDENT (_NL* statement)+ _NL* _DEDENT
+    while_stmt: "while" expr _NL _INDENT (_NL* statement)+ _NL* _DEDENT
 
     expr_stmt: expr
 
