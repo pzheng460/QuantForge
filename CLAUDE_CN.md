@@ -559,6 +559,56 @@ from quantforge.backtest.simulation import (
 
 测试：`uv run pytest test/backtest/test_simulation.py -v`（23个测试）
 
+## Pine Script 引擎
+
+QuantForge 包含 Pine Script 引擎，可解析、解释和转译 TradingView Pine Script v5/v6 策略。
+
+### 架构
+
+```
+pine_strategy.pine → [解析器] → [AST] → [解释器] → BacktestResult（交易、权益、指标）
+                                       → [转译器] → Python QuantForge 策略代码
+```
+
+### 目录结构
+
+```
+quantforge/pine/
+├── parser/                              # Lark PEG 语法 + AST 节点 + 解析器
+├── interpreter/
+│   ├── series.py                        # PineSeries（K线历史值索引）
+│   ├── context.py                       # 执行上下文（变量、OHLCV、作用域）
+│   ├── runtime.py                       # PineRuntime（逐K线执行引擎）
+│   └── builtins/                        # ta.*/math.*/strategy.*/input.* 内置函数
+├── transpiler/codegen.py                # AST → Python QuantForge 策略代码
+└── tests/                               # 91个测试（解析器28 + 内置函数41 + 端到端22）
+```
+
+### 快速开始
+
+```python
+from quantforge.pine import PineParser, PineRuntime
+
+parser = PineParser()
+ast = parser.parse(open("strategy.pine").read())
+runtime = PineRuntime(ast, initial_capital=10000, commission=0.001)
+result = runtime.run(ohlcv_df)  # 需要 open/high/low/close/volume 列
+print(result.summary())
+```
+
+### 执行模型
+
+- **逐K线执行**：每根K线执行一次脚本体，与 TradingView 一致
+- **订单成交**：第N根K线的订单在第N+1根K线开盘价成交（默认）
+- **ta.* 有状态实例**：每个 ta.* 调用位置获得唯一实例
+- **var 持久化**：`var x = 0` 只初始化一次，跨K线保持
+
+### 运行 Pine Script 测试
+
+```bash
+uv run pytest quantforge/pine/tests/ -v  # 全部91个测试
+```
+
 ## Claude Code 记忆
 
 ### 工作规范
