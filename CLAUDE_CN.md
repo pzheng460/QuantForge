@@ -559,6 +559,36 @@ from quantforge.backtest.simulation import (
 
 测试：`uv run pytest test/backtest/test_simulation.py -v`（23个测试）
 
+## Pine Script 引擎
+
+Pine Script 引擎（`quantforge/pine/`）提供 TradingView 兼容的 Pine Script v5 解析器、解释器和转译器。
+
+### Pine CLI
+
+```bash
+# 在交易所数据上回测 .pine 文件
+python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
+
+# 将 Pine Script 转译为 Python
+python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
+```
+
+### 支持的 ta.* 函数
+
+`ta.sma`, `ta.ema`, `ta.rma`, `ta.rsi`, `ta.atr`, `ta.adx`, `ta.macd`, `ta.bb`, `ta.stoch`, `ta.stdev`, `ta.crossover`, `ta.crossunder`, `ta.highest`, `ta.lowest`, `ta.change`, `ta.tr`
+
+### Pine Web UI
+
+- 后端：`web/backend/routers/pine.py` — 解析、回测、转译的 FastAPI 端点
+- 前端：`web/frontend/src/pages/PinePage.tsx` — Pine Script 编辑器与回测运行器
+- 路由：Web UI 中的 `/pine`
+
+### Pine 测试
+
+```bash
+uv run pytest quantforge/pine/tests/ -v  # 55个测试
+```
+
 ## Claude Code 记忆
 
 ### 工作规范

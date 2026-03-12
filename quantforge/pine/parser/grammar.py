@@ -63,8 +63,10 @@ PINE_GRAMMAR = r"""
     ?comparison: add_expr (COMP_OP add_expr)*
     COMP_OP: "==" | "!=" | ">=" | "<=" | ">" | "<"
 
-    ?add_expr: mul_expr (("+"|"-") mul_expr)*
-    ?mul_expr: unary_expr (("*"|"/"|"%") unary_expr)*
+    ?add_expr: mul_expr (ADD_OP mul_expr)*
+    ADD_OP: "+" | "-"
+    ?mul_expr: unary_expr (MUL_OP unary_expr)*
+    MUL_OP: "*" | "/" | "%"
 
     ?unary_expr: "-" unary_expr -> unary_neg
                | postfix_expr

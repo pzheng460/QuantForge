@@ -511,6 +511,34 @@ def ta_change(source_series: PineSeries, length: int = 1) -> float | None:
     return cur - prev
 
 
+def ta_stdev(ctx, source_series: PineSeries, length: int) -> float | None:
+    """Population standard deviation over `length` bars (matches TradingView ta.stdev)."""
+    key = f"stdev_{id(source_series)}_{length}"
+    calc = _get_calc(id(ctx), key, lambda: _StdevCalc(length))
+    val = source_series.current
+    if val is None:
+        return None
+    return calc.update(val)
+
+
+class _StdevCalc:
+    """Rolling population standard deviation."""
+
+    def __init__(self, length: int):
+        self.length = length
+        self._window: deque[float] = deque(maxlen=length)
+
+    def update(self, value: float) -> float | None:
+        if is_na(value) or value is None:
+            return None
+        self._window.append(value)
+        if len(self._window) < self.length:
+            return None
+        mean = sum(self._window) / self.length
+        variance = sum((x - mean) ** 2 for x in self._window) / self.length
+        return math.sqrt(variance)
+
+
 def ta_tr(ctx) -> float | None:
     """True range for current bar."""
     high_s = ctx.get_series("high")

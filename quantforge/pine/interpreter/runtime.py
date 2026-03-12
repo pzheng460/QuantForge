@@ -549,6 +549,13 @@ class PineRuntime:
             length = int(args[1]) if len(args) > 1 else int(kwargs.get("length", 1))
             return ta.ta_change(source, length)
 
+        elif func_name == "ta.stdev":
+            source = self._resolve_series_arg(
+                node.args[0] if node.args else None, args[0] if args else None
+            )
+            length = int(args[1]) if len(args) > 1 else int(kwargs.get("length", 20))
+            return ta.ta_stdev(self.ctx, source, length)
+
         elif func_name == "ta.tr":
             return ta.ta_tr(self.ctx)
 

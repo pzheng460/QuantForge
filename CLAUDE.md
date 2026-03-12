@@ -568,6 +568,36 @@ from quantforge.backtest.simulation import (
 
 Tests: `uv run pytest test/backtest/test_simulation.py -v` (23 tests)
 
+## Pine Script Engine
+
+The Pine Script engine (`quantforge/pine/`) provides a parser, interpreter, and transpiler for TradingView-compatible Pine Script v5.
+
+### Pine CLI
+
+```bash
+# Backtest a .pine file on exchange data
+python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
+
+# Transpile Pine Script to Python
+python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
+```
+
+### Supported ta.* Functions
+
+`ta.sma`, `ta.ema`, `ta.rma`, `ta.rsi`, `ta.atr`, `ta.adx`, `ta.macd`, `ta.bb`, `ta.stoch`, `ta.stdev`, `ta.crossover`, `ta.crossunder`, `ta.highest`, `ta.lowest`, `ta.change`, `ta.tr`
+
+### Pine Web UI
+
+- Backend: `web/backend/routers/pine.py` — FastAPI endpoints for parse, backtest, transpile
+- Frontend: `web/frontend/src/pages/PinePage.tsx` — Pine Script editor with backtest runner
+- Route: `/pine` in the web UI
+
+### Pine Tests
+
+```bash
+uv run pytest quantforge/pine/tests/ -v  # 55 tests
+```
+
 ## Claude Code Memories
 
 ### Workflow Rules
