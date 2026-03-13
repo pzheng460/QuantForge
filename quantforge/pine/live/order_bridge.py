@@ -48,12 +48,16 @@ class OrderBridge:
         self,
         demo: bool = True,
         position_size_usdt: float = 100.0,
+        connector=None,
     ) -> None:
         self.demo = demo
         self.position_size_usdt = position_size_usdt
 
         # Accumulated signal history
         self.signals: list[SignalRecord] = []
+
+        # CcxtConnector instance for real order submission
+        self._connector = connector
 
         # External order submitter — set by the live engine / connector layer.
         # Signature: async submit(symbol, side, qty, order_type, price=None)
@@ -64,6 +68,43 @@ class OrderBridge:
         self._position_qty: float = 0.0
 
     # --- Callbacks wired into StrategyContext ---
+
+    def _submit_order(
+        self,
+        side: str,
+        qty: float,
+        action: str,
+        limit: float | None = None,
+        stop: float | None = None,
+    ) -> None:
+        """Submit an order via the connector or legacy _submit_fn."""
+        if self.demo:
+            return
+
+        # Legacy callback path
+        if self._submit_fn:
+            self._submit_fn(side=side, qty=qty, action=action, limit=limit, stop=stop)
+            return
+
+        # CcxtConnector path
+        if self._connector is None:
+            logger.warning("No connector configured — order not submitted")
+            return
+
+        try:
+            reduce_only = action in ("close", "exit")
+            if limit:
+                self._connector.submit_limit_order(
+                    side=side, qty=qty, price=limit, reduce_only=reduce_only
+                )
+            else:
+                self._connector.submit_market_order(
+                    side=side, qty=qty, reduce_only=reduce_only
+                )
+        except Exception:
+            logger.exception(
+                "Order submission failed: %s %s qty=%.6f", action, side, qty
+            )
 
     def on_entry(self, order: Order) -> None:
         """Called when Pine interpreter places a strategy.entry() order."""
@@ -79,12 +120,11 @@ class OrderBridge:
                 self._position_side.upper(),
                 self._position_qty,
             )
-            if not self.demo and self._submit_fn:
-                self._submit_fn(
-                    side="sell" if self._position_side == "long" else "buy",
-                    qty=self._position_qty,
-                    action="close",
-                )
+            self._submit_order(
+                side="sell" if self._position_side == "long" else "buy",
+                qty=self._position_qty,
+                action="close",
+            )
             self._position_side = None
             self._position_qty = 0.0
 
@@ -100,14 +140,13 @@ class OrderBridge:
         self._position_side = direction
         self._position_qty = order.qty or 0.0
 
-        if not self.demo and self._submit_fn:
-            self._submit_fn(
-                side="buy" if direction == "long" else "sell",
-                qty=order.qty,
-                action="entry",
-                limit=order.limit,
-                stop=order.stop,
-            )
+        self._submit_order(
+            side="buy" if direction == "long" else "sell",
+            qty=order.qty or 0.0,
+            action="entry",
+            limit=order.limit,
+            stop=order.stop,
+        )
 
     def on_close(self, order: Order) -> None:
         """Called when Pine interpreter places a strategy.close() order."""
@@ -120,8 +159,8 @@ class OrderBridge:
             order.id,
         )
 
-        if not self.demo and self._submit_fn and self._position_side:
-            self._submit_fn(
+        if self._position_side:
+            self._submit_order(
                 side="sell" if self._position_side == "long" else "buy",
                 qty=self._position_qty,
                 action="close",
@@ -143,8 +182,8 @@ class OrderBridge:
             order.limit,
         )
 
-        if not self.demo and self._submit_fn and self._position_side:
-            self._submit_fn(
+        if self._position_side:
+            self._submit_order(
                 side="sell" if self._position_side == "long" else "buy",
                 qty=order.qty or self._position_qty,
                 action="exit",

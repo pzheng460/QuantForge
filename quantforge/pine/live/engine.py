@@ -26,7 +26,11 @@ import logging
 
 from quantforge.pine.interpreter.context import BarData, ExecutionContext
 from quantforge.pine.interpreter.runtime import PineRuntime
-from quantforge.pine.live.connector import fetch_warmup_bars, timeframe_to_seconds
+from quantforge.pine.live.connector import (
+    CcxtConnector,
+    fetch_warmup_bars,
+    timeframe_to_seconds,
+)
 from quantforge.pine.live.order_bridge import OrderBridge
 from quantforge.pine.parser.parser import parse
 
@@ -105,9 +109,24 @@ class PineLiveEngine:
         )
 
         # --- Setup ---
+        connector = None
+        if not self.demo:
+            try:
+                connector = CcxtConnector(
+                    exchange_id=self.exchange,
+                    symbol=self.symbol,
+                    demo=False,
+                )
+                logger.info("CcxtConnector initialised for live order submission")
+            except Exception:
+                logger.exception(
+                    "Failed to initialise CcxtConnector — orders will not be submitted"
+                )
+
         self._bridge = OrderBridge(
             demo=self.demo,
             position_size_usdt=self.position_size_usdt,
+            connector=connector,
         )
 
         ctx = ExecutionContext()
@@ -165,9 +184,14 @@ class PineLiveEngine:
     async def _poll_loop(self) -> None:
         """Poll for new confirmed klines via ccxt.
 
+        Calculates the exact time until the next bar closes, sleeps until
+        then + a small buffer, and fetches only the latest confirmed bar.
+
         In a production deployment this would be replaced with a WebSocket
         kline subscription from the QuantForge connector layer.
         """
+        import time
+
         import ccxt
 
         exchange_cls = getattr(ccxt, self.exchange)
@@ -175,13 +199,26 @@ class PineLiveEngine:
         exchange.load_markets()
 
         tf_sec = timeframe_to_seconds(self.timeframe)
+        buffer_sec = 5  # seconds after bar close before fetching
 
         while self._running:
+            # Calculate exact sleep until next bar close + buffer
+            now = time.time()
+            next_bar_close = ((now // tf_sec) + 1) * tf_sec
+            wait_time = max(1, next_bar_close - now + buffer_sec)
+
+            logger.debug(
+                "Sleeping %.1fs until next bar close (tf=%ss, buffer=%ss)",
+                wait_time,
+                tf_sec,
+                buffer_sec,
+            )
+            await asyncio.sleep(wait_time)
+
             try:
-                # Fetch last 2 bars
+                # Fetch last 2 bars — second-to-last is the confirmed bar
                 ohlcv = exchange.fetch_ohlcv(self.symbol, self.timeframe, limit=2)
                 if ohlcv and len(ohlcv) >= 2:
-                    # The second-to-last bar is the most recent *confirmed* bar
                     confirmed = ohlcv[-2]
                     bar_ts = confirmed[0] // 1000
 
@@ -208,9 +245,6 @@ class PineLiveEngine:
 
             except Exception:
                 logger.exception("Error in poll loop")
-
-            # Sleep until ~5s after next bar expected close
-            await asyncio.sleep(min(tf_sec * 0.1, 30))
 
     def feed_bar(self, bar: BarData) -> list:
         """Manually feed a bar (for testing or WebSocket integration).

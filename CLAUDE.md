@@ -578,6 +578,9 @@ The Pine Script engine (`quantforge/pine/`) provides a parser, interpreter, and 
 # Backtest a .pine file on exchange data
 python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
 
+# Optimize input parameters (grid search over input.int/input.float ranges)
+python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
+
 # Transpile Pine Script to standalone Python (fetches data, computes indicators, runs backtest independently)
 python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
 python strategy.py  # runs standalone — no Pine interpreter dependency
@@ -623,9 +626,10 @@ Exchange
 ```
 
 **Key files:**
-- `quantforge/pine/live/engine.py` — `PineLiveEngine`: warmup + live kline loop
-- `quantforge/pine/live/order_bridge.py` — `OrderBridge`: Pine signals → exchange orders
-- `quantforge/pine/live/connector.py` — Warmup bar fetching via ccxt
+- `quantforge/pine/live/engine.py` — `PineLiveEngine`: warmup + live kline loop (smart polling with exact bar timing)
+- `quantforge/pine/live/order_bridge.py` — `OrderBridge`: Pine signals → exchange orders (uses `CcxtConnector` for real order submission)
+- `quantforge/pine/live/connector.py` — Warmup bar fetching + `CcxtConnector` (real order submission via ccxt with API keys from `settings`)
+- `quantforge/pine/optimize.py` — `extract_pine_inputs()`, `generate_grid()`, `run_optimization()`: grid search over `input.int`/`input.float` parameters
 
 **Incremental execution API** (added to `PineRuntime`):
 - `init_incremental(script)` — Parse declarations, reset indicator state (call once)
@@ -650,7 +654,7 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 ### Pine Tests
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 87 tests (55 interpreter/parser + 21 transpiler parity + 11 live engine)
+uv run pytest quantforge/pine/tests/ -v  # 103 tests (55 interpreter/parser + 21 transpiler parity + 11 live engine + 16 optimizer)
 ```
 
 ## Declarative Strategy DSL (`quantforge/dsl/`)

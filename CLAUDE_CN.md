@@ -572,6 +572,9 @@ python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT -
 # 将 Pine Script 转译为独立可运行的 Python（自动获取数据、计算指标、独立运行回测）
 python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
 python strategy.py  # 独立运行 — 不依赖 Pine 解释器
+
+# 优化输入参数（对 input.int/input.float 范围进行网格搜索）
+python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
 ```
 
 ### Pine 转译器
@@ -614,9 +617,10 @@ QuantForge 交易所连接器（通过 ccxt）
 ```
 
 **关键文件：**
-- `quantforge/pine/live/engine.py` — `PineLiveEngine`：预热 + 实时 K 线循环
-- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：Pine 信号 → 交易所订单
-- `quantforge/pine/live/connector.py` — 通过 ccxt 获取预热 K 线
+- `quantforge/pine/live/engine.py` — `PineLiveEngine`：预热 + 实时 K 线循环（智能轮询，精确 bar 定时）
+- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：Pine 信号 → 交易所订单（使用 `CcxtConnector` 提交真实订单）
+- `quantforge/pine/live/connector.py` — 预热 K 线获取 + `CcxtConnector`（通过 ccxt 使用 `settings` 中的 API 密钥提交真实订单）
+- `quantforge/pine/optimize.py` — `extract_pine_inputs()`、`generate_grid()`、`run_optimization()`：对 `input.int`/`input.float` 参数进行网格搜索
 
 **增量执行 API**（添加到 `PineRuntime`）：
 - `init_incremental(script)` — 解析声明，重置指标状态（调用一次）
@@ -641,7 +645,7 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 ### Pine 测试
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 87个测试（55个解释器/解析器 + 21个转译器一致性 + 11个实盘引擎）
+uv run pytest quantforge/pine/tests/ -v  # 103个测试（55个解释器/解析器 + 21个转译器一致性 + 11个实盘引擎 + 16个优化器）
 ```
 
 ## 声明式策略 DSL (`quantforge/dsl/`)

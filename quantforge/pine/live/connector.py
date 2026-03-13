@@ -102,6 +102,168 @@ def fetch_warmup_bars(
     return bars
 
 
+class CcxtConnector:
+    """Wraps a ccxt exchange instance for order submission and position queries.
+
+    Used by :class:`OrderBridge` to submit real orders when *demo* mode is off.
+
+    Parameters
+    ----------
+    exchange_id : str
+        ccxt exchange id (e.g. ``"bitget"``).
+    symbol : str
+        Trading symbol in ccxt format (e.g. ``"BTC/USDT:USDT"``).
+    demo : bool
+        If ``True``, use sandbox/demo API keys.
+    """
+
+    def __init__(self, exchange_id: str, symbol: str, demo: bool = True) -> None:
+        self.exchange_id = exchange_id
+        self.symbol = symbol
+        self.demo = demo
+        self._exchange = self._create_exchange()
+
+    def _create_exchange(self):
+        import ccxt
+
+        from quantforge.constants import settings
+
+        exchange_cls = getattr(ccxt, self.exchange_id, None)
+        if exchange_cls is None:
+            raise ValueError(f"Exchange '{self.exchange_id}' not found in ccxt")
+
+        config: dict = {"enableRateLimit": True}
+
+        # Load API keys from settings
+        try:
+            if self.exchange_id == "bitget":
+                if self.demo:
+                    config["apiKey"] = settings.BITGET.DEMO.API_KEY
+                    config["secret"] = settings.BITGET.DEMO.SECRET
+                    config["password"] = settings.BITGET.DEMO.PASSPHRASE
+                else:
+                    config["apiKey"] = settings.BITGET.API_KEY
+                    config["secret"] = settings.BITGET.SECRET
+                    config["password"] = settings.BITGET.PASSPHRASE
+            elif self.exchange_id == "binance":
+                if self.demo:
+                    config["apiKey"] = settings.BINANCE.TESTNET.API_KEY
+                    config["secret"] = settings.BINANCE.TESTNET.SECRET
+                else:
+                    config["apiKey"] = settings.BINANCE.API_KEY
+                    config["secret"] = settings.BINANCE.SECRET
+            elif self.exchange_id == "okx":
+                if self.demo:
+                    config["apiKey"] = settings.OKX.DEMO_1.API_KEY
+                    config["secret"] = settings.OKX.DEMO_1.SECRET
+                    config["password"] = settings.OKX.DEMO_1.PASSPHRASE
+                else:
+                    config["apiKey"] = settings.OKX.LIVE.ACCOUNT1.API_KEY
+                    config["secret"] = settings.OKX.LIVE.ACCOUNT1.SECRET
+                    config["password"] = settings.OKX.LIVE.ACCOUNT1.PASSPHRASE
+            elif self.exchange_id == "bybit":
+                if self.demo:
+                    config["apiKey"] = settings.BYBIT.TESTNET.API_KEY
+                    config["secret"] = settings.BYBIT.TESTNET.SECRET
+                else:
+                    config["apiKey"] = settings.BYBIT.API_KEY
+                    config["secret"] = settings.BYBIT.SECRET
+        except (AttributeError, KeyError):
+            logger.warning(
+                "API keys not found for %s (demo=%s) — order submission will fail",
+                self.exchange_id,
+                self.demo,
+            )
+
+        exchange = exchange_cls(config)
+
+        if self.demo:
+            exchange.set_sandbox_mode(True)
+
+        exchange.load_markets()
+        return exchange
+
+    def submit_market_order(
+        self, side: str, qty: float, reduce_only: bool = False
+    ) -> dict:
+        """Submit a market order.
+
+        Parameters
+        ----------
+        side : str
+            ``"buy"`` or ``"sell"``.
+        qty : float
+            Order quantity (in contracts or base currency).
+        reduce_only : bool
+            If ``True``, only reduce existing position.
+        """
+        params: dict = {}
+        if reduce_only:
+            params["reduceOnly"] = True
+
+        logger.info(
+            "Submitting %s %s %.6f %s (reduce_only=%s)",
+            "MARKET",
+            side.upper(),
+            qty,
+            self.symbol,
+            reduce_only,
+        )
+        result = self._exchange.create_order(
+            self.symbol, "market", side, qty, params=params
+        )
+        logger.info(
+            "Order result: id=%s status=%s", result.get("id"), result.get("status")
+        )
+        return result
+
+    def submit_limit_order(
+        self, side: str, qty: float, price: float, reduce_only: bool = False
+    ) -> dict:
+        """Submit a limit order."""
+        params: dict = {}
+        if reduce_only:
+            params["reduceOnly"] = True
+
+        logger.info(
+            "Submitting LIMIT %s %.6f @ %.2f %s",
+            side.upper(),
+            qty,
+            price,
+            self.symbol,
+        )
+        result = self._exchange.create_order(
+            self.symbol, "limit", side, qty, price, params=params
+        )
+        logger.info(
+            "Order result: id=%s status=%s", result.get("id"), result.get("status")
+        )
+        return result
+
+    def get_position(self) -> dict | None:
+        """Get current position for the symbol.
+
+        Returns a dict with ``side``, ``contracts``, ``entryPrice``, or
+        ``None`` if flat.
+        """
+        positions = self._exchange.fetch_positions([self.symbol])
+        for pos in positions:
+            contracts = float(pos.get("contracts", 0))
+            if contracts > 0:
+                return {
+                    "side": pos.get("side"),
+                    "contracts": contracts,
+                    "entryPrice": float(pos.get("entryPrice", 0)),
+                    "unrealizedPnl": float(pos.get("unrealizedPnl", 0)),
+                }
+        return None
+
+    def get_ticker_price(self) -> float:
+        """Get the current ticker price for the symbol."""
+        ticker = self._exchange.fetch_ticker(self.symbol)
+        return float(ticker.get("last", 0))
+
+
 def ohlcv_to_bar(ohlcv: list) -> BarData:
     """Convert a single ccxt OHLCV list ``[ts, o, h, l, c, v]`` to BarData."""
     return BarData(

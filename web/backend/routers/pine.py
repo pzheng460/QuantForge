@@ -232,6 +232,166 @@ def _run_pine_backtest(req: PineBacktestRequest) -> PineBacktestResponse:
     )
 
 
+class PineOptimizeRequest(BaseModel):
+    pine_source: str
+    symbol: str = "BTC/USDT:USDT"
+    exchange: str = "bitget"
+    timeframe: str = "15m"
+    start: str = "2026-01-01"
+    end: str = "2026-03-12"
+    warmup_days: int = 60
+    metric: str = "sharpe"
+
+
+class PineInputOut(BaseModel):
+    var_name: str
+    title: str
+    input_type: str
+    defval: float
+    minval: Optional[float] = None
+    maxval: Optional[float] = None
+    step: Optional[float] = None
+
+
+class PineOptResultOut(BaseModel):
+    params: dict[str, float]
+    sharpe: float
+    return_pct: float
+    net_profit: float
+    total_trades: int
+    win_rate: float
+    profit_factor: float
+    max_drawdown: float
+
+
+class PineOptimizeResponse(BaseModel):
+    success: bool
+    error: Optional[str] = None
+    inputs: list[PineInputOut] = []
+    results: list[PineOptResultOut] = []
+    total_combinations: int = 0
+
+
+@router.post("/optimize", response_model=PineOptimizeResponse)
+async def optimize_pine(req: PineOptimizeRequest) -> PineOptimizeResponse:
+    """Run grid search optimization over Pine Script input parameters."""
+    import asyncio
+
+    try:
+        result = await asyncio.to_thread(_run_pine_optimize, req)
+        return result
+    except Exception as e:
+        return PineOptimizeResponse(success=False, error=str(e))
+
+
+def _run_pine_optimize(req: PineOptimizeRequest) -> PineOptimizeResponse:
+    """CPU-bound optimization execution."""
+    from quantforge.pine.interpreter.context import BarData
+    from quantforge.pine.optimize import (
+        extract_pine_inputs,
+        generate_grid,
+        run_optimization,
+    )
+    from quantforge.pine.parser.parser import parse
+
+    ast = parse(req.pine_source)
+
+    inputs = extract_pine_inputs(ast)
+    if not inputs:
+        return PineOptimizeResponse(
+            success=False, error="No input.int() / input.float() parameters found"
+        )
+
+    grid = generate_grid(inputs)
+
+    # Fetch data via ccxt
+    import ccxt
+    from datetime import datetime, timedelta, timezone
+
+    exchange_cls = getattr(ccxt, req.exchange, None)
+    if exchange_cls is None:
+        return PineOptimizeResponse(
+            success=False, error=f"Unknown exchange: {req.exchange}"
+        )
+
+    exchange = exchange_cls({"enableRateLimit": True})
+    exchange.load_markets()
+
+    start_dt = datetime.strptime(req.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    end_dt = datetime.strptime(req.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    warmup_start = start_dt - timedelta(days=req.warmup_days)
+
+    since_ms = int(warmup_start.timestamp() * 1000)
+    end_ms = int(end_dt.timestamp() * 1000)
+
+    all_ohlcv: list[list] = []
+    current_since = since_ms
+    while current_since < end_ms:
+        ohlcv = exchange.fetch_ohlcv(
+            req.symbol, req.timeframe, since=current_since, limit=1000
+        )
+        if not ohlcv:
+            break
+        all_ohlcv.extend(ohlcv)
+        last_ts = ohlcv[-1][0]
+        if last_ts <= current_since:
+            break
+        current_since = last_ts + 1
+
+    all_ohlcv = [bar for bar in all_ohlcv if bar[0] <= end_ms]
+
+    if not all_ohlcv:
+        return PineOptimizeResponse(success=False, error="No OHLCV data returned")
+
+    bars = [
+        BarData(
+            open=bar[1],
+            high=bar[2],
+            low=bar[3],
+            close=bar[4],
+            volume=bar[5],
+            time=bar[0] // 1000,
+        )
+        for bar in all_ohlcv
+    ]
+
+    results = run_optimization(ast=ast, bars=bars, grid=grid, metric=req.metric)
+
+    inputs_out = [
+        PineInputOut(
+            var_name=inp.var_name,
+            title=inp.title,
+            input_type=inp.input_type,
+            defval=inp.defval,
+            minval=inp.minval,
+            maxval=inp.maxval,
+            step=inp.step,
+        )
+        for inp in inputs
+    ]
+
+    results_out = [
+        PineOptResultOut(
+            params=r.params,
+            sharpe=r.sharpe,
+            return_pct=r.return_pct,
+            net_profit=r.net_profit,
+            total_trades=r.total_trades,
+            win_rate=r.win_rate,
+            profit_factor=r.profit_factor,
+            max_drawdown=r.max_drawdown,
+        )
+        for r in results
+    ]
+
+    return PineOptimizeResponse(
+        success=True,
+        inputs=inputs_out,
+        results=results_out,
+        total_combinations=len(grid),
+    )
+
+
 @router.post("/transpile", response_model=PineTranspileResponse)
 async def transpile_pine(req: PineTranspileRequest) -> PineTranspileResponse:
     """Transpile Pine Script to QuantForge Python code."""

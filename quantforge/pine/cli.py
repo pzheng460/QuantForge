@@ -257,6 +257,171 @@ def _run_live(args: argparse.Namespace) -> None:
             print(f"Signals captured: {len(engine.bridge.signals)}")
 
 
+def _run_optimize(args: argparse.Namespace) -> None:
+    """Run Pine Script parameter optimization."""
+    from quantforge.pine.interpreter.context import BarData
+    from quantforge.pine.optimize import (
+        extract_pine_inputs,
+        generate_grid,
+        run_optimization,
+    )
+    from quantforge.pine.parser.parser import parse
+
+    pine_file = Path(args.pine_file)
+    if not pine_file.exists():
+        print(f"Error: file '{pine_file}' not found")
+        sys.exit(1)
+
+    source = pine_file.read_text()
+    print(f"Parsing {pine_file.name}...")
+
+    try:
+        ast = parse(source)
+    except Exception as e:
+        print(f"Parse error: {e}")
+        sys.exit(1)
+
+    # Extract inputs
+    inputs = extract_pine_inputs(ast)
+    if not inputs:
+        print("Error: no input.int() / input.float() parameters found in script")
+        print("Add input declarations with minval/maxval/step for optimization")
+        sys.exit(1)
+
+    print(f"Found {len(inputs)} optimizable parameter(s):")
+    for inp in inputs:
+        lo = inp.minval if inp.minval is not None else "auto"
+        hi = inp.maxval if inp.maxval is not None else "auto"
+        st = inp.step if inp.step is not None else "auto"
+        print(
+            f"  {inp.var_name} ({inp.title}): default={inp.defval},"
+            f" range=[{lo}, {hi}], step={st}"
+        )
+
+    # Generate grid
+    grid = generate_grid(inputs)
+    print(f"Grid: {len(grid)} combinations")
+
+    # Fetch data
+    print(f"\nFetching {args.timeframe} data for {args.symbol} from {args.exchange}...")
+    ohlcv = _fetch_ohlcv(
+        symbol=args.symbol,
+        exchange_id=args.exchange,
+        timeframe=args.timeframe,
+        start=args.start,
+        end=args.end,
+        warmup_days=args.warmup_days,
+    )
+
+    if not ohlcv:
+        print("Error: no OHLCV data returned")
+        sys.exit(1)
+
+    print(f"Loaded {len(ohlcv)} bars")
+
+    bars = [
+        BarData(
+            open=bar[1],
+            high=bar[2],
+            low=bar[3],
+            close=bar[4],
+            volume=bar[5],
+            time=bar[0] // 1000,
+        )
+        for bar in ohlcv
+    ]
+
+    # Run optimization
+    print(f"\nOptimizing ({len(grid)} runs)...")
+    results = run_optimization(
+        ast=ast,
+        bars=bars,
+        grid=grid,
+        metric=args.metric,
+    )
+
+    # Print top results
+    top_n = min(args.top, len(results))
+    print(f"\n{'=' * 80}")
+    print(f"  Top {top_n} Results (ranked by {args.metric})")
+    print(f"{'=' * 80}")
+
+    # Build header from param names
+    param_names = [inp.title for inp in inputs]
+    header_parts = [f"{'#':>4}"]
+    for name in param_names:
+        header_parts.append(f"{name:>10}")
+    header_parts.extend(
+        [
+            f"{'Sharpe':>8}",
+            f"{'Return':>9}",
+            f"{'Trades':>7}",
+            f"{'WinRate':>8}",
+            f"{'PF':>7}",
+            f"{'MaxDD':>8}",
+        ]
+    )
+    print("  " + "  ".join(header_parts))
+    print("  " + "-" * (len("  ".join(header_parts)) + 2))
+
+    for i, r in enumerate(results[:top_n], 1):
+        parts = [f"{i:>4}"]
+        for name in param_names:
+            val = r.params.get(name, 0)
+            if val == int(val):
+                parts.append(f"{int(val):>10}")
+            else:
+                parts.append(f"{val:>10.2f}")
+        parts.extend(
+            [
+                f"{r.sharpe:>8.2f}",
+                f"{r.return_pct:>8.2%}",
+                f"{r.total_trades:>7}",
+                f"{r.win_rate:>7.1%}",
+                f"{r.profit_factor:>7.2f}",
+                f"{r.max_drawdown:>7.2%}",
+            ]
+        )
+        print("  " + "  ".join(parts))
+
+    print(f"{'=' * 80}")
+
+    # Export as JSON if requested
+    if args.json_output:
+        import json
+
+        json_data = {
+            "inputs": [
+                {
+                    "var_name": inp.var_name,
+                    "title": inp.title,
+                    "type": inp.input_type,
+                    "defval": inp.defval,
+                    "minval": inp.minval,
+                    "maxval": inp.maxval,
+                    "step": inp.step,
+                }
+                for inp in inputs
+            ],
+            "results": [
+                {
+                    "params": r.params,
+                    "sharpe": r.sharpe,
+                    "return_pct": r.return_pct,
+                    "net_profit": r.net_profit,
+                    "total_trades": r.total_trades,
+                    "win_rate": r.win_rate,
+                    "profit_factor": r.profit_factor,
+                    "max_drawdown": r.max_drawdown,
+                }
+                for r in results
+            ],
+        }
+        json_path = Path(args.json_output)
+        json_path.write_text(json.dumps(json_data, indent=2))
+        print(f"\nFull results exported to {json_path}")
+
+
 def _run_deploy(args: argparse.Namespace) -> None:
     """Transpile Pine Script to Strategy API and prepare for live trading."""
     from quantforge.pine.parser.parser import parse
@@ -369,6 +534,46 @@ def main() -> None:
         help="Position size in USDT (default: 100)",
     )
 
+    # optimize subcommand
+    op = sub.add_parser(
+        "optimize", help="Grid search optimization over input parameters"
+    )
+    op.add_argument("pine_file", help="Path to .pine file")
+    op.add_argument(
+        "--symbol",
+        default="BTC/USDT:USDT",
+        help="Trading symbol (default: BTC/USDT:USDT)",
+    )
+    op.add_argument(
+        "--exchange", default="bitget", help="Exchange id (default: bitget)"
+    )
+    op.add_argument("--timeframe", default="15m", help="Kline timeframe (default: 15m)")
+    op.add_argument("--start", default="2026-01-01", help="Start date YYYY-MM-DD")
+    op.add_argument("--end", default="2026-03-12", help="End date YYYY-MM-DD")
+    op.add_argument(
+        "--warmup-days",
+        type=int,
+        default=60,
+        help="Warmup period in days (default: 60)",
+    )
+    op.add_argument(
+        "--metric",
+        default="sharpe",
+        choices=["sharpe", "return", "profit_factor"],
+        help="Metric to rank results by (default: sharpe)",
+    )
+    op.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="Number of top results to display (default: 10)",
+    )
+    op.add_argument(
+        "--json",
+        dest="json_output",
+        help="Export full results as JSON to this file",
+    )
+
     # deploy subcommand
     dp = sub.add_parser(
         "deploy", help="Transpile Pine Script and prepare for live trading"
@@ -392,6 +597,8 @@ def main() -> None:
         _run_transpile(parsed)
     elif parsed.command == "live":
         _run_live(parsed)
+    elif parsed.command == "optimize":
+        _run_optimize(parsed)
     elif parsed.command == "deploy":
         _run_deploy(parsed)
     else:
