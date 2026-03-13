@@ -8,7 +8,8 @@ order submissions via the QuantForge connector layer.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 from quantforge.pine.interpreter.builtins.strategy import Order
 
@@ -27,6 +28,107 @@ class SignalRecord:
     stop: float | None = None
     comment: str = ""
     bar_index: int = 0
+    timestamp: float = 0.0
+    price: float = 0.0
+
+
+@dataclass
+class VirtualTrade:
+    """Tracks a completed virtual trade for demo P&L."""
+
+    direction: str
+    entry_price: float
+    exit_price: float
+    pnl: float
+    entry_time: float
+    exit_time: float
+
+
+@dataclass
+class DemoTracker:
+    """Tracks virtual P&L in demo mode."""
+
+    initial_capital: float = 100_000.0
+    trades: list[VirtualTrade] = field(default_factory=list)
+    _entry_price: float = 0.0
+    _entry_time: float = 0.0
+    _position_side: str | None = None
+
+    def on_entry(self, direction: str, price: float) -> None:
+        """Record a new entry."""
+        # If reversing, close the old position first
+        if self._position_side and self._position_side != direction:
+            self.on_close(price)
+        self._entry_price = price
+        self._entry_time = time.time()
+        self._position_side = direction
+
+    def on_close(self, price: float) -> None:
+        """Close current position and record P&L."""
+        if not self._position_side or self._entry_price == 0:
+            return
+        if self._position_side == "long":
+            pnl = price - self._entry_price
+        else:
+            pnl = self._entry_price - price
+        self.trades.append(VirtualTrade(
+            direction=self._position_side,
+            entry_price=self._entry_price,
+            exit_price=price,
+            pnl=pnl,
+            entry_time=self._entry_time,
+            exit_time=time.time(),
+        ))
+        self._position_side = None
+        self._entry_price = 0.0
+
+    @property
+    def total_pnl(self) -> float:
+        return sum(t.pnl for t in self.trades)
+
+    @property
+    def total_trades(self) -> int:
+        return len(self.trades)
+
+    @property
+    def win_rate(self) -> float:
+        if not self.trades:
+            return 0.0
+        wins = sum(1 for t in self.trades if t.pnl > 0)
+        return wins / len(self.trades)
+
+    @property
+    def unrealized_pnl(self) -> float:
+        """Current unrealized P&L (needs current price)."""
+        return 0.0  # Updated externally
+
+    def summary(self, current_price: float = 0.0) -> str:
+        """Generate human-readable summary."""
+        realized = self.total_pnl
+        unrealized = 0.0
+        if self._position_side and self._entry_price > 0 and current_price > 0:
+            if self._position_side == "long":
+                unrealized = current_price - self._entry_price
+            else:
+                unrealized = self._entry_price - current_price
+
+        total = realized + unrealized
+        lines = [
+            f"📊 Demo P&L Summary",
+            f"  Realized:   ${realized:+,.2f} ({self.total_trades} trades, "
+            f"WR {self.win_rate:.0%})",
+            f"  Unrealized: ${unrealized:+,.2f} "
+            f"({'FLAT' if not self._position_side else self._position_side.upper()})",
+            f"  Total:      ${total:+,.2f}",
+        ]
+        if self.trades:
+            last = self.trades[-1]
+            lines.append(
+                f"  Last trade: {last.direction.upper()} "
+                f"${last.entry_price:,.0f}→${last.exit_price:,.0f} "
+                f"= ${last.pnl:+,.2f}"
+            )
+        return "\n".join(lines)
 
 
 class OrderBridge:
@@ -66,6 +168,10 @@ class OrderBridge:
         # Current position tracking (mirrors Pine StrategyContext)
         self._position_side: str | None = None  # "long" / "short" / None
         self._position_qty: float = 0.0
+
+        # Demo P&L tracking
+        self._demo_tracker = DemoTracker() if demo else None
+        self._last_price: float = 0.0
 
     # --- Callbacks wired into StrategyContext ---
 
@@ -120,6 +226,8 @@ class OrderBridge:
                 self._position_side.upper(),
                 self._position_qty,
             )
+            if self._demo_tracker:
+                self._demo_tracker.on_close(self._last_price)
             self._submit_order(
                 side="sell" if self._position_side == "long" else "buy",
                 qty=self._position_qty,
@@ -139,6 +247,9 @@ class OrderBridge:
 
         self._position_side = direction
         self._position_qty = order.qty or 0.0
+
+        if self._demo_tracker:
+            self._demo_tracker.on_entry(direction, self._last_price)
 
         self._submit_order(
             side="buy" if direction == "long" else "sell",
@@ -160,6 +271,8 @@ class OrderBridge:
         )
 
         if self._position_side:
+            if self._demo_tracker:
+                self._demo_tracker.on_close(self._last_price)
             self._submit_order(
                 side="sell" if self._position_side == "long" else "buy",
                 qty=self._position_qty,
@@ -192,6 +305,14 @@ class OrderBridge:
             )
 
     # --- Helpers ---
+
+    def update_price(self, price: float) -> None:
+        """Update the current market price for P&L tracking."""
+        self._last_price = price
+
+    @property
+    def demo_tracker(self) -> DemoTracker | None:
+        return self._demo_tracker
 
     @staticmethod
     def _record(order: Order) -> SignalRecord:

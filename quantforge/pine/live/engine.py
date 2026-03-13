@@ -133,16 +133,20 @@ class PineLiveEngine:
         self._runtime = PineRuntime(ctx)
         self._runtime.init_incremental(self.ast)
 
-        # Wire signal callbacks
+        # NOTE: Do NOT wire signal callbacks until warmup is complete.
+        # During warmup we replay historical bars to build indicator state.
+        # Signals from historical bars must be silently discarded.
+
+        # --- Warmup ---
+        await self._run_warmup()
+
+        # Wire signal callbacks AFTER warmup
         if self._runtime.strategy_ctx:
             self._runtime.strategy_ctx.set_signal_callbacks(
                 on_entry=self._bridge.on_entry,
                 on_close=self._bridge.on_close,
                 on_exit=self._bridge.on_exit,
             )
-
-        # --- Warmup ---
-        await self._run_warmup()
 
         # --- Live loop ---
         self._running = True
@@ -231,6 +235,9 @@ class PineLiveEngine:
                             volume=confirmed[5],
                             time=bar_ts,
                         )
+                        # Update price before processing (for P&L tracking)
+                        self._bridge.update_price(bar.close)
+
                         new_orders = self._runtime.process_bar(bar)
                         self._bars_processed += 1
                         self._last_bar_time = bar_ts
@@ -242,6 +249,11 @@ class PineLiveEngine:
                             len(new_orders),
                             self._bridge._position_side or "flat",
                         )
+
+                        # Print demo P&L summary every 6 bars (6h for 1h tf)
+                        tracker = self._bridge.demo_tracker
+                        if tracker and self._bars_processed % 6 == 0:
+                            logger.info("\n%s", tracker.summary(bar.close))
 
             except Exception:
                 logger.exception("Error in poll loop")

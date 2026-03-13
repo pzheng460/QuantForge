@@ -1,0 +1,34 @@
+//@version=5
+strategy("BB Squeeze Optimized", overlay=true, initial_capital=100000)
+
+// --- Optimized Parameters ---
+bb_len = input.int(15, title="BB Length")
+bb_std = input.float(2.5, title="BB StdDev")
+ema_fast = input.int(14, title="Fast EMA")
+ema_slow = input.int(28, title="Slow EMA")
+
+// --- Indicators ---
+basis = ta.sma(close, bb_len)
+dev = bb_std * ta.stdev(close, bb_len)
+upper = basis + dev
+lower = basis - dev
+bb_width = (upper - lower) / basis
+fast = ta.ema(close, ema_fast)
+slow = ta.ema(close, ema_slow)
+
+// --- Squeeze detection ---
+avg_width = ta.sma(bb_width, bb_len)
+squeeze = bb_width < avg_width
+
+// --- Breakout from squeeze ---
+if squeeze[1] and not squeeze
+    if fast > slow
+        strategy.entry("Long", strategy.long)
+    if fast < slow
+        strategy.entry("Short", strategy.short)
+
+// --- Exit on opposite band touch ---
+if close > upper
+    strategy.close("Long")
+if close < lower
+    strategy.close("Short")

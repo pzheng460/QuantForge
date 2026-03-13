@@ -1,0 +1,30 @@
+//@version=5
+strategy("EMA Crossover + ADX Filter", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+fast_period = input.int(5, title="Fast EMA", minval=3, maxval=20, step=1)
+slow_period = input.int(13, title="Slow EMA", minval=10, maxval=50, step=1)
+adx_length = input.int(14, title="ADX Length", minval=7, maxval=21, step=1)
+adx_threshold = input.int(25, title="ADX Threshold", minval=15, maxval=40, step=5)
+
+// --- Indicators ---
+fast = ta.ema(close, fast_period)
+slow = ta.ema(close, slow_period)
+adx_val = ta.adx(adx_length)
+
+// --- Regime Filter ---
+trending = adx_val > adx_threshold
+
+// --- Strategy Logic ---
+// Trending: trade crossovers
+// Ranging: flatten all positions
+if trending
+    if ta.crossover(fast, slow)
+        strategy.entry("Long", strategy.long)
+    if ta.crossunder(fast, slow)
+        strategy.entry("Short", strategy.short)
+
+// Exit when regime turns ranging
+if trending == false
+    strategy.close("Long")
+    strategy.close("Short")

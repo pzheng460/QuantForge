@@ -1,0 +1,28 @@
+//@version=5
+strategy("RSI Momentum", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+rsi_len = input.int(14, title="RSI Length", minval=7, maxval=21, step=1)
+rsi_long = input.int(55, title="RSI Long Threshold", minval=50, maxval=70, step=5)
+rsi_short = input.int(45, title="RSI Short Threshold", minval=30, maxval=50, step=5)
+ema_len = input.int(50, title="Trend EMA", minval=20, maxval=100, step=10)
+adx_len = input.int(14, title="ADX Length")
+adx_thresh = input.int(20, title="ADX Threshold", minval=15, maxval=30, step=5)
+
+// --- Indicators ---
+rsi_val = ta.rsi(close, rsi_len)
+trend = ta.ema(close, ema_len)
+adx_val = ta.adx(adx_len)
+trending = adx_val > adx_thresh
+
+// --- Momentum: trade WITH the trend when RSI confirms ---
+if trending
+    if rsi_val > rsi_long and close > trend
+        strategy.entry("Long", strategy.long)
+    if rsi_val < rsi_short and close < trend
+        strategy.entry("Short", strategy.short)
+
+// --- Exit on regime change or RSI reversal ---
+if not trending
+    strategy.close("Long")
+    strategy.close("Short")
