@@ -230,12 +230,17 @@ def _run_live(args: argparse.Namespace) -> None:
 
     source = pine_file.read_text()
 
-    if not args.demo and not args.confirm_live:
+    if not args.demo and not args.dry_run and not args.confirm_live:
         print("Error: live trading requires --confirm-live flag")
         print("Add --confirm-live to acknowledge real money trading")
         sys.exit(1)
 
-    mode_str = "DEMO" if args.demo else "LIVE"
+    if args.dry_run:
+        mode_str = "DRY-RUN (no orders)"
+    elif args.demo:
+        mode_str = "DEMO (exchange sandbox)"
+    else:
+        mode_str = "LIVE (real money)"
     print(f"Pine Live Engine — {mode_str} mode")
     print(f"  Strategy: {pine_file.name}")
     print(f"  Symbol:   {args.symbol}")
@@ -252,6 +257,7 @@ def _run_live(args: argparse.Namespace) -> None:
         demo=args.demo,
         warmup_bars=args.warmup_bars,
         position_size_usdt=args.position_size,
+        dry_run=args.dry_run,
     )
 
     try:
@@ -517,7 +523,8 @@ def main() -> None:
     )
     lv.add_argument("--timeframe", default="15m", help="Kline timeframe (default: 15m)")
     lv.add_argument(
-        "--demo", action="store_true", default=True, help="Demo/paper mode (default)"
+        "--demo", action="store_true", default=True,
+        help="Use exchange sandbox/demo API (e.g. Bitget UTA Demo). Default."
     )
     lv.add_argument(
         "--no-demo",
@@ -526,10 +533,16 @@ def main() -> None:
         help="Disable demo mode (real money)",
     )
     lv.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Log signals only, do not submit any orders",
+    )
+    lv.add_argument(
         "--confirm-live",
         action="store_true",
         default=False,
-        help="Required flag for real money trading",
+        help="Required flag for real money trading (--no-demo)",
     )
     lv.add_argument(
         "--warmup-bars", type=int, default=500, help="Warmup bar count (default: 500)"

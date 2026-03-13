@@ -61,6 +61,9 @@ class PineLiveEngine:
         Number of historical bars to fetch for indicator warmup.
     position_size_usdt : float
         Notional position size in USDT.
+    dry_run : bool
+        If ``True``, signals are logged but no orders are submitted.
+        Different from ``demo`` which uses the exchange sandbox API.
     """
 
     def __init__(
@@ -72,12 +75,14 @@ class PineLiveEngine:
         demo: bool = True,
         warmup_bars: int = 500,
         position_size_usdt: float = 100.0,
+        dry_run: bool = False,
     ) -> None:
         self.pine_source = pine_source
         self.exchange = exchange
         self.symbol = symbol
         self.timeframe = timeframe
         self.demo = demo
+        self.dry_run = dry_run
         self.warmup_bars = warmup_bars
         self.position_size_usdt = position_size_usdt
 
@@ -109,22 +114,25 @@ class PineLiveEngine:
         )
 
         # --- Setup ---
+        # --demo uses exchange sandbox/testnet API (e.g. Bitget UTA Demo)
+        # --dry-run logs signals without submitting orders
         connector = None
-        if not self.demo:
+        if not self.dry_run:
             try:
                 connector = CcxtConnector(
                     exchange_id=self.exchange,
                     symbol=self.symbol,
-                    demo=False,
+                    demo=self.demo,  # True = sandbox mode
                 )
-                logger.info("CcxtConnector initialised for live order submission")
+                mode = "DEMO (sandbox)" if self.demo else "LIVE"
+                logger.info("CcxtConnector initialised — %s order submission", mode)
             except Exception:
                 logger.exception(
-                    "Failed to initialise CcxtConnector — orders will not be submitted"
+                    "Failed to initialise CcxtConnector — falling back to dry-run"
                 )
 
         self._bridge = OrderBridge(
-            demo=self.demo,
+            demo=self.dry_run,  # Only skip orders in dry-run mode
             position_size_usdt=self.position_size_usdt,
             connector=connector,
         )
