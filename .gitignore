@@ -40,3 +40,7 @@ yaml-config/
 appendonlydir/node_modules/
 node_modules/
 appendonlydir/
+
+# Strategy artifacts
+strategy/**/*.log
+strategy/results/

@@ -1,3 +1,4 @@
+# DEPRECATED — not actively used. Kept for reference.
 """
 EMA Crossover + Regime Filter Trading Strategy
 

@@ -232,7 +232,7 @@ strategy/strategies/_base/
 ├── generic_strategy.py      # GenericStrategy：使用 LiveConfig 的通用实盘策略
 ├── generic_configs.py       # 通用配置加载器（替代各策略的 configs.py）
 ├── performance.py           # 实盘/模拟交易的 PerformanceTracker
-├── paper_validate.py        # 模拟交易验证工具
+├── paper_validate.py        # 模拟交易验证工具 (已移至 strategy/tools/)
 
 strategy/runner.py               # 支持 LiveConfig 的任意策略通用 CLI 运行器
 

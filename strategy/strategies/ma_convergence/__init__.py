@@ -1,3 +1,4 @@
+# DEPRECATED — not actively used. Kept for reference.
 """MA Convergence (均线密集) strategy.
 
 Uses 6 moving averages (SMA 20/60/120 + EMA 20/60/120) to detect consolidation

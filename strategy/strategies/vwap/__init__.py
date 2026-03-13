@@ -1,3 +1,4 @@
+# DEPRECATED — negative Sharpe, Z-Score issues, -5.41% in sim. Kept for reference.
 """
 VWAP Mean Reversion Trading Strategy
 

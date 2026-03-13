@@ -234,7 +234,7 @@ strategy/strategies/_base/
 ├── generic_strategy.py      # GenericStrategy: generic live strategy using LiveConfig
 ├── generic_configs.py       # Generic config loader (replaces per-strategy configs.py)
 ├── performance.py           # PerformanceTracker for live/demo trading metrics
-├── paper_validate.py        # Paper trading validation utilities
+├── paper_validate.py        # Paper trading validation utilities (moved to strategy/tools/)
 
 strategy/runner.py               # Generic CLI runner for any strategy with LiveConfig
 

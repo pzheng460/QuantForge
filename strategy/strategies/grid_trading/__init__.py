@@ -1,3 +1,4 @@
+# DEPRECATED — all parameter combos lost money, high leverage made it worse. Kept for reference.
 """Grid Trading strategy module."""
 
 from strategy.strategies._base.signal_generator import TradeFilterConfig

@@ -1,3 +1,4 @@
+# DEPRECATED — never used in production. Kept for reference.
 """
 Fear Reversal Trading Strategy
 
