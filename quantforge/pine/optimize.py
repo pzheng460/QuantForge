@@ -234,7 +234,7 @@ def generate_grid(
             vals.append(dv)
             vals.sort()
 
-        param_ranges.append([(inp.title, v) for v in vals])
+        param_ranges.append([(inp.var_name, v) for v in vals])
 
     # Check total combinations
     total = 1
@@ -251,10 +251,16 @@ def generate_grid(
             new_ranges.append(r[::step])
         param_ranges = new_ranges
 
-    # Build grid via cartesian product
+    # Build grid via cartesian product, dedup identical combos
     grid: list[dict[str, float]] = []
+    seen: set[tuple[tuple[str, float], ...]] = set()
     for combo in itertools.product(*param_ranges):
-        grid.append({title: val for title, val in combo})
+        d = {name: val for name, val in combo}
+        key = tuple(sorted(d.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        grid.append(d)
 
     return grid
 

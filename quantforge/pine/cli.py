@@ -213,6 +213,13 @@ def _run_transpile(args: argparse.Namespace) -> None:
 def _run_live(args: argparse.Namespace) -> None:
     """Run Pine Script as a live trading engine."""
     import asyncio
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
     from quantforge.pine.live.engine import PineLiveEngine
 
@@ -347,7 +354,7 @@ def _run_optimize(args: argparse.Namespace) -> None:
     print(f"{'=' * 80}")
 
     # Build header from param names
-    param_names = [inp.title for inp in inputs]
+    param_names = [inp.var_name for inp in inputs]
     header_parts = [f"{'#':>4}"]
     for name in param_names:
         header_parts.append(f"{name:>10}")

@@ -193,9 +193,9 @@ class TestGenerateGrid:
         # Slow: 15, 20, 21(defval), 25, 30, 35, 40 → 7 values
         assert len(grid) == 4 * 7
 
-        # Each grid point is a dict
+        # Each grid point is a dict keyed by var_name
         assert all(isinstance(g, dict) for g in grid)
-        assert all("Fast" in g and "Slow" in g for g in grid)
+        assert all("fast" in g and "slow" in g for g in grid)
 
     def test_grid_auto_range(self) -> None:
         inputs = [
@@ -206,7 +206,7 @@ class TestGenerateGrid:
         assert len(grid) >= 3
         # All values should be ints (as floats)
         for g in grid:
-            assert g["Fast"] == int(g["Fast"])
+            assert g["fast"] == int(g["fast"])
 
     def test_empty_inputs_returns_single_empty(self) -> None:
         grid = generate_grid([])
@@ -226,7 +226,7 @@ class TestGenerateGrid:
             InputParam("x", "X", "int", 7, minval=5, maxval=15, step=5),
         ]
         grid = generate_grid(inputs)
-        values = [g["X"] for g in grid]
+        values = [g["x"] for g in grid]
         # defval=7 should be included since it's in range
         assert 7.0 in values
 
@@ -255,8 +255,8 @@ class TestRunOptimization:
         bars = _generate_bars(300)
 
         grid = [
-            {"Fast": 5, "Slow": 30},
-            {"Fast": 15, "Slow": 20},
+            {"fast_len": 5, "slow_len": 30},
+            {"fast_len": 15, "slow_len": 20},
         ]
 
         results = run_optimization(ast, bars, grid)
@@ -297,12 +297,12 @@ class TestRunOptimization:
         ast = parse(PINE_WITH_INPUTS)
         bars = _generate_bars(200)
 
-        grid = [{"Fast": 10, "Slow": 21}]
+        grid = [{"fast_len": 10, "slow_len": 21}]
         results = run_optimization(ast, bars, grid)
 
         assert len(results) == 1
         r = results[0]
-        assert r.params == {"Fast": 10, "Slow": 21}
+        assert r.params == {"fast_len": 10, "slow_len": 21}
         assert isinstance(r.net_profit, float)
         assert isinstance(r.return_pct, float)
         assert isinstance(r.total_trades, int)
@@ -335,7 +335,7 @@ if rsi_val > 70
 
         results = run_optimization(ast, bars, grid)
         assert len(results) == len(grid)
-        assert all(r.params.get("Period") is not None for r in results)
+        assert all(r.params.get("period") is not None for r in results)
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +359,7 @@ class TestInputOverrides:
 
         # Run with fast=5, slow=40
         ctx2 = ExecutionContext(bars=list(bars))
-        ctx2.inputs = {"Fast": 5, "Slow": 40}
+        ctx2.inputs = {"fast_len": 5, "slow_len": 40}
         rt2 = PineRuntime(ctx2)
         r2 = rt2.run(ast)
 
