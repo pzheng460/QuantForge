@@ -607,10 +607,50 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 - Frontend: `web/frontend/src/pages/PinePage.tsx` — Pine Script editor with backtest runner
 - Route: `/pine` in the web UI
 
+### Pine Live Trading Engine
+
+The Pine interpreter runs **directly** as a live trading engine — no transpilation needed. The same interpreter that produces exact trade parity with TradingView in backtest mode is used bar-by-bar on real-time klines.
+
+**Architecture:**
+```
+Pine Script (.pine file)
+     ↓
+Pine Interpreter (SAME engine for backtest AND live)
+     ↓  feeds real-time confirmed klines
+QuantForge Exchange Connectors (via ccxt)
+     ↓  strategy.entry/close signals → real orders
+Exchange
+```
+
+**Key files:**
+- `quantforge/pine/live/engine.py` — `PineLiveEngine`: warmup + live kline loop
+- `quantforge/pine/live/order_bridge.py` — `OrderBridge`: Pine signals → exchange orders
+- `quantforge/pine/live/connector.py` — Warmup bar fetching via ccxt
+
+**Incremental execution API** (added to `PineRuntime`):
+- `init_incremental(script)` — Parse declarations, reset indicator state (call once)
+- `process_bar(bar) → list[Order]` — Feed one bar, execute Pine script, return new orders
+- `finalize() → BacktestResult` — Close remaining positions, return results
+
+**Signal callbacks** (added to `StrategyContext`):
+- `set_signal_callbacks(on_entry, on_close, on_exit)` — Register callbacks fired when Pine script places orders
+- Used by `OrderBridge` to intercept `strategy.entry/close/exit` calls
+
+**CLI:**
+```bash
+# Live trading (demo/paper)
+python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --demo --symbol BTC/USDT:USDT --timeframe 15m
+
+# Live trading (real money)
+python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 15m
+```
+
+**Parity guarantee:** 11 tests verify that incremental bar-by-bar execution produces identical trades and equity curves to batch execution across all fixture strategies (EMA Cross, RSI, MACD, BB).
+
 ### Pine Tests
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 76 tests (55 interpreter/parser + 21 transpiler parity)
+uv run pytest quantforge/pine/tests/ -v  # 87 tests (55 interpreter/parser + 21 transpiler parity + 11 live engine)
 ```
 
 ## Declarative Strategy DSL (`quantforge/dsl/`)

@@ -38,11 +38,13 @@ def _generate_bars(n: int = 200, seed: int = 42) -> list[BarData]:
         price = max(10.0, price + trend + noise)
         o = price
         h = price + abs(rng.gauss(0, 0.3))
-        l = price - abs(rng.gauss(0, 0.3))
+        lo = price - abs(rng.gauss(0, 0.3))
         c = price + rng.gauss(0, 0.2)
-        c = max(l, min(h, c))
+        c = max(lo, min(h, c))
         v = rng.uniform(100, 1000)
-        bars.append(BarData(open=o, high=h, low=l, close=c, volume=v, time=1000000 + i * 60))
+        bars.append(
+            BarData(open=o, high=h, low=lo, close=c, volume=v, time=1000000 + i * 60)
+        )
 
     return bars
 

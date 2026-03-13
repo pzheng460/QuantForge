@@ -13,7 +13,7 @@ from quantforge.pine.interpreter.builtins.strategy import (
     Direction,
     StrategyContext,
 )
-from quantforge.pine.interpreter.context import ExecutionContext
+from quantforge.pine.interpreter.context import BarData, ExecutionContext
 from quantforge.pine.interpreter.series import PineSeries, is_na, nz
 from quantforge.pine.parser.ast_nodes import (
     Assignment,
@@ -146,7 +146,9 @@ class PineRuntime:
             self.strategy_ctx.execute_pending(bar.open, self.ctx.bar_index)
 
         # 3. Snapshot pending orders *before* script body to detect new ones
-        pending_before = len(self.strategy_ctx.pending_orders) if self.strategy_ctx else 0
+        pending_before = (
+            len(self.strategy_ctx.pending_orders) if self.strategy_ctx else 0
+        )
 
         # 4. Execute script body
         for stmt in self._script.body:

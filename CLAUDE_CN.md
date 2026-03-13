@@ -598,10 +598,50 @@ python strategy.py  # 独立运行 — 不依赖 Pine 解释器
 - 前端：`web/frontend/src/pages/PinePage.tsx` — Pine Script 编辑器与回测运行器
 - 路由：Web UI 中的 `/pine`
 
+### Pine 实盘交易引擎
+
+Pine 解释器**直接**作为实盘交易引擎运行——无需转译。与 TradingView 产生完全交易一致性的同一解释器，在实时 K 线上逐根运行。
+
+**架构：**
+```
+Pine Script (.pine 文件)
+     ↓
+Pine 解释器（回测和实盘使用同一引擎）
+     ↓  喂入实时确认 K 线
+QuantForge 交易所连接器（通过 ccxt）
+     ↓  strategy.entry/close 信号 → 真实订单
+交易所
+```
+
+**关键文件：**
+- `quantforge/pine/live/engine.py` — `PineLiveEngine`：预热 + 实时 K 线循环
+- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：Pine 信号 → 交易所订单
+- `quantforge/pine/live/connector.py` — 通过 ccxt 获取预热 K 线
+
+**增量执行 API**（添加到 `PineRuntime`）：
+- `init_incremental(script)` — 解析声明，重置指标状态（调用一次）
+- `process_bar(bar) → list[Order]` — 喂入一根 K 线，执行 Pine 脚本，返回新订单
+- `finalize() → BacktestResult` — 关闭剩余仓位，返回结果
+
+**信号回调**（添加到 `StrategyContext`）：
+- `set_signal_callbacks(on_entry, on_close, on_exit)` — 注册 Pine 脚本下单时触发的回调
+- 被 `OrderBridge` 用于拦截 `strategy.entry/close/exit` 调用
+
+**CLI：**
+```bash
+# 实盘交易（模拟/纸上交易）
+python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --demo --symbol BTC/USDT:USDT --timeframe 15m
+
+# 实盘交易（真金白银）
+python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 15m
+```
+
+**一致性保证：** 11 个测试验证增量逐根执行在所有固定策略（EMA Cross, RSI, MACD, BB）上产生与批量执行完全相同的交易和权益曲线。
+
 ### Pine 测试
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 76个测试（55个解释器/解析器 + 21个转译器一致性）
+uv run pytest quantforge/pine/tests/ -v  # 87个测试（55个解释器/解析器 + 21个转译器一致性 + 11个实盘引擎）
 ```
 
 ## 声明式策略 DSL (`quantforge/dsl/`)

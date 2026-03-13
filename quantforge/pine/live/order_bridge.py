@@ -8,9 +8,9 @@ order submissions via the QuantForge connector layer.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from quantforge.pine.interpreter.builtins.strategy import Direction, Order
+from quantforge.pine.interpreter.builtins.strategy import Order
 
 logger = logging.getLogger(__name__)
 

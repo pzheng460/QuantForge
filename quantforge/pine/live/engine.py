@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from pathlib import Path
 
 from quantforge.pine.interpreter.context import BarData, ExecutionContext
 from quantforge.pine.interpreter.runtime import PineRuntime
@@ -181,9 +179,7 @@ class PineLiveEngine:
         while self._running:
             try:
                 # Fetch last 2 bars
-                ohlcv = exchange.fetch_ohlcv(
-                    self.symbol, self.timeframe, limit=2
-                )
+                ohlcv = exchange.fetch_ohlcv(self.symbol, self.timeframe, limit=2)
                 if ohlcv and len(ohlcv) >= 2:
                     # The second-to-last bar is the most recent *confirmed* bar
                     confirmed = ohlcv[-2]
@@ -222,7 +218,9 @@ class PineLiveEngine:
         Returns list of new orders placed during this bar.
         """
         if self._runtime is None:
-            raise RuntimeError("Engine not started — call start() first or setup manually")
+            raise RuntimeError(
+                "Engine not started — call start() first or setup manually"
+            )
         new_orders = self._runtime.process_bar(bar)
         self._bars_processed += 1
         self._last_bar_time = bar.time
