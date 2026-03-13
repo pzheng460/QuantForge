@@ -1,0 +1,24 @@
+//@version=5
+strategy("SMA Trend Daily", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+sma_period = input.int(50, title="SMA Period", minval=20, maxval=200, step=10)
+atr_period = input.int(14, title="ATR Period", minval=7, maxval=21, step=7)
+stop_loss_pct = input.float(0.05, title="Stop Loss %", minval=0.01, maxval=0.15, step=0.01)
+
+// --- Indicators (on daily close) ---
+sma_val = ta.sma(close, sma_period)
+atr_val = ta.atr(atr_period)
+
+// --- Daily close gating ---
+// Only evaluate signals on bar close (every bar in daily TF, or last bar of day in lower TF)
+is_daily_close = timeframe.isdaily or (hour == 23 and minute == 0)
+
+// --- Long-only trend following ---
+long_entry = is_daily_close and close > sma_val and close > sma_val + atr_val * 0.5
+long_exit = is_daily_close and close < sma_val
+
+if long_entry
+    strategy.entry("Long", strategy.long)
+if long_exit and strategy.position_size > 0
+    strategy.close("Long")

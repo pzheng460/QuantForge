@@ -6,6 +6,8 @@
 
 QuantForge 是一个基于 Python 3.11+ 构建的专业级量化交易平台，专注于跨多交易所的高性能、低延迟交易。采用模块化、事件驱动架构，核心组件由 Rust 驱动，以实现极致性能。
 
+**所有交易策略均以 Pine Script (.pine) 文件表达。** `quantforge/` 包是唯一的代码源。
+
 ## 开发命令
 
 ### 依赖安装与环境配置
@@ -23,12 +25,17 @@ pre-commit install
 
 ### 测试
 ```bash
-# 运行所有测试（支持异步）
+# 运行所有测试（138 Pine/DSL + 核心测试）
 uv run pytest
 
-# 运行特定测试模块
+# Pine Script 测试（103个：解释器、转译器一致性、实盘引擎、优化器）
+uv run pytest quantforge/pine/tests/ -v
+
+# DSL 测试（35个）
+uv run pytest quantforge/dsl/tests/ -v
+
+# 核心框架测试
 uv run pytest test/core/
-uv run pytest test/core/test_entity.py
 
 # 测试配置：pytest.ini 启用 asyncio_mode = auto
 ```
@@ -57,6 +64,7 @@ pm2 start ecosystem.config.js
 ### 核心组件
 - **Engine（引擎）**：管理所有交易系统的中央协调器（`quantforge/engine.py`）
 - **Strategy（策略）**：支持多种执行模式的交易逻辑基类（`quantforge/strategy.py`）
+- **Pine 引擎**：Pine Script 解释器 + 实盘交易引擎（`quantforge/pine/`）
 - **Connectors（连接器）**：交易所专用的公共（行情数据）和私有（交易）连接器
 - **EMS**（执行管理系统）：订单提交与执行
 - **OMS**（订单管理系统）：订单状态跟踪与管理
@@ -74,11 +82,6 @@ pm2 start ecosystem.config.js
 - **主要**：Binance、Bybit、OKX（完整实现）
 - **其他**：Bitget、Hyperliquid
 
-### 策略执行模式
-1. **事件驱动**：响应市场事件（`on_bookl1`、`on_trade`、`on_kline`）
-2. **定时器驱动**：通过 `schedule()` 方法定期执行
-3. **信号驱动**：自定义信号处理（`on_custom_signal`）
-
 ### 性能优化
 - **uvloop**：高性能事件循环（比原生 asyncio 快 2-4 倍）
 - **picows**：基于 Cython 的 WebSocket 库（C++ 级性能）
@@ -94,6 +97,9 @@ pm2 start ecosystem.config.js
 - `quantforge/schema.py` - 数据结构与模式
 - `quantforge/indicator.py` - 技术指标框架
 
+### 流式指标
+- `quantforge/indicators/streaming.py` - StreamingEMA、StreamingSMA、StreamingATR、StreamingADX、StreamingROC、StreamingBB、StreamingRSI
+
 ### 基类
 - `quantforge/base/connector.py` - 连接器基类实现
 - `quantforge/base/ems.py` - 执行管理基类
@@ -107,13 +113,6 @@ pm2 start ecosystem.config.js
 - `schema.py` - 交易所数据结构
 - `websockets.py` - WebSocket 实现
 - `rest_api.py` - REST API 客户端
-
-### 策略信号层
-- `strategy/strategies/_base/streaming.py` - 流式指标原语（EMA、SMA、ATR、ADX、ROC、BB、RSI）
-- `strategy/strategies/{name}/signal_core.py` - 信号核心（每个策略的唯一真实来源）
-- `strategy/strategies/_base/` - BaseSignalGenerator、TradeFilterConfig、注册辅助工厂、BaseQuantStrategy、PerformanceTracker、GenericStrategy、GenericIndicator、通用配置
-- `strategy/strategies/{name}/` - 自包含策略包：signal_core.py、core.py、registration.py（必须）；indicator.py、live.py、configs.py（可选）
-- `strategy/runner.py` - 支持 LiveConfig 的任意策略通用 CLI 运行器
 
 ### 配置与数据
 - `quantforge/constants.py` - 枚举和常量
@@ -135,35 +134,6 @@ QUANTFORGE_PG_PORT=5432
 QUANTFORGE_PG_USER=postgres
 QUANTFORGE_PG_PASSWORD=your_postgres_password
 QUANTFORGE_PG_DATABASE=postgres
-```
-
-## 自定义指标开发
-
-指标支持使用历史数据自动预热：
-
-```python
-class CustomIndicator(Indicator):
-    def __init__(self, period: int = 20):
-        super().__init__(
-            params={"period": period},
-            name=f"Custom_{period}",
-            warmup_period=period * 2,  # 需要的历史周期数
-            warmup_interval=KlineInterval.MINUTE_1,  # 数据时间间隔
-        )
-
-    def handle_kline(self, kline: Kline):
-        # 处理 K 线数据
-        pass
-```
-
-在策略中注册指标：
-```python
-self.register_indicator(
-    symbols="BTCUSDT-PERP.BINANCE",
-    indicator=self.custom_indicator,
-    data_type=DataType.KLINE,
-    account_type=BinanceAccountType.USD_M_FUTURE_TESTNET,
-)
 ```
 
 ## 交易对格式
@@ -209,67 +179,10 @@ self.register_indicator(
 
 ### 连接器杠杆设置
 - `PrivateConnectorConfig.leverage` 设置杠杆倍数；`leverage_symbols` 可选地限制应用于哪些交易对。
-- 杠杆在 `strategy.on_start()` 之后通过 `engine._apply_leverage()` 应用，因此只针对策略实际订阅的交易对（通过 `strategy._subscribed_symbols` 自动检测）。
+- 杠杆在 `strategy.on_start()` 之后通过 `engine._apply_leverage()` 应用，因此只针对策略实际订阅的交易对。
 - 优先级：显式 `leverage_symbols` 配置 → 自动检测策略交易对 → 跳过（无全品种兜底）。
-- `BitgetPrivateConnector.apply_leverage(strategy_symbols)` 是入口点；其他交易所在实现杠杆设置时可添加相同方法。
-- `Strategy._track_subscribed_symbols()` 在每个 `subscribe_*()` 方法中被调用，以构建 `_subscribed_symbols`。
 
-## 统一信号核心架构
-
-所有交易策略共享一个 **SignalCore** 模式，保证回测和实盘交易之间 100% 的代码一致性。信号逻辑存在于单一的共享类中——回测信号生成器和实盘指标都委托给它。
-
-### 目录结构
-
-```
-strategy/strategies/_base/
-├── streaming.py             # 流式指标原语（EMA、SMA、ATR、ADX、ROC、BB、RSI）
-├── test_data.py             # 合成 OHLCV 数据生成器（供 registration.py 和测试共用）
-├── __init__.py
-├── signal_generator.py      # BaseSignalGenerator、TradeFilterConfig、列常量
-├── registration_helpers.py  # 工厂函数：make_split_params_fn、make_mesa_dict_to_config 等
-├── base_strategy.py         # BaseQuantStrategy：实盘策略共享基类
-├── generic_indicator.py     # GenericIndicator：将任意 SignalCore 包装用于实盘交易
-├── generic_strategy.py      # GenericStrategy：使用 LiveConfig 的通用实盘策略
-├── generic_configs.py       # 通用配置加载器（替代各策略的 configs.py）
-├── performance.py           # 实盘/模拟交易的 PerformanceTracker
-├── paper_validate.py        # 模拟交易验证工具 (已移至 strategy/tools/)
-
-strategy/runner.py               # 支持 LiveConfig 的任意策略通用 CLI 运行器
-
-strategy/strategies/{name}/
-├── signal_core.py       # SignalCore 类（信号逻辑唯一真实来源）
-├── core.py              # 策略配置 dataclass
-├── registration.py      # 策略注册（自动发现）+ LiveConfig + ParityTestConfig
-├── indicator.py         # （可选）用于复杂策略的自定义指标
-├── live.py              # （可选）需要 on_kline 覆盖的自定义实盘策略
-├── configs.py           # （可选）自定义配置加载器（generic_configs.py 可替代此文件）
-
-strategy/backtest/registry.py          # StrategyRegistration、ParityTestConfig、LiveConfig、HeatmapConfig
-test/strategy/parity_factory.py        # 测试工厂：make_parity_test_class()
-test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略（无需手动编辑）
-```
-
-### 信号常量
-
-所有核心使用相同的整数信号值：
-- `HOLD = 0` — 不操作
-- `BUY = 1` — 开多 / 平空
-- `SELL = -1` — 开空 / 平多
-- `CLOSE = 2` — 平仓
-
-### 三方法 API
-
-每个 `SignalCore` 类暴露三个方法：
-
-| 方法 | 使用者 | 描述 |
-|------|--------|------|
-| `update(close, high, low, ...)` | 回测 + 实盘（实盘模式） | 更新指标 + 返回包含完整仓位管理的信号 |
-| `update_indicators_only(close, high, low, ...)` | 实盘（预热模式） | 仅更新指标，不涉及信号/仓位逻辑 |
-| `get_raw_signal()` | 实盘（预热模式） | 基于当前指标值的无状态信号计算 |
-
-实盘指标运行在**双模式**下：预热期间使用 `update_indicators_only()` + `get_raw_signal()` 避免产生虚假仓位状态；预热完成后通过 `enable_live_mode()` 切换为 `core.update()` 进行统一仓位管理。
-
-### 流式指标原语（`streaming.py`）
+## 流式指标原语（`quantforge/indicators/streaming.py`）
 
 | 类名 | 描述 |
 |------|------|
@@ -283,285 +196,26 @@ test/strategy/test_all_parity.py       # 通过注册表自动发现所有策略
 
 所有原语共享：`.value` 属性、`.update()` 返回 `Optional[float]`、`.reset()` 方法。
 
-### 信号核心 → 策略映射
-
-| 核心类 | 配置 | 使用的指标 | 策略类型 |
-|--------|------|-----------|----------|
-| `MomentumSignalCore` | `MomentumConfig` | EMA×2、SMA、ATR、ROC | 趋势跟踪 |
-| `EMASignalCore` | `EMAConfig` | EMA×2 | 趋势跟踪 |
-| `BBSignalCore` | `BBConfig` | BB、SMA（趋势偏向） | 均值回归 |
-| `RegimeEMASignalCore` | `RegimeEMAConfig` | EMA×2、ATR、ADX | 状态门控趋势 |
-| `HurstKalmanSignalCore` | `HurstKalmanConfig` | KalmanFilter1D、Hurst、ZScore | 统计套利 |
-| `VWAPSignalCore` | `VWAPConfig` | RSI、累积 VWAP、ZScore | 均值回归 |
-| `FundingRateSignalCore` | `FundingRateConfig` | SMA、资金费率队列 | 资金费率套利（仅做空） |
-| `DualRegimeSignalCore` | `DualRegimeConfig` | ADX、ROC、EMA×3、ATR、SMA、BB | 自适应状态切换 |
-| `GridSignalCore` | `GridConfig` | SMA、ATR、动态网格层级 | 网格交易 |
-| `MAConvergenceSignalCore` | `MAConvergenceConfig` | SMA×3、EMA×3、ATR | 均线密集突破 |
-| `SMATrendSignalCore` | `SMATrendConfig` | SMA（日线重采样） | 仅做多趋势跟踪 |
-| `FundingArbSignalCore` | `FundingArbConfig` | 资金费率队列 | 德尔塔中性资金费率套利 |
-| `FearReversalSignalCore` | `FearReversalConfig` | RSI、ATR、SMA、EMA、ADX | 仅做多恐慌反转 |
-| `SMAFundingSignalCore` | `SMAFundingConfig` | SMA、ATR、资金费率队列 | 双腿：SMA趋势（80%）+ 资金费率套利（20%） |
-| `DynamicGridSignalCore` | `DynamicGridConfig` | SMA、ATR、ADX、SMA(ATR) | 波动率自适应杠杆网格交易 |
-
-### 仓位管理状态
-
-每个核心跟踪：`position`（0/1/-1）、`entry_bar`、`entry_price`、`cooldown_until`、`signal_count`、`bar_index`。过滤参数：`min_holding_bars`（最小持仓K线数）、`cooldown_bars`（冷却K线数）、`signal_confirmation`（信号确认）。
-
-### BaseSignalGenerator（`_base/signal_generator.py`）
-
-通用信号生成器，替代所有策略各自的 `signal.py` 文件。策略间的差异通过构造函数参数编码：
-
-```python
-class BaseSignalGenerator:
-    def __init__(self, config, filter_config, *, core_cls, update_columns,
-                 core_extra_filter_fields=("signal_confirmation",),
-                 pre_loop_hook=None, bar_hook=None):
-```
-
-**列常量**（传递给 `core.update()` 的 DataFrame 列）：
-- `COLUMNS_CLOSE = ("close",)` — ema_crossover、bollinger_band、hurst_kalman
-- `COLUMNS_CLOSE_HIGH_LOW = ("close", "high", "low")` — regime_ema、grid_trading
-- `COLUMNS_CLOSE_HIGH_LOW_VOLUME = ("close", "high", "low", "volume")` — momentum、dual_regime、vwap
-
-**TradeFilterConfig**（所有策略的基础过滤配置）：
-```python
-@dataclass
-class TradeFilterConfig:
-    min_holding_bars: int = 4
-    cooldown_bars: int = 2
-    signal_confirmation: int = 1
-```
-
-需要额外过滤字段的策略使用子类（如 `HurstKalmanFilterConfig` 增加 `only_mean_reversion`）。
-
-**Hook 机制**（用于特殊策略）：
-- `pre_loop_hook(core, data, generator)` — funding_rate：注入资金费率时间序列
-- `bar_hook(core, data, i, arrays)` — vwap：注入 `day` 参数；funding_rate：注入时间参数
-
-### 注册辅助工厂（`_base/registration_helpers.py`）
-
-四个工厂函数通过 dataclass 内省自动生成样板代码：
-
-| 函数 | 用途 |
-|------|------|
-| `make_split_params_fn(config_cls)` | 将混合参数字典拆分为 (config_kwargs, filter_kwargs) |
-| `make_filter_config_factory(filter_config_cls, min_hold_formula=None)` | 为热力图扫描生成过滤配置 |
-| `make_mesa_dict_to_config(config_cls, filter_config_cls, x_param, y_param, ...)` | 将 mesa 热力图结果转换为 StrategyConfig |
-| `make_export_config(strategy_name, config_cls, filter_config_cls, ...)` | 从优化参数生成 Python 配置代码 |
-
-### 新增策略流程
-
-#### 最简版（通用运行器 — 仅需在 `strategies/{name}/` 下新建文件）：
-
-1. **信号核心** — `strategy/strategies/{name}/signal_core.py`：实现 `{Name}SignalCore`，包含 `update()`、`update_indicators_only()`、`get_raw_signal()`
-2. **配置** — `strategy/strategies/{name}/core.py`：定义 `{Name}Config` dataclass
-3. **注册** — `strategy/strategies/{name}/registration.py`：使用 `BaseSignalGenerator` + `LiveConfig` + `ParityTestConfig` 进行注册
-4. **包初始化** — `strategy/strategies/{name}/__init__.py`：仅需 docstring（自动发现，无需手动导入）
-
-**无需修改** `test/strategy/test_all_parity.py`——它通过 `ParityTestConfig` 自动发现所有策略。
-无需创建 indicator.py、live.py、configs.py 或 signal.py。通用运行器处理一切。
-
-运行方式：`uv run python -m strategy.runner -S {name} --mesa 0`
-
-#### 自定义版（用于需要 on_kline 覆盖的复杂策略）：
-
-仅在策略需要逐 tick 止损检查、追踪止损、资金费率订阅或完全自定义逻辑时才添加步骤 5-6：
-
-5. **实盘指标** — `strategy/strategies/{name}/indicator.py`：双模式包装器
-6. **实盘策略** — `strategy/strategies/{name}/live.py`：自定义 `on_kline()` 覆盖
-
-目前自定义的策略：momentum（追踪止损）、funding_rate（资金费率订阅）、grid_trading（基于 tick 的网格逻辑）。
-
-### 设计模式
-
-- **无循环导入**：signal_core 位于 `strategy/strategies/{name}/signal_core.py`，直接从同包内的 `.core` 导入，无需延迟导入技巧
-- **配置覆盖**：信号生成器使用 `dataclasses.replace()` 来应用回测优化的参数覆盖
-- **自动发现**：`strategy/strategies/__init__.py` 使用 `pkgutil.iter_modules()` 自动导入所有策略子目录中的 `registration.py`
-- **K 线确认**：实盘指标使用时间戳变化检测来确认前一根 K 线已完成后再处理
-- **信号映射**：实盘指标使用 `_SIGNAL_MAP` 字典将整数信号转换为交易所专用枚举值
-- **双模式指标**：实盘指标启动时处于预热模式（`update_indicators_only()`），预热稳定后通过 `enable_live_mode()` 切换到实盘模式（`core.update()`），确保历史 K 线回放期间不产生虚假仓位状态
-- **仓位状态同步（`sync_position`）**：全部 12 个信号核心均暴露 `sync_position(pos_int, entry_price=0.0)` 方法，用于从外部原子性地设置 `core.position` 和 `core.entry_price`。用于两个安全机制：
-  1. **订单失败回滚**（`base_strategy.py` 中的 `on_failed_order`）：`_open_position`/`_close_position` 在下单前将状态快照写入 `_pre_order_snapshots[symbol]`；订单失败时同时回滚 `_positions[symbol]`（策略侧）和 `core.position`（核心侧）
-  2. **重启幽灵仓位同步**（`generic_strategy.py` 中的 `_sync_startup_positions`）：在 `on_start()` 中对每个 symbol 查询 `self.cache.get_position(symbol)`，若交易所已有持仓则恢复策略和核心的仓位状态
-- **BaseQuantStrategy**：所有实盘交易策略的共享基类（`strategy/strategies/_base/base_strategy.py`），提供仓位跟踪、订单管理、熔断器、性能追踪、信号过滤（确认、冷却、最小持仓）、过时数据保护和模板 `on_kline()`。子类实现 `on_start()` 和 `_format_log_line()`，并可选覆盖各类钩子（`_get_signal`、`_check_stop_loss`、`_pre_signal_hook`、`_process_signal`、`_on_live_activated`）
-- **GenericStrategy + GenericIndicator**：通用运行器系统（`strategy/strategies/_base/generic_strategy.py`、`generic_indicator.py`），通过 `LiveConfig` 配置消除简单到中等策略各自的 `live.py`/`indicator.py`/`configs.py` 需求。`GenericIndicator` 使用 `inspect.signature()` 自动检测信号核心方法签名并将 K 线字段映射到参数。CLI：`uv run python -m strategy.runner -S {name} --mesa 0 --exchange bitget`
-
-### 运行一致性测试
-
-```bash
-# 运行所有指标测试（115 个：96 策略一致性 + 19 流式原语）
-uv run pytest test/strategy/ -v
-
-# 仅运行策略一致性测试（自动发现，无需手动维护）
-uv run pytest test/strategy/test_all_parity.py -v
-
-# 运行流式原语一致性测试
-uv run pytest test/strategy/test_streaming_parity.py -v
-```
-
-## 统一回测框架
-
-回测系统与交易所无关，通过统一 CLI 支持所有策略。
-
-### 快速开始
-
-```bash
-# 统一 CLI（推荐）：
-uv run python -m strategy.backtest -S hurst_kalman -X bitget -p 1y --full
-uv run python -m strategy.backtest -S ema_crossover -X binance --heatmap
-uv run python -m strategy.backtest -S bollinger_band -X okx --optimize
-
-# 实盘交易（通用运行器 — 适用于大多数策略）：
-uv run python -m strategy.runner -S ema_crossover --mesa 0
-uv run python -m strategy.runner -S hurst_kalman --mesa 0 --exchange binance
-uv run python -m strategy.runner --list  # 显示可用策略
-
-# 实盘交易（自定义 — 用于复杂策略）：
-uv run python -m strategy.strategies.momentum.live --mesa 3
-uv run python -m strategy.strategies.funding_rate.live --mesa 0
-```
-
-### CLI 参数
-
-| 参数 | 描述 |
-|------|------|
-| `-S, --strategy` | 策略名称：`hurst_kalman`、`ema_crossover`、`bollinger_band` 等 |
-| `-X, --exchange` | 交易所：`bitget`、`binance`、`okx`、`bybit`、`hyperliquid` |
-| `--symbol` | 交易对（默认：交易所对应的 BTC/USDT 永续合约） |
-| `-p, --period` | 数据周期：`1w`、`1m`、`3m`、`6m`、`1y`、`2y`、`3y`、`5y`（短周期与分析标志同用时会警告） |
-| `-m, --mesa` | Mesa 配置索引（0 = 最优） |
-| `--heatmap` | 运行热力图参数扫描 |
-| `--heatmap-resolution` | 热力图网格分辨率（默认：15） |
-| `-o, --optimize` | 网格搜索优化 |
-| `-w, --walk-forward` | 前推验证 |
-| `-r, --regime` | 市场状态分析 |
-| `-f, --full` | 三阶段完整验证 |
-| `-s, --show-results` | 显示已保存的结果 |
-| `-e, --export-config` | 导出模拟交易配置 |
-| `-j, --jobs` | 并行 worker 数：`1`=顺序执行（默认），`-1`=所有 CPU 核心 |
-| `-L, --leverage` | 杠杆倍数（默认：1.0） |
-| `-R, --rolling-optimize` | 滚动优化（日前向测试）：在滚动训练窗口上重新优化，测试下一天 |
-| `--train-days` | `--rolling-optimize` 的训练窗口天数（默认：7） |
-| `--no-cache` | 跳过本地 SQLite 缓存，直接从交易所拉取 |
-| `--no-validate` | 跳过新数据的自动交叉验证 |
-| `--db-stats` | 显示本地 K 线数据库统计信息 |
-
-### 架构
-
-- `strategy/strategies/` — 所有策略代码：signal_core、注册、实盘/指标/配置（每个策略自包含）
-- `strategy/strategies/_base/` — 共享基础设施（BaseSignalGenerator、BaseQuantStrategy、流式原语、测试数据）
-- `strategy/backtest/` — 统一框架（运行器、CLI、注册表、交易所配置、热力图、工具函数）
-- `examples/` — 交易所 API 使用示例（binance、okx、bybit、hyperliquid、bitget）
-
-### 支持的交易所
-
-| 交易所 | CCXT ID | Maker 费率 | Taker 费率 |
-|--------|---------|-----------|-----------|
-| Bitget | `bitget` | 0.02% | 0.05% |
-| Binance | `binance` | 0.02% | 0.04% |
-| OKX | `okx` | 0.02% | 0.05% |
-| Bybit | `bybit` | 0.02% | 0.05% |
-| Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
-
-### 回测方法论
-
-回测框架应用了八项系统性修正，以确保与实盘交易表现的真实对等：
-
-**信号延迟（1 bar 执行滞后）**
-第 i 根 K 线产生的信号在第 i+1 根 K 线执行（`runner.py` 和 `heatmap.py` 中的 `_apply_signal_delay()`），防止用收盘价信号当场成交的前视偏差。
-
-**WFO 窗口按 bar 间隔缩放**
-前推验证（WFO）窗口大小通过 `_bars_per_day(interval)` 动态计算：
-- 15m 策略：8640 bars 训练 / 2880 bars 测试（90天 / 30天）
-- 1h 策略：2160 bars 训练 / 720 bars 测试（90天 / 30天）
-- 独立 `--walk-forward` 模式在每个窗口内使用 `default_grid` 重新优化；从 `--full` 调用时使用固定参数进行稳定性检验。
-
-**position_size_pct 传递**
-资金费率策略（0.30）、网格策略（0.20）等的仓位比例正确传递至所有回测路径：单次运行、网格搜索、前推验证、热力图。
-
-**bar 内止损**
-`BaseSignalGenerator.generate()` 在每次 `core.update()` 调用后用 bar 的最低/最高价检查止损。触发时信号覆盖为 CLOSE 并重置核心状态。一致性测试在 `_run_core` 中镜像此逻辑，确保所有 115 个测试仍通过。
-
-**资金费率数据质量**
-当 `funding_rates` 为空/None 时，`use_funding_rate=False` 传递给 `CostConfig` 并打印警告。`_build_funding_rate_series` 的回退值使用 `0.0`（不建模资金成本），而非之前误导性的 `0.000014` 常量。
-
-**资金费率回退（Gate.io）**
-`utils.py` 中的 `fetch_funding_rates()` 先尝试请求的交易所；若返回少于 500 条记录（>6 个月的周期），则回退到 Gate.io（CCXT 中的 `gate`），其提供完整的资金费率历史。Bitget/OKX 仅返回约 100–270 条近期记录，而 Gate.io 返回 5000+ 条，覆盖数年数据。
-
-**SMA Trend 日线收盘门控**
-`sma_trend` 策略将 1h K 线重采样为日线收盘价，计算滚动 SMA 后前向填充回 1h。信号评估（收盘价 vs SMA）仅在日线收盘 K 线上执行——每个日历日的最后一根 1h K 线（`is_daily_close=True`）。所有日内 K 线返回 HOLD，防止 1h 价格噪声产生虚假交叉信号。回测引擎的 1-bar 信号延迟已防止预知偏差（bar i 的信号在 bar i+1 执行），因此 SMA 本身无需 `.shift(1)`。
-
-**Sharpe 年化自动推断**
-`PerformanceAnalyzer` 和 `VectorizedBacktest._calculate_metrics()` 通过 `infer_periods_per_year()`（`quantforge/backtest/analysis/performance.py`）从权益曲线的 DatetimeIndex 中位数推断每年周期数。无需手动配置——1h 策略自动使用约 8766，而非错误的 15m 常量 35040。
-
-**UTC 时间约定**
-`strategy/backtest/utils.py` 和 `cli.py` 使用 `datetime.now(timezone.utc).replace(tzinfo=None)` 代替 `datetime.now()`。因为 `calendar.timegm()` 将无时区 datetime 当作 UTC 处理，若使用本地时间会产生偏移（如 UTC+8 偏移 8 小时），导致交易所 API 因未来时间戳拒绝请求。
-
-**并行扫描/优化**
-`HeatmapScanner` 和 `GridSearchOptimizer` 接受 `n_jobs`（也通过 `--jobs/-j` CLI 暴露）：
-- HeatmapScanner：完全并行——每个 `_run_single()` 创建新生成器（线程安全）
-- GridSearchOptimizer：信号生成保持顺序（共享闭包），仅 `VectorizedBacktest.run()` 并行化
-- `n_jobs=-1` 使用所有可用 CPU 核心
-
-**资金费率纳入优化（阶段 1 & 2）**
-`GridSearchOptimizer` 和 `WalkForwardAnalyzer` 新增 `funding_rates` 参数。传入后，每个 grid cell（阶段 1）和每个 WFO 窗口的训练/测试（阶段 2）均将资金费率传给 `VectorizedBacktest.run()`。`runner.py` 的 `run_grid_search()`、`run_walk_forward()`、`run_three_stage_test()` 均接收并转发资金费率；CLI 的 `--optimize` 和 `--walk-forward` 模式同样透传。
-
-**买入持有基准对比**
-`_bh_return_pct(data, leverage)` 计算任意区间的杠杆持仓收益。`run_single()` 输出中展示在策略收益旁，并以 `bh_return_pct` 存入结果字典。三阶段测试还额外输出 `bh_holdout_return`（阶段 3 区间）和 `bh_full_return`（完整区间）。
-
-**Monte Carlo Sharpe 95% 置信区间**
-`_bootstrap_sharpe_ci(equity_curve, periods_per_year, n_bootstrap=500)` 对权益曲线进行块引导（block bootstrap），估算 Sharpe 比率的 95% CI（块大小约 len/50）。在 `run_single()` 和阶段 3 holdout 的 Sharpe 行后显示为 `[95% CI: lo, hi]`，并以 `sharpe_ci_lo` / `sharpe_ci_hi` 存入结果。权益曲线不足 10 个点时返回 `(None, None)`。
-
-**统计显著性（最少交易次数）**
-阶段 1 通过标准改为：`in_sample_sharpe >= 1.0` 且 `in_sample_trades >= 10`。交易次数不足 10 时阶段失败，汇总表显示原因。阶段 3 输出中交易次数 < 10 同样触发 `(low trade count)` 警告。
-
-**TradingView 兼容指标**
-`TradeRecord` 新增两个可选字段：`entry_time`（建仓 K 线时间戳）和 `bars_held`（持仓 K 线数）。`PerformanceAnalyzer.calculate_metrics()` 新增 TV 对齐指标：`net_profit`（净利润 $）、`gross_profit`、`gross_loss`、`commission_paid`、`avg_trade_dollar`、`avg_trade_pct`、`avg_bars_held`（全部/盈利/亏损）、`open_pl`（未平仓盈亏）。新方法：`trade_sharpe_ratio()`（逐笔交易收益率 Sharpe，按交易频率年化）和 `tv_compatible_report(bh_return_pct=None)`（输出与 TradingView Strategy Tester 格式一致的报告）。`runner.run_single()` 打印扩展后的 BACKTEST RESULTS 块。
-
-### 本地数据缓存与多源验证
-
-`quantforge/backtest/data/database.py` 提供 SQLite 缓存层：
-- **KlineDatabase**: 存储 OHLCV 数据至 `~/.quantforge/data/klines.db`（可配置）
-- API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
-- 唯一约束: `(exchange, symbol, interval, timestamp)`
-- 使用 `calendar.timegm()` 确保时区安全的 UTC 时间戳转换
-
-`quantforge/backtest/data/cached_provider.py` 提供智能缓存 + 验证：
-- **CachedDataProvider**: `fetch()` 先查缓存，仅拉取缺失区间
-- **ValidatedData**: `fetch_and_validate()` 跨交易所对比数据
-- 返回: `primary_data`, `validation_report`, `anomalies`, `is_valid`
-
-`strategy/backtest/utils.py` — `fetch_data()` 默认使用缓存（`no_cache=False`），并对新拉取的数据自动进行 OKX 交叉验证（`validate=True`）。已缓存数据跳过验证。可用验证源（国内可访问）：okx、gate、htx。
-
-测试：`uv run pytest test/backtest/test_database.py -v`（20个测试）
-
-### 蒙特卡洛模拟与压力测试
-
-`quantforge/backtest/simulation/` 子模块提供策略稳健性评估的统计模拟功能：
-
-| 模块 | 类 | 用途 |
-|------|-----|------|
-| `bootstrap.py` | `BlockBootstrap` | 基于对数收益率的分块自助法重采样（保留厚尾、波动率聚集） |
-| `monte_carlo.py` | `GBMGenerator` | 几何布朗运动路径生成 |
-| `monte_carlo.py` | `JumpDiffusionGenerator` | Merton跳跃扩散（GBM + 泊松跳跃，产生更厚的尾部） |
-| `stress_test.py` | `StressTestGenerator` | 重要性采样：崩盘、暴涨、波动率放大情景 |
-| `stress_test.py` | `StressTestResult` | 数据类：路径、重要性权重、尾部概率 |
-| `report.py` | `SimulationReport` | 分布统计、置信区间、可选matplotlib图表 |
-
-所有类接受 OHLCV DataFrame（DatetimeIndex，列：open/high/low/close/volume），输出相同格式的合成路径列表。GBM/JD 使用 `infer_periods_per_year()` 计算 dt。
-
-```python
-from quantforge.backtest.simulation import (
-    BlockBootstrap, GBMGenerator, JumpDiffusionGenerator,
-    StressTestGenerator, SimulationReport,
-)
-```
-
-测试：`uv run pytest test/backtest/test_simulation.py -v`（23个测试）
+使用者：`quantforge/dsl/indicators.py`、Pine 转译器 TA 计算器。
 
 ## Pine Script 引擎
 
-Pine Script 引擎（`quantforge/pine/`）提供 TradingView 兼容的 Pine Script v5 解析器、解释器和转译器。
+Pine Script 引擎（`quantforge/pine/`）提供 TradingView 兼容的 Pine Script v5 解析器、解释器和转译器。**这是主要的策略层。**
+
+### Pine 策略
+
+所有交易策略以 `.pine` 文件形式存放在 `quantforge/pine/strategies/`：
+
+| 策略 | 文件 | 描述 |
+|------|------|------|
+| 动量 ADX | `momentum_adx.pine` | ROC、EMA、ADX 过滤、ATR 追踪止损的趋势跟踪 |
+| 布林带 | `bollinger_band.pine` | 带趋势 SMA 过滤的布林带均值回归 |
+| 双状态 | `dual_regime.pine` | 自适应：趋势环境用动量，震荡环境用均值回归 |
+| SMA 趋势 | `sma_trend.pine` | 仅做多的日线 SMA 趋势跟踪 |
+| Hurst Kalman | `hurst_kalman.pine` | 统计套利近似（EMA 代理 Kalman 滤波） |
+| EMA 交叉 | `ema_crossover.pine` | 简单 EMA 交叉（快/慢） |
+
+测试固件在 `quantforge/pine/tests/fixtures/`：`ema_cross.pine`、`rsi_strategy.pine`、`rsi_mean_revert.pine`、`macd_cross.pine`、`bb_strategy.pine`、`ema_cross_5_13.pine`
 
 ### Pine CLI
 
@@ -569,12 +223,18 @@ Pine Script 引擎（`quantforge/pine/`）提供 TradingView 兼容的 Pine Scri
 # 在交易所数据上回测 .pine 文件
 python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
 
-# 将 Pine Script 转译为独立可运行的 Python（自动获取数据、计算指标、独立运行回测）
+# 优化输入参数（对 input.int/input.float 范围进行网格搜索）
+python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
+
+# 将 Pine Script 转译为独立 Python
 python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
 python strategy.py  # 独立运行 — 不依赖 Pine 解释器
 
-# 优化输入参数（对 input.int/input.float 范围进行网格搜索）
-python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
+# 实盘交易（模拟/纸上交易）
+python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --demo --symbol BTC/USDT:USDT --timeframe 15m
+
+# 实盘交易（真金白银）
+python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 15m
 ```
 
 ### Pine 转译器
@@ -582,14 +242,12 @@ python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT -
 转译器（`quantforge/pine/transpiler/codegen.py`）生成**自包含的 Python 脚本**：
 - 内嵌与 TradingView 完全一致的 TA 计算器类（EMA 使用 SMA 种子、RSI 使用 Wilder/RMA 平滑等）
 - 使用下一根 K 线开盘价执行语义跟踪仓位和执行订单
-- 通过 ccxt 获取 OHLCV 数据或接受 `list[list]` 格式的 `[timestamp, open, high, low, close, volume]`
+- 通过 ccxt 获取 OHLCV 数据或接受 `list[list]` 格式
 - 独立计算盈亏 — 不依赖 Pine 解释器
 
-**TA 映射**：`ta.ema` → `_EMACalc`、`ta.sma` → `_SMACalc`、`ta.rsi` → `_RSICalc`、`ta.macd` → `_MACDCalc`、`ta.stdev` → `_StdevCalc`、`ta.atr` → `_ATRCalc`、`ta.adx` → `_ADXCalc`、`ta.bb` → `_BBCalc`、`ta.stoch` → `_StochCalc`、`ta.crossover`/`ta.crossunder` → 带前一根 K 线值跟踪的 `_crossover`/`_crossunder`、`ta.highest`/`ta.lowest` → `_HighestCalc`/`_LowestCalc`、`ta.change` → `_ChangeCalc`
+**TA 映射**：`ta.ema` → `_EMACalc`、`ta.sma` → `_SMACalc`、`ta.rsi` → `_RSICalc`、`ta.macd` → `_MACDCalc`、`ta.stdev` → `_StdevCalc`、`ta.atr` → `_ATRCalc`、`ta.adx` → `_ADXCalc`、`ta.bb` → `_BBCalc`、`ta.stoch` → `_StochCalc`、`ta.crossover`/`ta.crossunder` → `_crossover`/`_crossunder`、`ta.highest`/`ta.lowest` → `_HighestCalc`/`_LowestCalc`、`ta.change` → `_ChangeCalc`
 
-**策略映射**：`strategy.entry` → `tracker.queue_entry()`、`strategy.close` → `tracker.queue_close()`（订单在下一根 K 线开盘价执行）
-
-**一致性保证**：转译后的代码在相同数据上产生与 Pine 解释器完全一致的交易和盈亏。通过 21 个一致性测试覆盖 6 个策略（EMA 交叉、MACD、RSI、BB 等）验证。
+**一致性保证**：转译后的代码在相同数据上产生与 Pine 解释器完全一致的交易和盈亏。通过 21 个一致性测试覆盖 6 个策略验证。
 
 ### 支持的 ta.* 函数
 
@@ -603,7 +261,7 @@ python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT -
 
 ### Pine 实盘交易引擎
 
-Pine 解释器**直接**作为实盘交易引擎运行——无需转译。与 TradingView 产生完全交易一致性的同一解释器，在实时 K 线上逐根运行。
+Pine 解释器**直接**作为实盘交易引擎运行——无需转译。
 
 **架构：**
 ```
@@ -617,40 +275,27 @@ QuantForge 交易所连接器（通过 ccxt）
 ```
 
 **关键文件：**
-- `quantforge/pine/live/engine.py` — `PineLiveEngine`：预热 + 实时 K 线循环（智能轮询，精确 bar 定时）
-- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：Pine 信号 → 交易所订单（使用 `CcxtConnector` 提交真实订单）
-- `quantforge/pine/live/connector.py` — 预热 K 线获取 + `CcxtConnector`（通过 ccxt 使用 `settings` 中的 API 密钥提交真实订单）
-- `quantforge/pine/optimize.py` — `extract_pine_inputs()`、`generate_grid()`、`run_optimization()`：对 `input.int`/`input.float` 参数进行网格搜索
+- `quantforge/pine/live/engine.py` — `PineLiveEngine`：预热 + 实时 K 线循环
+- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：Pine 信号 → 交易所订单
+- `quantforge/pine/live/connector.py` — 预热 K 线获取 + `CcxtConnector`
+- `quantforge/pine/optimize.py` — 参数网格搜索优化
 
-**增量执行 API**（添加到 `PineRuntime`）：
-- `init_incremental(script)` — 解析声明，重置指标状态（调用一次）
-- `process_bar(bar) → list[Order]` — 喂入一根 K 线，执行 Pine 脚本，返回新订单
+**增量执行 API**：
+- `init_incremental(script)` — 解析声明，重置指标状态
+- `process_bar(bar) → list[Order]` — 喂入一根 K 线，返回新订单
 - `finalize() → BacktestResult` — 关闭剩余仓位，返回结果
 
-**信号回调**（添加到 `StrategyContext`）：
-- `set_signal_callbacks(on_entry, on_close, on_exit)` — 注册 Pine 脚本下单时触发的回调
-- 被 `OrderBridge` 用于拦截 `strategy.entry/close/exit` 调用
-
-**CLI：**
-```bash
-# 实盘交易（模拟/纸上交易）
-python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --demo --symbol BTC/USDT:USDT --timeframe 15m
-
-# 实盘交易（真金白银）
-python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 15m
-```
-
-**一致性保证：** 11 个测试验证增量逐根执行在所有固定策略（EMA Cross, RSI, MACD, BB）上产生与批量执行完全相同的交易和权益曲线。
+**一致性保证：** 11 个测试验证增量逐根执行产生与批量执行完全相同的交易和权益曲线。
 
 ### Pine 测试
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 103个测试（55个解释器/解析器 + 21个转译器一致性 + 11个实盘引擎 + 16个优化器）
+uv run pytest quantforge/pine/tests/ -v  # 103个测试
 ```
 
 ## 声明式策略 DSL (`quantforge/dsl/`)
 
-简化的声明式API，用 ~15-30 行代码定义交易策略，替代原来每个策略需要 ~400 行跨 4 个文件的方式。这是一个额外的层——现有的 `strategy/strategies/` 系统继续正常工作。
+简化的声明式 Python API，用 ~15-30 行代码定义交易策略。使用 `quantforge/indicators/` 中的流式指标。
 
 ### 快速开始
 
@@ -684,51 +329,55 @@ quantforge/dsl/
 ├── indicators.py        # 指标包装器（crossover/crossunder/历史/回溯）
 ├── registry.py          # 通过元类自动注册
 ├── backtest.py          # 简单回测器，支持1根K线信号延迟
-├── runner.py            # 桥接到现有GenericStrategy实现实盘交易
+├── runner.py            # CLI 运行器
 ├── examples/            # 5个示例策略
-│   ├── ema_cross.py     # EMA交叉（趋势跟踪）
-│   ├── rsi_reversion.py # RSI均值回归
-│   ├── macd_cross.py    # MACD交叉
-│   ├── bb_reversion.py  # 布林带均值回归
-│   └── momentum_adx.py  # 动量+ADX（趋势过滤）
 └── tests/
-    └── test_new_api.py  # 35个测试（一致性、指标、回测、注册）
+    └── test_new_api.py  # 35个测试
 ```
-
-### 核心组件
-
-- **Strategy**: 基类，`setup()` + `on_bar()` API，信号常量（HOLD=0, BUY=1, SELL=-1, CLOSE=2），通过元类自动注册
-- **Param**: 描述符，支持优化网格（`Param(12, min=5, max=30, step=2)`）
-- **Indicator**: 流式指标包装器，支持 `.value`, `.ready`, `.crossover()`, `.crossunder()`, `[n]` 回溯
-- **Bar**: OHLCV数据类，传递给 `on_bar()`
 
 ### 支持的指标
 
-`"ema"`, `"sma"`, `"rsi"`, `"atr"`, `"adx"`, `"bb"`, `"roc"` — 全部复用 `strategy/strategies/_base/streaming.py` 中的 `StreamingXXX` 类
-
-### 回测
-
-```python
-from quantforge.dsl.backtest import backtest
-result = backtest(EMACross, bars, fast_period=8, slow_period=21)
-print(result.total_return_pct, result.trade_count, result.win_rate)
-```
-
-### Pine 转译器集成
-
-```bash
-# 将 Pine Script 转译为 Strategy API 类
-python -m quantforge.pine.cli transpile my_strategy.pine --strategy-api -o strategy.py
-
-# 转译并准备部署
-python -m quantforge.pine.cli deploy my_strategy.pine --exchange bitget --demo
-```
+`"ema"`, `"sma"`, `"rsi"`, `"atr"`, `"adx"`, `"bb"`, `"roc"` — 全部复用 `quantforge/indicators/streaming.py` 中的 `StreamingXXX` 类
 
 ### DSL 测试
 
 ```bash
 uv run pytest quantforge/dsl/tests/ -v  # 35个测试
 ```
+
+## 回测数据基础设施
+
+### 本地数据缓存与多源验证
+
+`quantforge/backtest/data/database.py` 提供 SQLite 缓存层：
+- **KlineDatabase**: 存储 OHLCV 数据至 `~/.quantforge/data/klines.db`
+- API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
+
+`quantforge/backtest/data/cached_provider.py` 提供智能缓存 + 验证：
+- **CachedDataProvider**: `fetch()` 先查缓存，仅拉取缺失区间
+- **ValidatedData**: `fetch_and_validate()` 跨交易所对比数据
+
+### 蒙特卡洛模拟与压力测试
+
+`quantforge/backtest/simulation/` 子模块提供策略稳健性评估的统计模拟功能：
+
+| 模块 | 类 | 用途 |
+|------|-----|------|
+| `bootstrap.py` | `BlockBootstrap` | 分块自助法重采样 |
+| `monte_carlo.py` | `GBMGenerator` | 几何布朗运动路径生成 |
+| `monte_carlo.py` | `JumpDiffusionGenerator` | Merton 跳跃扩散 |
+| `stress_test.py` | `StressTestGenerator` | 崩盘、暴涨、波动率放大情景 |
+| `report.py` | `SimulationReport` | 分布统计、置信区间 |
+
+### 支持的交易所
+
+| 交易所 | CCXT ID | Maker 费率 | Taker 费率 |
+|--------|---------|-----------|-----------|
+| Bitget | `bitget` | 0.02% | 0.05% |
+| Binance | `binance` | 0.02% | 0.04% |
+| OKX | `okx` | 0.02% | 0.05% |
+| Bybit | `bybit` | 0.02% | 0.05% |
+| Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
 
 ## Claude Code 记忆
 

@@ -1,1 +1,0 @@
-"""SMA Trend strategy definition."""

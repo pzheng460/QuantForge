@@ -462,7 +462,7 @@ def _run_deploy(args: argparse.Namespace) -> None:
     print(f"  1. Review the generated strategy: {output_file}")
     print("  2. Import and deploy:")
     print("     from quantforge.dsl.runner import deploy")
-    print(f"     from strategy.pine_strategies.{strategy_name} import *")
+    print(f"     from quantforge.pine.strategies.{strategy_name} import *")
     print("     # Then call deploy() with the strategy class")
 
 

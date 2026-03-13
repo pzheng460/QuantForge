@@ -1,0 +1,45 @@
+//@version=5
+strategy("Momentum ADX", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+roc_period = input.int(10, title="ROC Period", minval=5, maxval=30, step=5)
+ema_fast = input.int(8, title="EMA Fast", minval=3, maxval=20, step=2)
+ema_slow = input.int(21, title="EMA Slow", minval=10, maxval=50, step=5)
+ema_trend = input.int(100, title="EMA Trend", minval=50, maxval=200, step=25)
+adx_period = input.int(14, title="ADX Period", minval=7, maxval=21, step=7)
+adx_threshold = input.int(25, title="ADX Threshold", minval=15, maxval=35, step=5)
+atr_period = input.int(14, title="ATR Period", minval=7, maxval=21, step=7)
+atr_multiplier = input.float(2.5, title="ATR Multiplier", minval=1.0, maxval=4.0, step=0.5)
+roc_threshold = input.float(0.0, title="ROC Threshold")
+vol_period = input.int(20, title="Volume SMA Period")
+vol_threshold = input.float(1.0, title="Volume Threshold")
+
+// --- Indicators ---
+roc_val = ta.roc(close, roc_period)
+fast = ta.ema(close, ema_fast)
+slow = ta.ema(close, ema_slow)
+trend = ta.ema(close, ema_trend)
+adx_val = ta.adx(high, low, close, adx_period)
+atr_val = ta.atr(atr_period)
+vol_sma = ta.sma(volume, vol_period)
+
+// --- Entry conditions ---
+long_entry = roc_val > roc_threshold and fast > slow and close > trend and volume > vol_sma * vol_threshold and adx_val >= adx_threshold
+short_entry = roc_val < -roc_threshold and fast < slow and close < trend and volume > vol_sma * vol_threshold and adx_val >= adx_threshold
+
+if long_entry
+    strategy.entry("Long", strategy.long)
+if short_entry
+    strategy.entry("Short", strategy.short)
+
+// --- Trailing stop via ATR ---
+if strategy.position_size > 0
+    strategy.exit("Long Exit", "Long", trail_points=atr_val * atr_multiplier)
+if strategy.position_size < 0
+    strategy.exit("Short Exit", "Short", trail_points=atr_val * atr_multiplier)
+
+// --- EMA crossover exit ---
+if strategy.position_size > 0 and fast < slow
+    strategy.close("Long")
+if strategy.position_size < 0 and fast > slow
+    strategy.close("Short")

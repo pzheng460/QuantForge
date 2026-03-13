@@ -28,11 +28,47 @@ def _bridge_to_legacy(
     from dataclasses import dataclass, field
     from typing import List
 
-    from strategy.strategies._base.signal_core_base import (
-        HOLD,
-        BaseSignalCore,
-    )
-    from strategy.strategies._base.signal_generator import TradeFilterConfig
+    # Signal constants (inlined from former strategy.strategies._base.signal_core_base)
+    HOLD = 0
+    BUY = 1
+    SELL = -1
+    CLOSE = 2  # noqa: F841
+
+    class _BaseSignalCore:
+        """Minimal base for bridging declarative strategies."""
+        HOLD, BUY, SELL, CLOSE = 0, 1, -1, 2
+
+        def __init__(self, config, min_holding_bars=4, cooldown_bars=2, signal_confirmation=1):
+            self._config = config
+            self._min_holding_bars = min_holding_bars
+            self._cooldown_bars = cooldown_bars
+            self._signal_confirmation = signal_confirmation
+            self.position = 0
+            self.entry_bar = 0
+            self.entry_price = 0.0
+            self.cooldown_until = 0
+            self.signal_count = {BUY: 0, SELL: 0}
+            self.bar_index = 0
+
+        def sync_position(self, pos_int, entry_price=0.0):
+            self.position = pos_int
+            self.entry_price = entry_price if pos_int != 0 else 0.0
+
+        def _reset_position_state(self):
+            self.position = 0
+            self.entry_bar = 0
+            self.entry_price = 0.0
+            self.cooldown_until = 0
+            self.signal_count = {BUY: 0, SELL: 0}
+            self.bar_index = 0
+
+    BaseSignalCore = _BaseSignalCore
+
+    @dataclass
+    class TradeFilterConfig:
+        min_holding_bars: int = 4
+        cooldown_bars: int = 2
+        signal_confirmation: int = 1
 
     # Build a config dataclass dynamically
     config_defaults = {}
@@ -123,9 +159,9 @@ def deploy(
     print(f"Symbol: {symbol}")
     print(f"Timeframe: {strategy_cls.timeframe}")
     print(
-        f"\nTo deploy via existing runner:\n"
-        f"  uv run python -m strategy.runner -S {strategy_name} --mesa {mesa_index} "
-        f"--exchange {exchange}"
+        f"\nTo deploy via Pine CLI:\n"
+        f"  python -m quantforge.pine.cli live <strategy.pine> "
+        f"--exchange {exchange} {'--demo' if demo else '--no-demo --confirm-live'}"
     )
 
 

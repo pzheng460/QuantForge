@@ -196,9 +196,14 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
 
     try:
         from datetime import datetime, timedelta, timezone
-        from strategy.backtest.exchange_profiles import get_profile
-        from strategy.backtest.runner import BacktestRunner, _bh_return_pct, _bootstrap_sharpe_ci
-        from strategy.backtest.utils import PERIODS, fetch_data, fetch_funding_rates
+        raise NotImplementedError(
+            "Python strategy backtest has been removed. Use Pine Script backtesting: "
+            "python -m quantforge.pine.cli backtest <strategy.pine>"
+        )
+        # Legacy imports removed:
+        # from strategy.backtest.exchange_profiles import get_profile
+        # from strategy.backtest.runner import BacktestRunner, _bh_return_pct, _bootstrap_sharpe_ci
+        # from strategy.backtest.utils import PERIODS, fetch_data, fetch_funding_rates
         from quantforge.backtest.analysis.performance import (
             PerformanceAnalyzer,
             infer_periods_per_year,
@@ -455,10 +460,14 @@ async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
     _jobs[job_id]["mode"] = req.mode
 
     try:
-        from datetime import datetime, timedelta, timezone
-        from strategy.backtest.exchange_profiles import get_profile
-        from strategy.backtest.runner import BacktestRunner
-        from strategy.backtest.utils import PERIODS, fetch_data, fetch_funding_rates
+        raise NotImplementedError(
+            "Python strategy optimization has been removed. Use Pine Script optimization: "
+            "python -m quantforge.pine.cli optimize <strategy.pine>"
+        )
+        # Legacy imports removed:
+        # from strategy.backtest.exchange_profiles import get_profile
+        # from strategy.backtest.runner import BacktestRunner
+        # from strategy.backtest.utils import PERIODS, fetch_data, fetch_funding_rates
 
         profile = get_profile(req.exchange)
         symbol = req.symbol or profile.default_symbol
@@ -525,8 +534,9 @@ async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
             _jobs[job_id]["full_result"] = _serialize_three_stage(results)
 
         elif mode == "heatmap":
-            from strategy.backtest.heatmap import HeatmapScanner
-            from strategy.backtest.registry import get_strategy
+            raise NotImplementedError(
+                "Python strategy heatmap has been removed. Use Pine Script optimization."
+            )
             import numpy as np
 
             reg = get_strategy(req.strategy)

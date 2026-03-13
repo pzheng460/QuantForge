@@ -17,7 +17,6 @@ class StreamingEMA:
     """Exponential Moving Average (streaming).
 
     Uses SMA seed for the first `period` values, then recursive EMA update.
-    Matches calculate_ema() in core.py:31-41.
     """
 
     def __init__(self, period: int):
@@ -55,7 +54,6 @@ class StreamingEMA:
 class StreamingATR:
     """Average True Range with Wilder smoothing (streaming).
 
-    Matches calculate_atr() in core.py:61-85.
     - First TR at index 0 uses high-low (no previous close).
     - SMA seed over tr[1..period] (the first `period` TRs that have a prev close).
     - Then Wilder smoothing: atr = (prev_atr * (period-1) + tr) / period.
@@ -82,13 +80,6 @@ class StreamingATR:
             tr = high - low
 
         self._prev_close = close
-
-        # Vectorized core.py uses:
-        #   atr[period] = mean(tr[1:period+1])  (skip index 0, use next `period` TRs)
-        #   atr[period+1..] = Wilder smoothing
-        # So we need `period + 1` bars total before first ATR value.
-        # bars 0..period: collect TRs (bar 0 has no prev_close, bars 1..period have)
-        # At bar `period` (count == period+1): SMA seed = mean(tr[1..period])
 
         if self._count <= self._period + 1:
             self._tr_buffer.append(tr)
@@ -117,7 +108,6 @@ class StreamingROC:
     """Rate of Change (streaming).
 
     ROC = (price - price[n-period]) / price[n-period]
-    Matches calculate_roc() in core.py:50-58.
     """
 
     def __init__(self, period: int):
@@ -150,10 +140,7 @@ class StreamingROC:
 
 
 class StreamingSMA:
-    """Simple Moving Average (streaming).
-
-    Matches calculate_sma() in core.py:88-94.
-    """
+    """Simple Moving Average (streaming)."""
 
     def __init__(self, period: int):
         self._period = int(period)
@@ -182,8 +169,6 @@ class StreamingSMA:
 
 class StreamingADX:
     """Average Directional Index with Wilder smoothing (streaming).
-
-    Matches calculate_adx() in core.py:97-163.
 
     Process:
     1. Compute TR, +DM, -DM per bar (need prev high/low/close)
@@ -219,7 +204,7 @@ class StreamingADX:
         self._count += 1
 
         if self._prev_high is not None:
-            # TR, +DM, -DM (same as core.py:118-128)
+            # TR, +DM, -DM
             hl = high - low
             hc = abs(high - self._prev_close)
             lc = abs(low - self._prev_close)
@@ -233,13 +218,13 @@ class StreamingADX:
             self._dm_init_count += 1
 
             if self._dm_init_count <= self._period:
-                # Accumulate for initial sum (core.py:135-137)
+                # Accumulate for initial sum
                 self._atr_s += tr
                 self._plus_dm_s += plus_dm
                 self._minus_dm_s += minus_dm
 
                 if self._dm_init_count == self._period:
-                    # First smoothed values ready, compute first DX (core.py:146-151)
+                    # First smoothed values ready, compute first DX
                     if self._atr_s > 0:
                         plus_di = 100.0 * self._plus_dm_s / self._atr_s
                         minus_di = 100.0 * self._minus_dm_s / self._atr_s
@@ -251,7 +236,7 @@ class StreamingADX:
                         )
                         self._dx_values.append(dx)
             else:
-                # Wilder smoothing (core.py:139-142)
+                # Wilder smoothing
                 self._atr_s = self._atr_s - self._atr_s / self._period + tr
                 self._plus_dm_s = (
                     self._plus_dm_s - self._plus_dm_s / self._period + plus_dm
@@ -267,11 +252,6 @@ class StreamingADX:
                     dx = 100.0 * abs(plus_di - minus_di) / di_sum if di_sum > 0 else 0.0
                     self._dx_values.append(dx)
 
-                    # ADX seed or smoothing (core.py:154-161)
-                    # Vectorized code places first ADX at index 2*period,
-                    # using DX[period..2*period-1] (first `period` DX values).
-                    # DX at index 2*period (period+1'th DX) is skipped.
-                    # We match by requiring period+1 DX values before seeding.
                     if self._value is None and len(self._dx_values) >= self._period + 1:
                         self._value = (
                             sum(self._dx_values[: self._period]) / self._period
@@ -309,7 +289,6 @@ class StreamingBB:
 
     Maintains a rolling window and computes SMA, upper and lower bands
     using population std (ddof=0).
-    Matches calculate_bollinger_bands() in bollinger_band/core.py.
     """
 
     def __init__(self, period: int = 20, multiplier: float = 2.0):
@@ -359,7 +338,6 @@ class StreamingBB:
 class StreamingRSI:
     """Relative Strength Index with Wilder's smoothing (streaming).
 
-    Matches calculate_rsi() in vwap/core.py.
     - SMA seed for first `period` deltas.
     - Then Wilder smoothing: avg = (prev * (period-1) + current) / period.
     """

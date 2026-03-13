@@ -1,0 +1,41 @@
+//@version=5
+// NOTE: Pine Script does not natively support Kalman filters or Hurst exponent.
+// This strategy approximates the Hurst-Kalman statistical arbitrage approach
+// using available Pine primitives (EMA as Kalman proxy, RSI for mean-reversion signal).
+strategy("Hurst Kalman Approx", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+kalman_period = input.int(20, title="Kalman Proxy Period (EMA)", minval=5, maxval=50, step=5)
+zscore_period = input.int(20, title="Z-Score Lookback", minval=10, maxval=50, step=5)
+zscore_entry = input.float(2.0, title="Z-Score Entry Threshold", minval=1.0, maxval=3.0, step=0.5)
+zscore_exit = input.float(0.5, title="Z-Score Exit Threshold", minval=0.0, maxval=1.5, step=0.25)
+stop_loss_pct = input.float(0.03, title="Stop Loss %", minval=0.01, maxval=0.10, step=0.01)
+
+// --- Kalman proxy: EMA filter ---
+kalman_est = ta.ema(close, kalman_period)
+
+// --- Spread and Z-Score ---
+spread = close - kalman_est
+spread_mean = ta.sma(spread, zscore_period)
+spread_std = ta.stdev(spread, zscore_period)
+zscore = spread_std > 0 ? (spread - spread_mean) / spread_std : 0.0
+
+// --- Mean reversion entries ---
+// Short when price is significantly above fair value (high z-score)
+short_entry = zscore > zscore_entry
+// Long when price is significantly below fair value (low z-score)
+long_entry = zscore < -zscore_entry
+
+// --- Exits: revert to mean ---
+long_exit = zscore > -zscore_exit
+short_exit = zscore < zscore_exit
+
+if long_entry
+    strategy.entry("Long", strategy.long)
+if short_entry
+    strategy.entry("Short", strategy.short)
+
+if strategy.position_size > 0 and long_exit
+    strategy.close("Long")
+if strategy.position_size < 0 and short_exit
+    strategy.close("Short")

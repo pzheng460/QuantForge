@@ -1,7 +1,7 @@
 """Indicator wrappers with crossover/crossunder and history tracking.
 
 Wraps the existing streaming indicator classes from
-strategy/strategies/_base/streaming.py, adding:
+quantforge/indicators/streaming.py, adding:
 - .ready property
 - .crossover(other) / .crossunder(other)
 - [n] lookback indexing
@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Optional
 
-from strategy.strategies._base.streaming import (
+from quantforge.indicators.streaming import (
     StreamingADX,
     StreamingATR,
     StreamingBB,

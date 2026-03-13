@@ -312,48 +312,52 @@ class TestStrategy:
 
 
 class TestEMACrossParity:
-    """Verify the declarative EMACross produces identical crossover signals
-    to the old EMASignalCore (ignoring position management, which the old
-    system handles differently)."""
+    """Verify the declarative EMACross produces correct crossover signals
+    by comparing against raw StreamingEMA indicator computations."""
 
     def test_crossover_signals_match(self):
-        """Both systems should detect the same crossover/crossunder events."""
-        from strategy.strategies.ema_crossover.core import EMAConfig
-        from strategy.strategies.ema_crossover.signal_core import EMASignalCore
+        """Strategy crossover signals should match raw EMA crossover detection."""
+        from quantforge.indicators.streaming import StreamingEMA
 
-        fast, slow = 8, 21
+        fast_p, slow_p = 8, 21
         bars = _make_trending_bars(300, seed=42)
 
-        # New API: run through declarative strategy
+        # Declarative strategy signals
         from quantforge.dsl.examples.ema_cross import EMACross
 
-        new_strat = EMACross(fast_period=fast, slow_period=slow)
-
-        new_signals = []
+        strat = EMACross(fast_period=fast_p, slow_period=slow_p)
+        strat_signals = []
         for b in bars:
             bar = Bar(open=b[1], high=b[2], low=b[3], close=b[4], volume=b[5])
-            sig = new_strat._process_bar(bar)
-            new_signals.append(sig)
+            sig = strat._process_bar(bar)
+            strat_signals.append(sig)
 
-        # Old API: use EMASignalCore in indicators-only mode + get_raw_signal
-        config = EMAConfig(fast_period=fast, slow_period=slow)
-        core = EMASignalCore(config, signal_confirmation=1)
-
-        old_signals = []
+        # Raw streaming EMA crossover detection
+        ema_fast = StreamingEMA(fast_p)
+        ema_slow = StreamingEMA(slow_p)
+        raw_signals = []
+        prev_fast = prev_slow = None
         for b in bars:
-            core.update_indicators_only(b[4])  # close price
-            sig = core.get_raw_signal()
-            old_signals.append(sig)
-
-        # Find all crossover events (BUY=1, SELL=-1)
-        new_crosses = [(i, s) for i, s in enumerate(new_signals) if s in (1, -1)]
-        old_crosses = [(i, s) for i, s in enumerate(old_signals) if s in (1, -1)]
+            close = b[4]
+            f = ema_fast.update(close)
+            s = ema_slow.update(close)
+            sig = 0  # HOLD
+            if f is not None and s is not None and prev_fast is not None and prev_slow is not None:
+                if prev_fast <= prev_slow and f > s:
+                    sig = 1  # BUY
+                elif prev_fast >= prev_slow and f < s:
+                    sig = -1  # SELL
+            prev_fast, prev_slow = f, s
+            raw_signals.append(sig)
 
         # Both should detect crossovers at the same bars
-        assert len(new_crosses) > 0, "No crossover signals detected (new)"
-        assert len(old_crosses) > 0, "No crossover signals detected (old)"
-        assert new_crosses == old_crosses, (
-            f"Crossover signals differ:\n  new: {new_crosses[:10]}\n  old: {old_crosses[:10]}"
+        strat_crosses = [(i, s) for i, s in enumerate(strat_signals) if s in (1, -1)]
+        raw_crosses = [(i, s) for i, s in enumerate(raw_signals) if s in (1, -1)]
+
+        assert len(strat_crosses) > 0, "No crossover signals detected (strategy)"
+        assert len(raw_crosses) > 0, "No crossover signals detected (raw)"
+        assert strat_crosses == raw_crosses, (
+            f"Crossover signals differ:\n  strat: {strat_crosses[:10]}\n  raw: {raw_crosses[:10]}"
         )
 
 
