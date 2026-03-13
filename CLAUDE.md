@@ -613,6 +613,88 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 uv run pytest quantforge/pine/tests/ -v  # 76 tests (55 interpreter/parser + 21 transpiler parity)
 ```
 
+## Declarative Strategy DSL (`quantforge/dsl/`)
+
+A simplified, declarative API for defining trading strategies in ~15-30 lines instead of ~400 lines across 4 files. This is an additional layer — the existing `strategy/strategies/` system continues to work unchanged.
+
+### Quick Start
+
+```python
+from quantforge.dsl import Strategy, Param
+
+class EMACross(Strategy):
+    name = "decl_ema_crossover"
+    timeframe = "15m"
+    fast_period = Param(12, min=5, max=30, step=2)
+    slow_period = Param(26, min=15, max=60, step=5)
+
+    def setup(self):
+        self.ema_fast = self.add_indicator("ema", self.fast_period)
+        self.ema_slow = self.add_indicator("ema", self.slow_period)
+
+    def on_bar(self, bar):
+        if self.ema_fast.crossover(self.ema_slow):
+            return self.BUY
+        if self.ema_fast.crossunder(self.ema_slow):
+            return self.SELL
+        return self.HOLD
+```
+
+### Package Structure
+
+```
+quantforge/dsl/
+├── __init__.py          # Public API: Strategy, Param, Bar, Indicator
+├── api.py               # Strategy base class, Param descriptor, Bar dataclass
+├── indicators.py        # Indicator wrapper (crossover/crossunder/history/lookback)
+├── registry.py          # Auto-registration via metaclass
+├── backtest.py          # Simple backtester with 1-bar signal delay
+├── runner.py            # Bridge to existing GenericStrategy for live trading
+├── examples/            # 5 example strategies
+│   ├── ema_cross.py     # EMA Crossover (trend following)
+│   ├── rsi_reversion.py # RSI Mean Reversion
+│   ├── macd_cross.py    # MACD Crossover
+│   ├── bb_reversion.py  # Bollinger Bands Mean Reversion
+│   └── momentum_adx.py  # Momentum + ADX (regime-filtered)
+└── tests/
+    └── test_new_api.py  # 35 tests (parity, indicators, backtest, registration)
+```
+
+### Key Components
+
+- **Strategy**: Base class with `setup()` + `on_bar()` API, signal constants (HOLD=0, BUY=1, SELL=-1, CLOSE=2), auto-registration via metaclass
+- **Param**: Descriptor with optimization grid support (`Param(12, min=5, max=30, step=2)`)
+- **Indicator**: Wrapper around streaming indicators with `.value`, `.ready`, `.crossover()`, `.crossunder()`, `[n]` lookback
+- **Bar**: OHLCV dataclass passed to `on_bar()`
+
+### Supported Indicators
+
+`"ema"`, `"sma"`, `"rsi"`, `"atr"`, `"adx"`, `"bb"`, `"roc"` — all reuse `StreamingXXX` classes from `strategy/strategies/_base/streaming.py`
+
+### Backtest
+
+```python
+from quantforge.dsl.backtest import backtest
+result = backtest(EMACross, bars, fast_period=8, slow_period=21)
+print(result.total_return_pct, result.trade_count, result.win_rate)
+```
+
+### Pine Transpiler Integration
+
+```bash
+# Transpile Pine Script to Strategy API class
+python -m quantforge.pine.cli transpile my_strategy.pine --strategy-api -o strategy.py
+
+# Transpile and prepare for deployment
+python -m quantforge.pine.cli deploy my_strategy.pine --exchange bitget --demo
+```
+
+### DSL Tests
+
+```bash
+uv run pytest quantforge/dsl/tests/ -v  # 35 tests
+```
+
 ## Claude Code Memories
 
 ### Workflow Rules

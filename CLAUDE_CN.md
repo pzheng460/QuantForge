@@ -604,6 +604,88 @@ python strategy.py  # 独立运行 — 不依赖 Pine 解释器
 uv run pytest quantforge/pine/tests/ -v  # 76个测试（55个解释器/解析器 + 21个转译器一致性）
 ```
 
+## 声明式策略 DSL (`quantforge/dsl/`)
+
+简化的声明式API，用 ~15-30 行代码定义交易策略，替代原来每个策略需要 ~400 行跨 4 个文件的方式。这是一个额外的层——现有的 `strategy/strategies/` 系统继续正常工作。
+
+### 快速开始
+
+```python
+from quantforge.dsl import Strategy, Param
+
+class EMACross(Strategy):
+    name = "decl_ema_crossover"
+    timeframe = "15m"
+    fast_period = Param(12, min=5, max=30, step=2)
+    slow_period = Param(26, min=15, max=60, step=5)
+
+    def setup(self):
+        self.ema_fast = self.add_indicator("ema", self.fast_period)
+        self.ema_slow = self.add_indicator("ema", self.slow_period)
+
+    def on_bar(self, bar):
+        if self.ema_fast.crossover(self.ema_slow):
+            return self.BUY
+        if self.ema_fast.crossunder(self.ema_slow):
+            return self.SELL
+        return self.HOLD
+```
+
+### 包结构
+
+```
+quantforge/dsl/
+├── __init__.py          # 公共API: Strategy, Param, Bar, Indicator
+├── api.py               # Strategy基类, Param描述符, Bar数据类
+├── indicators.py        # 指标包装器（crossover/crossunder/历史/回溯）
+├── registry.py          # 通过元类自动注册
+├── backtest.py          # 简单回测器，支持1根K线信号延迟
+├── runner.py            # 桥接到现有GenericStrategy实现实盘交易
+├── examples/            # 5个示例策略
+│   ├── ema_cross.py     # EMA交叉（趋势跟踪）
+│   ├── rsi_reversion.py # RSI均值回归
+│   ├── macd_cross.py    # MACD交叉
+│   ├── bb_reversion.py  # 布林带均值回归
+│   └── momentum_adx.py  # 动量+ADX（趋势过滤）
+└── tests/
+    └── test_new_api.py  # 35个测试（一致性、指标、回测、注册）
+```
+
+### 核心组件
+
+- **Strategy**: 基类，`setup()` + `on_bar()` API，信号常量（HOLD=0, BUY=1, SELL=-1, CLOSE=2），通过元类自动注册
+- **Param**: 描述符，支持优化网格（`Param(12, min=5, max=30, step=2)`）
+- **Indicator**: 流式指标包装器，支持 `.value`, `.ready`, `.crossover()`, `.crossunder()`, `[n]` 回溯
+- **Bar**: OHLCV数据类，传递给 `on_bar()`
+
+### 支持的指标
+
+`"ema"`, `"sma"`, `"rsi"`, `"atr"`, `"adx"`, `"bb"`, `"roc"` — 全部复用 `strategy/strategies/_base/streaming.py` 中的 `StreamingXXX` 类
+
+### 回测
+
+```python
+from quantforge.dsl.backtest import backtest
+result = backtest(EMACross, bars, fast_period=8, slow_period=21)
+print(result.total_return_pct, result.trade_count, result.win_rate)
+```
+
+### Pine 转译器集成
+
+```bash
+# 将 Pine Script 转译为 Strategy API 类
+python -m quantforge.pine.cli transpile my_strategy.pine --strategy-api -o strategy.py
+
+# 转译并准备部署
+python -m quantforge.pine.cli deploy my_strategy.pine --exchange bitget --demo
+```
+
+### DSL 测试
+
+```bash
+uv run pytest quantforge/dsl/tests/ -v  # 35个测试
+```
+
 ## Claude Code 记忆
 
 ### 工作规范

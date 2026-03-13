@@ -1,8 +1,10 @@
-"""Pine Script CLI — parse, backtest, and transpile Pine scripts.
+"""Pine Script CLI — parse, backtest, transpile, and deploy Pine scripts.
 
 Usage:
     python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m
     python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
+    python -m quantforge.pine.cli transpile my_strategy.pine --strategy-api --output strategy.py
+    python -m quantforge.pine.cli deploy my_strategy.pine --exchange bitget --demo --symbol BTCUSDT-PERP
 """
 
 from __future__ import annotations
@@ -181,7 +183,6 @@ def _run_backtest(args: argparse.Namespace) -> None:
 def _run_transpile(args: argparse.Namespace) -> None:
     """Transpile Pine Script to Python."""
     from quantforge.pine.parser.parser import parse
-    from quantforge.pine.transpiler.codegen import transpile
 
     pine_file = Path(args.pine_file)
     if not pine_file.exists():
@@ -190,20 +191,113 @@ def _run_transpile(args: argparse.Namespace) -> None:
 
     source = pine_file.read_text()
     ast = parse(source)
-    python_code = transpile(ast, pine_source=source)
+
+    if args.strategy_api:
+        from quantforge.pine.transpiler.codegen import transpile_strategy_api
+
+        python_code = transpile_strategy_api(ast, pine_source=source)
+    else:
+        from quantforge.pine.transpiler.codegen import transpile
+
+        python_code = transpile(ast, pine_source=source)
 
     if args.output:
         output = Path(args.output)
         output.write_text(python_code)
-        print(f"Transpiled to {output}")
+        mode = "Strategy API" if args.strategy_api else "standalone"
+        print(f"Transpiled to {output} ({mode})")
     else:
         print(python_code)
+
+
+def _run_live(args: argparse.Namespace) -> None:
+    """Run Pine Script as a live trading engine."""
+    import asyncio
+
+    from quantforge.pine.live.engine import PineLiveEngine
+
+    pine_file = Path(args.pine_file)
+    if not pine_file.exists():
+        print(f"Error: file '{pine_file}' not found")
+        sys.exit(1)
+
+    source = pine_file.read_text()
+
+    if not args.demo and not args.confirm_live:
+        print("Error: live trading requires --confirm-live flag")
+        print("Add --confirm-live to acknowledge real money trading")
+        sys.exit(1)
+
+    mode_str = "DEMO" if args.demo else "LIVE"
+    print(f"Pine Live Engine — {mode_str} mode")
+    print(f"  Strategy: {pine_file.name}")
+    print(f"  Symbol:   {args.symbol}")
+    print(f"  Exchange: {args.exchange}")
+    print(f"  Timeframe: {args.timeframe}")
+    print(f"  Warmup:   {args.warmup_bars} bars")
+    print()
+
+    engine = PineLiveEngine(
+        pine_source=source,
+        exchange=args.exchange,
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        demo=args.demo,
+        warmup_bars=args.warmup_bars,
+        position_size_usdt=args.position_size,
+    )
+
+    try:
+        asyncio.run(engine.start())
+    except KeyboardInterrupt:
+        print("\nStopping...")
+        asyncio.run(engine.stop())
+        print(f"Processed {engine.bars_processed} bars total")
+        if engine.bridge:
+            print(f"Signals captured: {len(engine.bridge.signals)}")
+
+
+def _run_deploy(args: argparse.Namespace) -> None:
+    """Transpile Pine Script to Strategy API and prepare for live trading."""
+    from quantforge.pine.parser.parser import parse
+    from quantforge.pine.transpiler.codegen import transpile_strategy_api
+
+    pine_file = Path(args.pine_file)
+    if not pine_file.exists():
+        print(f"Error: file '{pine_file}' not found")
+        sys.exit(1)
+
+    source = pine_file.read_text()
+    ast = parse(source)
+
+    # Generate Strategy API code
+    python_code = transpile_strategy_api(ast, pine_source=source)
+
+    # Save to strategy/pine_strategies/
+    output_dir = Path("strategy/pine_strategies")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    strategy_name = pine_file.stem.replace("-", "_").replace(" ", "_")
+    output_file = output_dir / f"{strategy_name}.py"
+    output_file.write_text(python_code)
+    print(f"Transpiled to {output_file}")
+
+    # Show deployment instructions
+    print(f"\nStrategy saved to {output_file}")
+    print(f"Exchange: {args.exchange} ({'demo' if args.demo else 'live'})")
+    print(f"Symbol: {args.symbol}")
+    print("\nTo run live trading:")
+    print(f"  1. Review the generated strategy: {output_file}")
+    print("  2. Import and deploy:")
+    print("     from quantforge.dsl.runner import deploy")
+    print(f"     from strategy.pine_strategies.{strategy_name} import *")
+    print("     # Then call deploy() with the strategy class")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="quantforge-pine",
-        description="QuantForge Pine Script engine — parse, backtest, and transpile",
+        description="QuantForge Pine Script engine — parse, backtest, transpile, and deploy",
     )
     sub = parser.add_subparsers(dest="command", help="Command to run")
 
@@ -232,6 +326,63 @@ def main() -> None:
     tp = sub.add_parser("transpile", help="Transpile Pine Script to Python")
     tp.add_argument("pine_file", help="Path to .pine file")
     tp.add_argument("--output", "-o", help="Output Python file (default: stdout)")
+    tp.add_argument(
+        "--strategy-api",
+        action="store_true",
+        help="Generate quantforge.dsl.Strategy subclass (default: standalone script)",
+    )
+
+    # live subcommand
+    lv = sub.add_parser("live", help="Run Pine Script as a live trading engine")
+    lv.add_argument("pine_file", help="Path to .pine file")
+    lv.add_argument(
+        "--exchange", default="bitget", help="Exchange id (default: bitget)"
+    )
+    lv.add_argument(
+        "--symbol",
+        default="BTC/USDT:USDT",
+        help="Trading symbol (default: BTC/USDT:USDT)",
+    )
+    lv.add_argument("--timeframe", default="15m", help="Kline timeframe (default: 15m)")
+    lv.add_argument(
+        "--demo", action="store_true", default=True, help="Demo/paper mode (default)"
+    )
+    lv.add_argument(
+        "--no-demo",
+        dest="demo",
+        action="store_false",
+        help="Disable demo mode (real money)",
+    )
+    lv.add_argument(
+        "--confirm-live",
+        action="store_true",
+        default=False,
+        help="Required flag for real money trading",
+    )
+    lv.add_argument(
+        "--warmup-bars", type=int, default=500, help="Warmup bar count (default: 500)"
+    )
+    lv.add_argument(
+        "--position-size",
+        type=float,
+        default=100.0,
+        help="Position size in USDT (default: 100)",
+    )
+
+    # deploy subcommand
+    dp = sub.add_parser(
+        "deploy", help="Transpile Pine Script and prepare for live trading"
+    )
+    dp.add_argument("pine_file", help="Path to .pine file")
+    dp.add_argument("--exchange", default="bitget", help="Exchange (default: bitget)")
+    dp.add_argument(
+        "--demo", action="store_true", default=True, help="Use demo/testnet mode"
+    )
+    dp.add_argument(
+        "--symbol",
+        default="BTCUSDT-PERP",
+        help="Trading symbol (default: BTCUSDT-PERP)",
+    )
 
     parsed = parser.parse_args()
 
@@ -239,6 +390,10 @@ def main() -> None:
         _run_backtest(parsed)
     elif parsed.command == "transpile":
         _run_transpile(parsed)
+    elif parsed.command == "live":
+        _run_live(parsed)
+    elif parsed.command == "deploy":
+        _run_deploy(parsed)
     else:
         parser.print_help()
         sys.exit(1)

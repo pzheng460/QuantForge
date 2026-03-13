@@ -108,6 +108,78 @@ class PineRuntime:
 
         return self._build_result()
 
+    # ------------------------------------------------------------------
+    # Incremental (live / streaming) execution API
+    # ------------------------------------------------------------------
+
+    def init_incremental(self, script: Script) -> None:
+        """Prepare for bar-by-bar incremental execution.
+
+        Call this once, then call ``process_bar`` for each new bar.
+        The existing ``run()`` method is NOT affected.
+        """
+        ta.reset_calculators(id(self.ctx))
+
+        # Process declarations (strategy() / indicator())
+        for decl in script.declarations:
+            self._eval_declaration(decl)
+
+        self._script = script
+        self._incremental_ready = True
+
+    def process_bar(self, bar: BarData) -> list:
+        """Process a single bar incrementally.
+
+        Returns a list of ``Order`` objects that were *placed* during this bar
+        (these will execute at next bar's open in backtest semantics, but the
+        live engine may route them immediately).
+        """
+        assert getattr(self, "_incremental_ready", False), (
+            "call init_incremental() before process_bar()"
+        )
+
+        # 1. Push the bar into context
+        self.ctx.push_bar(bar)
+
+        # 2. Execute pending orders from PREVIOUS bar at this bar's open
+        if self.strategy_ctx and self.ctx.bar_index > 0:
+            self.strategy_ctx.execute_pending(bar.open, self.ctx.bar_index)
+
+        # 3. Snapshot pending orders *before* script body to detect new ones
+        pending_before = len(self.strategy_ctx.pending_orders) if self.strategy_ctx else 0
+
+        # 4. Execute script body
+        for stmt in self._script.body:
+            self._exec(stmt)
+
+        # 5. Update equity
+        if self.strategy_ctx:
+            self.strategy_ctx.update_equity(bar.close)
+
+        # 6. Collect new orders placed during this bar
+        new_orders: list = []
+        if self.strategy_ctx:
+            new_orders = list(self.strategy_ctx.pending_orders[pending_before:])
+
+        return new_orders
+
+    def finalize(self) -> "BacktestResult":
+        """Close remaining positions and return results.
+
+        Call after all bars have been processed via ``process_bar``.
+        """
+        if self.strategy_ctx and not self.strategy_ctx.position.is_flat:
+            last_bar = self.ctx.current_bar
+            if last_bar:
+                # bar_index + 1 matches batch mode where advance_bar()
+                # increments past the last bar before the end-of-data close.
+                self.strategy_ctx._close_position(
+                    last_bar.close, self.ctx.bar_index + 1, comment="end_of_data"
+                )
+        return self._build_result()
+
+    # ------------------------------------------------------------------
+
     def _build_result(self) -> BacktestResult:
         if not self.strategy_ctx:
             return BacktestResult()

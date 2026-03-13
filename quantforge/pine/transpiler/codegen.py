@@ -1571,3 +1571,552 @@ class PineCodeGen:
 def transpile(script: Script, pine_source: str = "") -> str:
     """Transpile a Pine Script AST to standalone Python strategy code."""
     return PineCodeGen().generate(script, pine_source=pine_source)
+
+
+# ---------------------------------------------------------------------------
+# Strategy API transpiler — generates quantforge.dsl.Strategy subclass
+# ---------------------------------------------------------------------------
+
+# Maps Pine ta.* calls to (quantforge indicator name, takes_source)
+_STRATEGY_API_INDICATOR_MAP: dict[str, tuple[str, bool]] = {
+    "ta.ema": ("ema", True),
+    "ta.sma": ("sma", True),
+    "ta.rsi": ("rsi", True),
+    "ta.atr": ("atr", False),
+    "ta.adx": ("adx", False),
+    "ta.bb": ("bb", True),
+    "ta.roc": ("roc", True),
+}
+
+
+class PineStrategyAPICodeGen:
+    """Transpile Pine AST to a quantforge.dsl.Strategy subclass.
+
+    Generates compact, readable code using the declarative Strategy API.
+    Supports: ta.ema, ta.sma, ta.rsi, ta.atr, ta.adx, ta.bb, ta.roc,
+    ta.crossover, ta.crossunder, strategy.entry, strategy.close.
+    """
+
+    def __init__(self) -> None:
+        self._lines: list[str] = []
+        self._indent = 0
+        self._strategy_name = "PineStrategy"
+        self._initial_capital = 100000.0
+        self._inputs: list[dict] = []
+        self._input_names: set[str] = set()
+        self._indicators: list[dict] = []  # {var, type, args, source}
+        self._crossover_pairs: list[dict] = []  # {func, arg_a, arg_b, var_name}
+        self._has_entry = False
+        self._has_close = False
+        # Track which assignment target maps to which indicator var
+        self._var_to_indicator: dict[str, str] = {}
+
+    def generate(self, script: Script, pine_source: str = "") -> str:
+        """Generate a Strategy subclass from Pine AST."""
+        self._lines = []
+        self._indent = 0
+
+        # Phase 1: extract metadata
+        self._extract_metadata(script, pine_source)
+
+        # Phase 2: scan for indicators, inputs, strategy calls
+        for stmt in script.body:
+            self._scan(stmt)
+
+        # Phase 3: generate Strategy class
+        self._emit_code(script)
+
+        return "\n".join(self._lines)
+
+    def _extract_metadata(self, script: Script, pine_source: str = "") -> None:
+        for decl in script.declarations:
+            if isinstance(decl, StrategyDecl):
+                title = decl.kwargs.get("title")
+                if title and isinstance(title, StringLiteral):
+                    raw = title.value.replace(" ", "_").replace("-", "_")
+                    self._strategy_name = "".join(
+                        c for c in raw if c.isalnum() or c == "_"
+                    )
+                cap = decl.kwargs.get("initial_capital")
+                if cap and isinstance(cap, NumberLiteral):
+                    self._initial_capital = cap.value
+
+        if self._strategy_name == "PineStrategy" and pine_source:
+            m = re.search(r'strategy\(\s*"([^"]+)"', pine_source)
+            if not m:
+                m = re.search(r"strategy\(\s*'([^']+)'", pine_source)
+            if m:
+                raw = m.group(1).replace(" ", "_").replace("-", "_").replace("/", "_")
+                self._strategy_name = "".join(c for c in raw if c.isalnum() or c == "_")
+
+    def _scan(self, node: ASTNode) -> None:
+        """Walk AST collecting indicators, inputs, crossovers, strategy calls."""
+        if isinstance(node, Assignment):
+            if isinstance(node.value, FunctionCall):
+                fname = self._resolve_name(node.value.func)
+
+                # Input declarations
+                if fname.startswith("input."):
+                    inp = self._make_input(fname, node.value)
+                    if inp:
+                        inp["name"] = node.target
+                        if not any(i["name"] == node.target for i in self._inputs):
+                            self._inputs.append(inp)
+                            self._input_names.add(node.target)
+                    return
+
+                # TA indicator assignments
+                if fname in _STRATEGY_API_INDICATOR_MAP:
+                    ind_name, has_source = _STRATEGY_API_INDICATOR_MAP[fname]
+                    args = []
+                    param_args = (
+                        node.value.args[1:] if has_source else list(node.value.args)
+                    )
+                    for arg in param_args:
+                        args.append(self._eval_literal_or_name(arg))
+                    self._indicators.append(
+                        {
+                            "var": node.target,
+                            "type": ind_name,
+                            "args": args,
+                        }
+                    )
+                    self._var_to_indicator[node.target] = node.target
+                    return
+
+            self._scan(node.value)
+
+        elif isinstance(node, TupleAssignment):
+            self._scan(node.value)
+
+        elif isinstance(node, FunctionCall):
+            fname = self._resolve_name(node.func)
+            if fname == "strategy.entry":
+                self._has_entry = True
+            elif fname == "strategy.close":
+                self._has_close = True
+
+            for arg in node.args:
+                self._scan(arg)
+            for v in node.kwargs.values():
+                self._scan(v)
+
+        elif isinstance(node, IfExpr):
+            self._scan(node.condition)
+            for stmt in node.body:
+                self._scan(stmt)
+            for cond, body in node.elseif_clauses:
+                self._scan(cond)
+                for stmt in body:
+                    self._scan(stmt)
+            if node.else_body:
+                for stmt in node.else_body:
+                    self._scan(stmt)
+
+        elif isinstance(node, BinOp):
+            self._scan(node.left)
+            self._scan(node.right)
+
+        elif isinstance(node, UnaryOp):
+            self._scan(node.operand)
+
+        elif isinstance(node, TernaryOp):
+            self._scan(node.condition)
+            self._scan(node.true_expr)
+            self._scan(node.false_expr)
+
+        elif isinstance(node, ForLoop):
+            for stmt in node.body:
+                self._scan(stmt)
+
+        elif isinstance(node, WhileLoop):
+            self._scan(node.condition)
+            for stmt in node.body:
+                self._scan(stmt)
+
+    def _emit_code(self, script: Script) -> None:
+        """Generate the Strategy API class code."""
+        # Header
+        self._emit(
+            '"""Auto-generated Strategy from Pine Script by QuantForge transpiler."""'
+        )
+        self._emit("")
+        self._emit("from quantforge.dsl import Strategy, Param")
+        self._emit("")
+        self._emit("")
+
+        # Class name: CamelCase from strategy name
+        class_name = "".join(
+            word.capitalize() for word in self._strategy_name.split("_")
+        )
+        if not class_name:
+            class_name = "PineStrategy"
+
+        self._emit(f"class {class_name}(Strategy):")
+        self._indent += 1
+        self._emit(f'"""Transpiled from Pine Script: {self._strategy_name}."""')
+        self._emit("")
+
+        # Class attributes
+        snake_name = self._strategy_name.lower()
+        self._emit(f'name = "pine_{snake_name}"')
+        self._emit('timeframe = "15m"')
+        self._emit("")
+
+        # Params from inputs
+        if self._inputs:
+            self._emit("# Parameters (from Pine Script inputs)")
+            for inp in self._inputs:
+                default = inp["default"]
+                if default is None:
+                    default = 0
+                self._emit(f"{inp['name']} = Param({default!r})")
+            self._emit("")
+
+        # setup()
+        self._emit("def setup(self):")
+        self._indent += 1
+        if self._indicators:
+            for ind in self._indicators:
+                args_str = ", ".join(
+                    f"self.{a}"
+                    if isinstance(a, str) and a in self._input_names
+                    else repr(a)
+                    for a in ind["args"]
+                )
+                if args_str:
+                    self._emit(
+                        f'self.{ind["var"]} = self.add_indicator("{ind["type"]}", {args_str})'
+                    )
+                else:
+                    self._emit(
+                        f'self.{ind["var"]} = self.add_indicator("{ind["type"]}")'
+                    )
+        else:
+            self._emit("pass")
+        self._indent -= 1
+        self._emit("")
+
+        # on_bar()
+        self._emit("def on_bar(self, bar):")
+        self._indent += 1
+
+        # Check readiness
+        if self._indicators:
+            ready_checks = " or ".join(
+                f"not self.{ind['var']}.ready" for ind in self._indicators
+            )
+            self._emit(f"if {ready_checks}:")
+            self._emit("    return self.HOLD")
+            self._emit("")
+
+        # Generate signal logic from body
+        self._gen_on_bar_body(script)
+
+        self._emit("")
+        self._emit("return self.HOLD")
+        self._indent -= 1
+
+        self._indent -= 1  # end class
+
+    def _gen_on_bar_body(self, script: Script) -> None:
+        """Generate the on_bar body from Pine strategy logic."""
+        for stmt in script.body:
+            if isinstance(stmt, Assignment):
+                fname = ""
+                if isinstance(stmt.value, FunctionCall):
+                    fname = self._resolve_name(stmt.value.func)
+
+                # Skip input and indicator assignments (handled in setup)
+                if fname.startswith("input.") or fname in _STRATEGY_API_INDICATOR_MAP:
+                    continue
+                # Skip no-op assignments
+                if fname in _NOOP_FUNCS:
+                    continue
+
+                # Regular assignments
+                expr = self._gen_expr(stmt.value)
+                self._emit(f"{stmt.target} = {expr}")
+
+            elif isinstance(stmt, IfExpr):
+                self._gen_if_stmt(stmt)
+
+            elif isinstance(stmt, FunctionCall):
+                fname = self._resolve_name(stmt.func)
+                if fname in _NOOP_FUNCS:
+                    continue
+                code = self._gen_expr(stmt)
+                if code and code != "None":
+                    self._emit(code)
+
+    def _gen_if_stmt(self, node: IfExpr) -> None:
+        """Generate if statement, mapping strategy.entry/close to return signals."""
+        cond = self._gen_expr(node.condition)
+        self._emit(f"if {cond}:")
+        self._indent += 1
+        has_content = False
+        for stmt in node.body:
+            code = self._gen_body_stmt(stmt)
+            if code:
+                self._emit(code)
+                has_content = True
+        if not has_content:
+            self._emit("pass")
+        self._indent -= 1
+
+        for elseif_cond, elseif_body in node.elseif_clauses:
+            self._emit(f"elif {self._gen_expr(elseif_cond)}:")
+            self._indent += 1
+            has_content = False
+            for stmt in elseif_body:
+                code = self._gen_body_stmt(stmt)
+                if code:
+                    self._emit(code)
+                    has_content = True
+            if not has_content:
+                self._emit("pass")
+            self._indent -= 1
+
+        if node.else_body:
+            self._emit("else:")
+            self._indent += 1
+            has_content = False
+            for stmt in node.else_body:
+                code = self._gen_body_stmt(stmt)
+                if code:
+                    self._emit(code)
+                    has_content = True
+            if not has_content:
+                self._emit("pass")
+            self._indent -= 1
+
+    def _gen_body_stmt(self, stmt: ASTNode) -> str | None:
+        """Generate a statement inside an if block, mapping strategy calls to return signals."""
+        if isinstance(stmt, FunctionCall):
+            fname = self._resolve_name(stmt.func)
+            if fname == "strategy.entry":
+                direction = self._get_entry_direction(stmt)
+                if direction == "long":
+                    return "return self.BUY"
+                else:
+                    return "return self.SELL"
+            elif fname == "strategy.close":
+                return "return self.CLOSE"
+            elif fname == "strategy.close_all":
+                return "return self.CLOSE"
+            elif fname in _NOOP_FUNCS:
+                return None
+            return self._gen_expr(stmt)
+
+        if isinstance(stmt, IfExpr):
+            # Nested if — emit inline
+            self._gen_if_stmt(stmt)
+            return None
+
+        if isinstance(stmt, Assignment):
+            expr = self._gen_expr(stmt.value)
+            return f"{stmt.target} = {expr}"
+
+        return None
+
+    def _get_entry_direction(self, node: FunctionCall) -> str:
+        """Extract direction from strategy.entry() call."""
+        if len(node.args) > 1:
+            dir_node = node.args[1]
+            if isinstance(dir_node, MemberAccess):
+                full = self._resolve_name(dir_node)
+                if "short" in full:
+                    return "short"
+            if isinstance(dir_node, StringLiteral):
+                return dir_node.value
+        direction = node.kwargs.get("direction")
+        if direction:
+            if isinstance(direction, MemberAccess):
+                full = self._resolve_name(direction)
+                if "short" in full:
+                    return "short"
+            if isinstance(direction, StringLiteral):
+                return direction.value
+        return "long"
+
+    def _gen_expr(self, node: ASTNode | None) -> str:
+        """Generate a Python expression from an AST node."""
+        if node is None:
+            return "None"
+
+        if isinstance(node, NumberLiteral):
+            v = node.value
+            return repr(int(v)) if v == int(v) else repr(v)
+
+        if isinstance(node, StringLiteral):
+            return repr(node.value)
+
+        if isinstance(node, BoolLiteral):
+            return "True" if node.value else "False"
+
+        if isinstance(node, NaLiteral):
+            return "None"
+
+        if isinstance(node, ColorLiteral):
+            return repr(node.value)
+
+        if isinstance(node, Identifier):
+            name = node.name
+            # Map indicator variables to self.X.value
+            if name in self._var_to_indicator:
+                return f"self.{name}.value"
+            # Map bar fields
+            bar_map = {
+                "close": "bar.close",
+                "open": "bar.open",
+                "high": "bar.high",
+                "low": "bar.low",
+                "volume": "bar.volume",
+            }
+            if name in bar_map:
+                return bar_map[name]
+            # Input params
+            if name in self._input_names:
+                return f"self.{name}"
+            return name
+
+        if isinstance(node, MemberAccess):
+            full = self._resolve_name(node)
+            if full in _STRATEGY_CONST_MAP:
+                return _STRATEGY_CONST_MAP[full]
+            obj_str = self._gen_expr(node.obj)
+            return f"{obj_str}.{node.member}"
+
+        if isinstance(node, BinOp):
+            left = self._gen_expr(node.left)
+            right = self._gen_expr(node.right)
+            op = node.op
+            return f"({left} {op} {right})"
+
+        if isinstance(node, UnaryOp):
+            operand = self._gen_expr(node.operand)
+            if node.op == "not":
+                return f"(not {operand})"
+            return f"({node.op}{operand})"
+
+        if isinstance(node, TernaryOp):
+            cond = self._gen_expr(node.condition)
+            true_e = self._gen_expr(node.true_expr)
+            false_e = self._gen_expr(node.false_expr)
+            return f"({true_e} if {cond} else {false_e})"
+
+        if isinstance(node, FunctionCall):
+            return self._gen_func_expr(node)
+
+        return "None"
+
+    def _gen_func_expr(self, node: FunctionCall) -> str:
+        """Generate a function call expression."""
+        fname = self._resolve_name(node.func)
+
+        # ta.crossover/crossunder → indicator.crossover(other)
+        if fname == "ta.crossover" and len(node.args) >= 2:
+            a = self._get_indicator_ref(node.args[0])
+            b = self._get_indicator_ref(node.args[1])
+            if a and b:
+                return f"self.{a}.crossover(self.{b})"
+            # Fallback: value comparison
+            return f"({self._gen_expr(node.args[0])} > {self._gen_expr(node.args[1])})"
+
+        if fname == "ta.crossunder" and len(node.args) >= 2:
+            a = self._get_indicator_ref(node.args[0])
+            b = self._get_indicator_ref(node.args[1])
+            if a and b:
+                return f"self.{a}.crossunder(self.{b})"
+            return f"({self._gen_expr(node.args[0])} < {self._gen_expr(node.args[1])})"
+
+        # TA functions that are indicators — use .value
+        if fname in _STRATEGY_API_INDICATOR_MAP and id(node) in self._var_to_indicator:
+            var = self._var_to_indicator[id(node)]
+            return f"self.{var}.value"
+
+        if fname in _NOOP_FUNCS:
+            return "None"
+
+        # Built-in helpers
+        if fname == "nz":
+            val = self._gen_expr(node.args[0]) if node.args else "None"
+            repl = self._gen_expr(node.args[1]) if len(node.args) > 1 else "0"
+            return f"({val} if {val} is not None else {repl})"
+
+        if fname == "na":
+            if node.args:
+                return f"({self._gen_expr(node.args[0])} is None)"
+            return "None"
+
+        if fname in _MATH_MAP:
+            py_func = _MATH_MAP[fname]
+            args = ", ".join(self._gen_expr(a) for a in node.args)
+            return f"{py_func}({args})"
+
+        # Generic
+        args = ", ".join(self._gen_expr(a) for a in node.args)
+        return f"{fname}({args})"
+
+    def _get_indicator_ref(self, node: ASTNode) -> str | None:
+        """Get indicator variable name from an AST node, if it maps to one."""
+        if isinstance(node, Identifier) and node.name in self._var_to_indicator:
+            return node.name
+        return None
+
+    def _emit(self, line: str) -> None:
+        prefix = "    " * self._indent
+        self._lines.append(f"{prefix}{line}")
+
+    @staticmethod
+    def _resolve_name(node: ASTNode) -> str:
+        if isinstance(node, Identifier):
+            return node.name
+        if isinstance(node, MemberAccess):
+            obj = PineStrategyAPICodeGen._resolve_name(node.obj)
+            return f"{obj}.{node.member}"
+        return ""
+
+    def _make_input(self, func_name: str, node: FunctionCall) -> dict | None:
+        defval = None
+        if node.args:
+            defval = self._eval_literal(node.args[0])
+        if "defval" in node.kwargs:
+            defval = self._eval_literal(node.kwargs["defval"])
+        if (
+            defval is not None
+            and func_name == "input.int"
+            and isinstance(defval, float)
+        ):
+            defval = int(defval)
+        return {"name": "", "default": defval}
+
+    @staticmethod
+    def _eval_literal(node: ASTNode) -> object:
+        if isinstance(node, NumberLiteral):
+            return node.value
+        if isinstance(node, StringLiteral):
+            return node.value
+        if isinstance(node, BoolLiteral):
+            return node.value
+        if isinstance(node, NaLiteral):
+            return None
+        return None
+
+    def _eval_literal_or_name(self, node: ASTNode) -> object:
+        """Evaluate a literal or return identifier name as string."""
+        if isinstance(node, NumberLiteral):
+            v = node.value
+            return int(v) if v == int(v) else v
+        if isinstance(node, Identifier):
+            return node.name
+        if isinstance(node, StringLiteral):
+            return node.value
+        if isinstance(node, BoolLiteral):
+            return node.value
+        return None
+
+
+def transpile_strategy_api(script: Script, pine_source: str = "") -> str:
+    """Transpile a Pine Script AST to a quantforge.dsl.Strategy subclass."""
+    return PineStrategyAPICodeGen().generate(script, pine_source=pine_source)

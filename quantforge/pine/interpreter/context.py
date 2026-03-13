@@ -110,6 +110,24 @@ class ExecutionContext:
         self._series["bar_index"].append(self.bar_index)
         return True
 
+    def push_bar(self, bar: BarData) -> None:
+        """Append a new bar and advance to it (for incremental/live execution).
+
+        Unlike ``advance_bar`` which iterates through pre-loaded bars, this
+        method accepts a single bar from an external source and appends it to
+        the internal bar list, then advances the index to point at it.
+        """
+        self.bars.append(bar)
+        self.bar_index = len(self.bars) - 1
+
+        self._series["open"].append(bar.open)
+        self._series["high"].append(bar.high)
+        self._series["low"].append(bar.low)
+        self._series["close"].append(bar.close)
+        self._series["volume"].append(bar.volume)
+        self._series["time"].append(bar.time)
+        self._series["bar_index"].append(self.bar_index)
+
     @property
     def current_bar(self) -> BarData | None:
         if 0 <= self.bar_index < len(self.bars):

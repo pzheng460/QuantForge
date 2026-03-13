@@ -5,8 +5,12 @@ Orders execute on NEXT bar open by default (matching TradingView behaviour).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+
+# Callback type for live signal interception
+_SignalCallback = Callable[..., None]
 
 
 class Direction(Enum):
@@ -88,6 +92,27 @@ class StrategyContext:
         self._equity_curve: list[float] = []
         self._entry_count: int = 0  # for pyramiding
 
+        # Signal callbacks for live trading — called when orders are *placed*
+        # (not executed).  The live engine hooks into these to capture signals.
+        self._on_entry_cb: _SignalCallback | None = None
+        self._on_close_cb: _SignalCallback | None = None
+        self._on_exit_cb: _SignalCallback | None = None
+
+    def set_signal_callbacks(
+        self,
+        on_entry: _SignalCallback | None = None,
+        on_close: _SignalCallback | None = None,
+        on_exit: _SignalCallback | None = None,
+    ) -> None:
+        """Register callbacks fired when Pine script places orders.
+
+        Used by the live engine to intercept ``strategy.entry/close/exit``
+        calls and route them to real exchange orders.
+        """
+        self._on_entry_cb = on_entry
+        self._on_close_cb = on_close
+        self._on_exit_cb = on_exit
+
     def place_entry(
         self,
         id: str,
@@ -99,18 +124,19 @@ class StrategyContext:
         bar_index: int = 0,
     ) -> None:
         """Queue an entry order for next-bar execution."""
-        self.pending_orders.append(
-            Order(
-                id=id,
-                direction=direction,
-                action="entry",
-                qty=qty or self.default_qty,
-                limit=limit,
-                stop=stop,
-                comment=comment,
-                bar_index=bar_index,
-            )
+        order = Order(
+            id=id,
+            direction=direction,
+            action="entry",
+            qty=qty or self.default_qty,
+            limit=limit,
+            stop=stop,
+            comment=comment,
+            bar_index=bar_index,
         )
+        self.pending_orders.append(order)
+        if self._on_entry_cb is not None:
+            self._on_entry_cb(order)
 
     def place_exit(
         self,
@@ -128,34 +154,36 @@ class StrategyContext:
             if (self.position.direction == Direction.LONG)
             else Direction.LONG
         )
-        self.pending_orders.append(
-            Order(
-                id=id,
-                direction=direction,
-                action="exit",
-                qty=qty,
-                limit=limit,
-                stop=stop,
-                comment=comment,
-                bar_index=bar_index,
-            )
+        order = Order(
+            id=id,
+            direction=direction,
+            action="exit",
+            qty=qty,
+            limit=limit,
+            stop=stop,
+            comment=comment,
+            bar_index=bar_index,
         )
+        self.pending_orders.append(order)
+        if self._on_exit_cb is not None:
+            self._on_exit_cb(order)
 
     def place_close(self, id: str = "", comment: str = "", bar_index: int = 0) -> None:
         """Queue a close order for current position."""
         if self.position.is_flat:
             return
-        self.pending_orders.append(
-            Order(
-                id=id or "close",
-                direction=Direction.SHORT
-                if self.position.direction == Direction.LONG
-                else Direction.LONG,
-                action="close",
-                comment=comment,
-                bar_index=bar_index,
-            )
+        order = Order(
+            id=id or "close",
+            direction=Direction.SHORT
+            if self.position.direction == Direction.LONG
+            else Direction.LONG,
+            action="close",
+            comment=comment,
+            bar_index=bar_index,
         )
+        self.pending_orders.append(order)
+        if self._on_close_cb is not None:
+            self._on_close_cb(order)
 
     def place_close_all(self, comment: str = "", bar_index: int = 0) -> None:
         """Close all positions."""
