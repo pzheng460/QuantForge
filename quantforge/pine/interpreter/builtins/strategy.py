@@ -73,15 +73,22 @@ class Position:
 class StrategyContext:
     """Tracks positions, pending orders, and trade history."""
 
+    # Pine Script qty type constants
+    QTY_FIXED = "fixed"
+    QTY_CASH = "cash"
+    QTY_PERCENT = "percent_of_equity"
+
     def __init__(
         self,
         initial_capital: float = 100000.0,
         default_qty: float = 1.0,
+        default_qty_type: str = "fixed",
         commission: float = 0.0,
         pyramiding: int = 1,
     ) -> None:
         self.initial_capital = initial_capital
         self.default_qty = default_qty
+        self.default_qty_type = default_qty_type
         self.commission = commission
         self.pyramiding = pyramiding
         self.equity = initial_capital
@@ -218,6 +225,31 @@ class StrategyContext:
             elif order.action in ("exit", "close"):
                 self._execute_close(order, fill_price, bar_index)
 
+    def _resolve_qty(self, order_qty: float | None, price: float) -> float:
+        """Resolve order quantity based on default_qty_type.
+
+        Supports:
+        - fixed: use qty directly (contracts/units)
+        - percent_of_equity: qty is a percentage (0-100) of current equity
+        - cash: qty is a dollar amount to allocate
+        """
+        raw_qty = order_qty or self.default_qty
+
+        if self.default_qty_type == self.QTY_PERCENT:
+            # percent_of_equity: raw_qty is 0-100, convert to position size
+            if price <= 0:
+                return raw_qty
+            dollar_amount = self.equity * (raw_qty / 100.0)
+            return dollar_amount / price
+        elif self.default_qty_type == self.QTY_CASH:
+            # cash: raw_qty is dollar amount
+            if price <= 0:
+                return raw_qty
+            return raw_qty / price
+        else:
+            # fixed: raw_qty is number of contracts
+            return raw_qty
+
     def _execute_entry(self, order: Order, price: float, bar_index: int) -> None:
         """Execute an entry order."""
         # If already in opposite direction, close first
@@ -229,7 +261,7 @@ class StrategyContext:
             if self._entry_count >= self.pyramiding:
                 return
 
-        qty = order.qty or self.default_qty
+        qty = self._resolve_qty(order.qty, price)
         comm = qty * price * self.commission
 
         if self.position.is_flat:

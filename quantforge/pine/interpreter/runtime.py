@@ -218,9 +218,23 @@ class PineRuntime:
             if comm_type and "percent" in str(comm_type).lower():
                 commission = commission / 100.0
 
+            # Qty type handling
+            qty_type_raw = kwargs.get("default_qty_type", None)
+            if qty_type_raw is not None:
+                qty_type_str = str(qty_type_raw).lower()
+                if "percent" in qty_type_str:
+                    qty_type = StrategyContext.QTY_PERCENT
+                elif "cash" in qty_type_str:
+                    qty_type = StrategyContext.QTY_CASH
+                else:
+                    qty_type = StrategyContext.QTY_FIXED
+            else:
+                qty_type = StrategyContext.QTY_FIXED
+
             self.strategy_ctx = StrategyContext(
                 initial_capital=float(initial_capital),
                 default_qty=float(default_qty),
+                default_qty_type=qty_type,
                 commission=float(commission),
                 pyramiding=int(pyramiding),
             )
@@ -432,6 +446,12 @@ class PineRuntime:
                     return "long"
                 elif member == "short":
                     return "short"
+                elif member == "percent_of_equity":
+                    return "strategy.percent_of_equity"
+                elif member == "fixed":
+                    return "strategy.fixed"
+                elif member == "cash":
+                    return "strategy.cash"
                 elif member == "position_size":
                     return self.strategy_ctx.position_size if self.strategy_ctx else 0
                 elif member == "position_avg_price":
