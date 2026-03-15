@@ -83,22 +83,3 @@ export function subscribeLivePerformance(
   if (onError) ws.onerror = onError
   return () => ws.close()
 }
-
-/** Subscribe to a backtest job via WebSocket. Returns a cleanup function. */
-export function subscribeBacktest(
-  jobId: string,
-  onMessage: (msg: JobStatus) => void,
-  onError?: (e: Event) => void
-): () => void {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/backtest/${jobId}`)
-  ws.onmessage = (e) => {
-    try {
-      onMessage(JSON.parse(e.data))
-    } catch {
-      /* ignore malformed frames */
-    }
-  }
-  if (onError) ws.onerror = onError
-  return () => ws.close()
-}

@@ -2,7 +2,6 @@ import { Routes, Route, NavLink } from 'react-router-dom'
 import BacktestPage from './pages/Backtest'
 import DashboardPage from './pages/Dashboard'
 import OptimizerPage from './pages/Optimizer'
-import PinePage from './pages/PinePage'
 
 function NavItem({ to, label }: { to: string; label: string }) {
   return (
@@ -36,7 +35,6 @@ export default function App() {
           <NavItem to="/" label="Dashboard" />
           <NavItem to="/backtest" label="Backtest" />
           <NavItem to="/optimizer" label="Optimizer" />
-          <NavItem to="/pine" label="Pine Script" />
         </div>
       </header>
 
@@ -54,7 +52,6 @@ export default function App() {
               <OptimizerPage />
             </div>
           } />
-          <Route path="/pine" element={<PinePage />} />
         </Routes>
       </main>
     </div>
