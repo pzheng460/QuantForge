@@ -49,6 +49,7 @@ class DemoTracker:
     """Tracks virtual P&L in demo mode."""
 
     initial_capital: float = 100_000.0
+    symbol: str = ""
     trades: list[VirtualTrade] = field(default_factory=list)
     _entry_price: float = 0.0
     _entry_time: float = 0.0
@@ -130,6 +131,106 @@ class DemoTracker:
             )
         return "\n".join(lines)
 
+    def to_dict(self, current_price: float = 0.0) -> dict:
+        """Serialize to dict matching LivePerformanceOut schema."""
+        from datetime import datetime, timezone
+
+        realized = self.total_pnl
+        unrealized = 0.0
+        if self._position_side and self._entry_price > 0 and current_price > 0:
+            if self._position_side == "long":
+                unrealized = current_price - self._entry_price
+            else:
+                unrealized = self._entry_price - current_price
+
+        current_balance = self.initial_capital + realized + unrealized
+        peak = self.initial_capital
+        max_dd = 0.0
+        running = self.initial_capital
+        for t in self.trades:
+            running += t.pnl
+            if running > peak:
+                peak = running
+            dd = (peak - running) / peak * 100 if peak > 0 else 0.0
+            if dd > max_dd:
+                max_dd = dd
+
+        # Current drawdown
+        current_dd = 0.0
+        if peak > 0:
+            current_dd = (peak - current_balance) / peak * 100
+
+        winning = [t for t in self.trades if t.pnl > 0]
+        losing = [t for t in self.trades if t.pnl <= 0]
+
+        avg_win_pct = 0.0
+        if winning:
+            avg_win_pct = sum(
+                t.pnl / t.entry_price * 100 for t in winning
+            ) / len(winning)
+        avg_loss_pct = 0.0
+        if losing:
+            avg_loss_pct = sum(
+                t.pnl / t.entry_price * 100 for t in losing
+            ) / len(losing)
+
+        gross_wins = sum(t.pnl for t in winning)
+        gross_losses = abs(sum(t.pnl for t in losing))
+        pf = gross_wins / gross_losses if gross_losses > 0 else 0.0
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        start_str = ""
+        if self.trades:
+            start_str = datetime.fromtimestamp(
+                self.trades[0].entry_time, tz=timezone.utc
+            ).isoformat()
+
+        trades_out = []
+        for t in self.trades:
+            pnl_pct = t.pnl / t.entry_price * 100 if t.entry_price > 0 else 0.0
+            trades_out.append({
+                "symbol": self.symbol,
+                "side": t.direction,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "amount": 0.0,
+                "entry_time": datetime.fromtimestamp(
+                    t.entry_time, tz=timezone.utc
+                ).isoformat(),
+                "exit_time": datetime.fromtimestamp(
+                    t.exit_time, tz=timezone.utc
+                ).isoformat(),
+                "pnl": t.pnl,
+                "pnl_pct": pnl_pct,
+                "exit_reason": "",
+            })
+
+        return {
+            "start_time": start_str,
+            "last_update": now_str,
+            "mesa_index": 0,
+            "config_name": "",
+            "initial_balance": self.initial_capital,
+            "current_balance": current_balance,
+            "peak_balance": peak,
+            "total_return_pct": (
+                (current_balance - self.initial_capital)
+                / self.initial_capital
+                * 100
+            ),
+            "total_pnl": realized + unrealized,
+            "max_drawdown_pct": max_dd,
+            "current_drawdown_pct": current_dd,
+            "total_trades": len(self.trades),
+            "winning_trades": len(winning),
+            "losing_trades": len(losing),
+            "win_rate_pct": self.win_rate * 100,
+            "avg_win_pct": avg_win_pct,
+            "avg_loss_pct": avg_loss_pct,
+            "profit_factor": pf,
+            "trades": trades_out,
+        }
+
 
 class OrderBridge:
     """Converts Pine strategy.entry/close/exit calls into exchange orders.
@@ -151,6 +252,7 @@ class OrderBridge:
         demo: bool = True,
         position_size_usdt: float = 100.0,
         connector=None,
+        symbol: str = "",
     ) -> None:
         self.demo = demo
         self.position_size_usdt = position_size_usdt
@@ -169,8 +271,8 @@ class OrderBridge:
         self._position_side: str | None = None  # "long" / "short" / None
         self._position_qty: float = 0.0
 
-        # Demo P&L tracking
-        self._demo_tracker = DemoTracker() if demo else None
+        # P&L tracking (always enabled for web dashboard visibility)
+        self._demo_tracker = DemoTracker(symbol=symbol)
         self._last_price: float = 0.0
 
     # --- Callbacks wired into StrategyContext ---

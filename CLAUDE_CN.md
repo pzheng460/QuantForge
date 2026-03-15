@@ -292,10 +292,16 @@ QuantForge 交易所连接器（通过 ccxt）
 
 **一致性保证：** 11 个测试验证增量逐根执行产生与批量执行完全相同的交易和权益曲线。
 
+**实时性能仪表板集成：**
+- `DemoTracker.to_dict()` 将盈亏、交易、回撤序列化为 `LivePerformanceOut` 兼容 JSON
+- `PineLiveEngine._flush_performance()` 每根 K 线后写入 `{项目根目录}/{策略名}/live_performance.json`
+- Web 后端 `_find_perf_files()` 通过 `rglob("live_performance.json")` 发现这些文件
+- WebSocket 端点 `/ws/live/performance` 每 3 秒推送更新
+
 ### Pine 测试
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 103个测试
+uv run pytest quantforge/pine/tests/ -v  # 89个测试（55 解释器/解析器 + 11 实时引擎 + 16 优化器 + 7 TV对齐）
 ```
 
 ## 声明式策略 DSL (`quantforge/dsl/`)

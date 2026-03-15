@@ -227,6 +227,7 @@ def _run_live(args: argparse.Namespace) -> None:
         warmup_bars=args.warmup_bars,
         position_size_usdt=args.position_size,
         dry_run=args.dry_run,
+        strategy_name=pine_file.stem,
     )
 
     try:

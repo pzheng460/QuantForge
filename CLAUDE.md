@@ -300,10 +300,16 @@ Exchange
 
 **Parity guarantee:** 11 tests verify that incremental bar-by-bar execution produces identical trades and equity curves to batch execution across all fixture strategies.
 
+**Live performance dashboard integration:**
+- `DemoTracker.to_dict()` serializes P&L, trades, drawdown to `LivePerformanceOut`-compatible JSON
+- `PineLiveEngine._flush_performance()` writes `{project_root}/{strategy_name}/live_performance.json` after each bar
+- Web backend `_find_perf_files()` discovers these files via `rglob("live_performance.json")`
+- WebSocket endpoint `/ws/live/performance` streams updates every 3 seconds
+
 ### Pine Tests
 
 ```bash
-uv run pytest quantforge/pine/tests/ -v  # 103 tests (55 interpreter/parser + 21 transpiler parity + 11 live engine + 16 optimizer)
+uv run pytest quantforge/pine/tests/ -v  # 89 tests (55 interpreter/parser + 11 live engine + 16 optimizer + 7 TV alignment)
 ```
 
 ## Declarative Strategy DSL (`quantforge/dsl/`)

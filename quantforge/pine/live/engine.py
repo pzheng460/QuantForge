@@ -22,7 +22,9 @@ Usage
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 
 from quantforge.pine.interpreter.context import BarData, ExecutionContext
 from quantforge.pine.interpreter.runtime import PineRuntime
@@ -76,6 +78,7 @@ class PineLiveEngine:
         warmup_bars: int = 500,
         position_size_usdt: float = 100.0,
         dry_run: bool = False,
+        strategy_name: str = "pine_strategy",
     ) -> None:
         self.pine_source = pine_source
         self.exchange = exchange
@@ -85,6 +88,7 @@ class PineLiveEngine:
         self.dry_run = dry_run
         self.warmup_bars = warmup_bars
         self.position_size_usdt = position_size_usdt
+        self.strategy_name = strategy_name
 
         # Parse once
         self.ast = parse(pine_source)
@@ -135,6 +139,7 @@ class PineLiveEngine:
             demo=self.dry_run,  # Only skip orders in dry-run mode
             position_size_usdt=self.position_size_usdt,
             connector=connector,
+            symbol=self.symbol,
         )
 
         ctx = ExecutionContext()
@@ -158,12 +163,15 @@ class PineLiveEngine:
 
         # --- Live loop ---
         self._running = True
+        # Write initial performance JSON so the web dashboard detects the strategy
+        self._flush_performance(0.0)
         logger.info("Live trading active — waiting for confirmed klines")
         await self._poll_loop()
 
     async def stop(self) -> None:
         """Stop the live trading loop."""
         self._running = False
+        self._flush_performance(self._bridge._last_price if self._bridge else 0.0)
         logger.info("Pine live engine stopped after %d bars", self._bars_processed)
 
     async def _run_warmup(self) -> None:
@@ -258,6 +266,9 @@ class PineLiveEngine:
                             self._bridge._position_side or "flat",
                         )
 
+                        # Flush performance JSON for web dashboard
+                        self._flush_performance(bar.close)
+
                         # Print demo P&L summary every 6 bars (6h for 1h tf)
                         tracker = self._bridge.demo_tracker
                         if tracker and self._bars_processed % 6 == 0:
@@ -295,3 +306,23 @@ class PineLiveEngine:
     @property
     def bars_processed(self) -> int:
         return self._bars_processed
+
+    def _flush_performance(self, current_price: float = 0.0) -> None:
+        """Write live performance data to JSON for the web dashboard."""
+        tracker = self._bridge.demo_tracker if self._bridge else None
+        if tracker is None:
+            return
+        try:
+            perf_dir = Path(__file__).resolve().parents[3] / self.strategy_name
+            perf_dir.mkdir(parents=True, exist_ok=True)
+            perf_path = perf_dir / "live_performance.json"
+
+            data = tracker.to_dict(current_price)
+            data["config_name"] = self.strategy_name
+            # Write atomically via temp file
+            tmp = perf_path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+            tmp.replace(perf_path)
+        except Exception:
+            logger.exception("Failed to flush performance JSON")
