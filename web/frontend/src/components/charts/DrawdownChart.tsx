@@ -8,16 +8,15 @@ import {
   CartesianGrid,
 } from 'recharts'
 import type { DrawdownPoint } from '../../types'
+import { useTimezone, fmtDateShortTz } from '../../hooks/useTimezone'
 
 interface Props {
   data: DrawdownPoint[]
 }
 
-function fmtDate(iso: string) {
-  return iso.slice(0, 10)
-}
-
 export default function DrawdownChart({ data }: Props) {
+  const { timezone } = useTimezone()
+  const fmtDate = (iso: string) => fmtDateShortTz(iso, timezone)
   if (!data || data.length === 0) return null
 
   return (

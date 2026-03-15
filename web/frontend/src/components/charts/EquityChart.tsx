@@ -9,6 +9,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import type { EquityPoint } from '../../types'
+import { useTimezone, fmtDateShortTz } from '../../hooks/useTimezone'
 
 interface Props {
   data: EquityPoint[]
@@ -21,11 +22,9 @@ function fmt(v: number) {
   return `$${v.toFixed(0)}`
 }
 
-function fmtDate(iso: string) {
-  return iso.slice(0, 10)
-}
-
 export default function EquityChart({ data }: Props) {
+  const { timezone } = useTimezone()
+  const fmtDate = (iso: string) => fmtDateShortTz(iso, timezone)
   if (!data || data.length === 0) return null
 
   return (

@@ -29,6 +29,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const api = {
   strategies: (): Promise<StrategySchema[]> => get('/strategies'),
+  strategySource: (name: string): Promise<{ source: string }> =>
+    get(`/strategies/${name}/source`),
   exchanges: (): Promise<Exchange[]> => get('/exchanges'),
 
   runBacktest: (req: BacktestRequest): Promise<JobStatus> =>

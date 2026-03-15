@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api, subscribeLivePerformance } from '../api/client'
 import type { LivePerformance, LiveTrade } from '../types'
+import { useTimezone, fmtTimeTz } from '../hooks/useTimezone'
 
 function fmt(n: number, digits = 2) {
   return n.toLocaleString(undefined, {
@@ -13,10 +14,7 @@ function fmtPct(n: number) {
   return `${n >= 0 ? '+' : ''}${fmt(n)}%`
 }
 
-function fmtTime(iso: string) {
-  if (!iso) return '-'
-  return iso.replace('T', ' ').slice(0, 19)
-}
+// fmtTime is now timezone-aware via fmtTimeTz from useTimezone
 
 function StatCard({
   label,
@@ -38,7 +36,7 @@ function StatCard({
   )
 }
 
-function TradeTable({ trades }: { trades: LiveTrade[] }) {
+function TradeTable({ trades, timezone }: { trades: LiveTrade[]; timezone: string }) {
   const [page, setPage] = useState(0)
   const perPage = 10
   // Show most recent first
@@ -67,7 +65,7 @@ function TradeTable({ trades }: { trades: LiveTrade[] }) {
             {slice.map((t, i) => (
               <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-2 px-3 text-gray-600 whitespace-nowrap">
-                  {fmtTime(t.exit_time)}
+                  {fmtTimeTz(t.exit_time, timezone)}
                 </td>
                 <td className="py-2 px-3 font-mono text-xs">{t.symbol}</td>
                 <td className="py-2 px-3">
@@ -145,14 +143,14 @@ function TradeTable({ trades }: { trades: LiveTrade[] }) {
   )
 }
 
-function BalanceChart({ trades }: { trades: LiveTrade[] }) {
+function BalanceChart({ trades, timezone }: { trades: LiveTrade[]; timezone: string }) {
   if (trades.length === 0) return null
 
   // Build cumulative PnL series from trades
   let cumPnl = 0
   const points = trades.map((t) => {
     cumPnl += t.pnl
-    return { time: fmtTime(t.exit_time).slice(5), pnl: cumPnl }
+    return { time: fmtTimeTz(t.exit_time, timezone).slice(5), pnl: cumPnl }
   })
 
   const maxPnl = Math.max(...points.map((p) => p.pnl), 0)
@@ -205,6 +203,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [wsConnected, setWsConnected] = useState(false)
   const cleanupRef = useRef<(() => void) | null>(null)
+  const { timezone } = useTimezone()
 
   // Initial fetch
   useEffect(() => {
@@ -268,13 +267,13 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold text-gray-900">Live Monitoring</h1>
           <p className="text-sm text-gray-500 mt-1">
             Mesa #{p.mesa_index} &middot; {p.config_name || 'Default'} &middot; Since{' '}
-            {fmtTime(p.start_time)}
+            {fmtTimeTz(p.start_time, timezone)}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <ConnectionBadge connected={wsConnected} />
           <span className="text-xs text-gray-400">
-            Updated: {fmtTime(p.last_update)}
+            Updated: {fmtTimeTz(p.last_update, timezone)}
           </span>
         </div>
       </div>
@@ -317,12 +316,12 @@ export default function DashboardPage() {
       </div>
 
       {/* Cumulative PnL chart */}
-      <BalanceChart trades={p.trades} />
+      <BalanceChart trades={p.trades} timezone={timezone} />
 
       {/* Trade History */}
       <div className="card">
         <h3 className="text-sm font-medium text-gray-700 mb-3">Trade History</h3>
-        <TradeTable trades={p.trades} />
+        <TradeTable trades={p.trades} timezone={timezone} />
       </div>
     </div>
   )

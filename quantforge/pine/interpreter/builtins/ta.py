@@ -250,6 +250,46 @@ class _ADXCalc:
         self._values.append(adx)
         return adx
 
+    def update_dmi(
+        self, high: float, low: float, close: float
+    ) -> tuple[float | None, float | None, float | None]:
+        """Return (+DI, -DI, ADX) tuple — used by ta.dmi()."""
+        atr = self._atr.update(high, low, close)
+
+        if self._prev_high is None:
+            self._prev_high = high
+            self._prev_low = low
+            self._values.append(None)
+            return None, None, None
+
+        up_move = high - self._prev_high
+        down_move = self._prev_low - low
+        self._prev_high = high
+        self._prev_low = low
+
+        plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+        smooth_plus = self._plus_dm_rma.update(plus_dm)
+        smooth_minus = self._minus_dm_rma.update(minus_dm)
+
+        if atr is None or smooth_plus is None or smooth_minus is None or atr == 0:
+            self._values.append(None)
+            return None, None, None
+
+        plus_di = 100.0 * smooth_plus / atr
+        minus_di = 100.0 * smooth_minus / atr
+
+        di_sum = plus_di + minus_di
+        if di_sum == 0:
+            dx = 0.0
+        else:
+            dx = 100.0 * abs(plus_di - minus_di) / di_sum
+
+        adx = self._adx_rma.update(dx)
+        self._values.append(adx)
+        return plus_di, minus_di, adx
+
 
 class _MACDCalc:
     """MACD: fast EMA - slow EMA, signal = EMA of MACD line."""
@@ -425,6 +465,23 @@ def ta_adx(ctx, length: int) -> float | None:
     if hi is None or lo is None or cl is None:
         return None
     return calc.update(hi, lo, cl)
+
+
+def ta_dmi(
+    ctx, di_length: int, adx_smoothing: int | None = None
+) -> tuple[float | None, float | None, float | None]:
+    """Returns (+DI, -DI, ADX). TradingView signature: ta.dmi(di_length, adx_smoothing)."""
+    if adx_smoothing is None:
+        adx_smoothing = di_length
+    key = f"dmi_{di_length}_{adx_smoothing}"
+    calc = _get_calc(id(ctx), key, lambda: _ADXCalc(di_length))
+    high_s = ctx.get_series("high")
+    low_s = ctx.get_series("low")
+    close_s = ctx.get_series("close")
+    hi, lo, cl = high_s.current, low_s.current, close_s.current
+    if hi is None or lo is None or cl is None:
+        return None, None, None
+    return calc.update_dmi(hi, lo, cl)
 
 
 def ta_macd(

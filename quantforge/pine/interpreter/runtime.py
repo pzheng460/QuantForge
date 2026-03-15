@@ -93,10 +93,10 @@ class PineRuntime:
             for stmt in script.body:
                 self._exec(stmt)
 
-            # Update equity tracking
+            # Update equity tracking + MFE/MAE
             if self.strategy_ctx:
                 bar = self.ctx.current_bar
-                self.strategy_ctx.update_equity(bar.close)
+                self.strategy_ctx.update_equity(bar.close, bar.high, bar.low)
 
         # Close any remaining position at last bar close
         if self.strategy_ctx and not self.strategy_ctx.position.is_flat:
@@ -154,9 +154,9 @@ class PineRuntime:
         for stmt in self._script.body:
             self._exec(stmt)
 
-        # 5. Update equity
+        # 5. Update equity + MFE/MAE
         if self.strategy_ctx:
-            self.strategy_ctx.update_equity(bar.close)
+            self.strategy_ctx.update_equity(bar.close, bar.high, bar.low)
 
         # 6. Collect new orders placed during this bar
         new_orders: list = []
@@ -581,6 +581,15 @@ class PineRuntime:
         elif func_name == "ta.adx":
             length = int(args[0]) if args else int(kwargs.get("length", 14))
             return ta.ta_adx(self.ctx, length)
+
+        elif func_name == "ta.dmi":
+            di_length = int(args[0]) if args else int(kwargs.get("di_length", 14))
+            adx_smoothing = (
+                int(args[1])
+                if len(args) > 1
+                else int(kwargs.get("adx_smoothing", di_length))
+            )
+            return ta.ta_dmi(self.ctx, di_length, adx_smoothing)
 
         elif func_name == "ta.macd":
             source = self._resolve_series_arg(

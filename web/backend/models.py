@@ -64,10 +64,18 @@ class TradeOut(BaseModel):
     timestamp: str
     side: str
     price: float
+    exit_price: float = 0.0
     amount: float
     fee: float
     pnl: float
     pnl_pct: float
+    entry_time: Optional[str] = None
+    exit_time: Optional[str] = None
+    bars_held: Optional[int] = None
+    mfe: Optional[float] = None  # Maximum Favorable Excursion (USDT)
+    mae: Optional[float] = None  # Maximum Adverse Excursion (USDT, negative)
+    mfe_pct: Optional[float] = None  # MFE as % of position value
+    mae_pct: Optional[float] = None  # MAE as % of position value
 
 
 class BacktestResultOut(BaseModel):
@@ -99,6 +107,7 @@ class BacktestResultOut(BaseModel):
     max_consecutive_losses: int
     avg_trade_duration_hours: float
     final_equity: float
+    initial_capital: float = 100000.0
     # Curves: list of {"t": iso_str, "strategy": float, "bh": float}
     equity_curve: List[Dict[str, Any]]
     # Drawdown curve: list of {"t": iso_str, "dd": float}

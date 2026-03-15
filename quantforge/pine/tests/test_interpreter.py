@@ -17,7 +17,6 @@ from quantforge.pine.parser.ast_nodes import (
     StrategyDecl,
     StringLiteral,
 )
-from quantforge.pine.transpiler.codegen import transpile
 
 
 # ---------------------------------------------------------------------------
@@ -304,42 +303,6 @@ class TestRuntimeDirect:
         runtime = PineRuntime(ctx)
         result = runtime.run(script)
         assert len(result.equity_curve) == len(prices)
-
-
-class TestTranspiler:
-    """Test code generation from AST."""
-
-    def test_simple_transpile(self):
-        script = Script(
-            declarations=[StrategyDecl(kwargs={"title": StringLiteral("MyStrat")})],
-            body=[
-                Assignment(
-                    target="fast",
-                    value=FunctionCall(
-                        func=MemberAccess(obj=Identifier("ta"), member="ema"),
-                        args=[Identifier("close"), NumberLiteral(10.0)],
-                    ),
-                ),
-            ],
-        )
-        code = transpile(script)
-        assert "MyStrat" in code
-        assert "_EMACalc" in code or "_calc_" in code
-
-    def test_if_stmt_transpile(self):
-        script = Script(
-            body=[
-                IfExpr(
-                    condition=BinOp(
-                        op=">", left=Identifier("x"), right=NumberLiteral(5.0)
-                    ),
-                    body=[Assignment(target="y", value=NumberLiteral(1.0))],
-                ),
-            ],
-        )
-        code = transpile(script)
-        assert "if" in code
-        assert "y = " in code
 
 
 class TestContextFromArrays:

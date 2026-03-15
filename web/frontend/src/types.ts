@@ -28,12 +28,18 @@ export interface TradeRecord {
   timestamp: string
   side: string
   price: number
+  exit_price: number
   amount: number
   fee: number
   pnl: number
   pnl_pct: number
   entry_time?: string
+  exit_time?: string
   bars_held?: number
+  mfe?: number       // Maximum Favorable Excursion (USDT)
+  mae?: number       // Maximum Adverse Excursion (USDT, negative)
+  mfe_pct?: number   // MFE as % of position value
+  mae_pct?: number   // MAE as % of position value
 }
 
 export interface EquityPoint {
@@ -79,6 +85,7 @@ export interface BacktestResult {
   max_consecutive_losses: number
   avg_trade_duration_hours: number
   final_equity: number
+  initial_capital: number
   // TradingView-compatible fields (optional, populated when backend supports them)
   net_profit?: number
   gross_profit?: number

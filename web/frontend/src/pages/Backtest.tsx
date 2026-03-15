@@ -3,7 +3,6 @@ import { api } from '../api/client'
 import type { BacktestRequest, BacktestResult, StrategySchema, Exchange, JobStatus } from '../types'
 import TradingChart from '../components/chart/TradingChart'
 import StrategyTester from '../components/StrategyTester'
-import ParameterPanel from '../components/ParameterPanel'
 
 const BASE = '/api'
 
@@ -40,19 +39,78 @@ function useResizablePanel(defaultHeight: number) {
   return { height, onMouseDown }
 }
 
-// ─── Pine Editor panel ───────────────────────────────────────────────────────
+// ─── Pine parameter parsing ─────────────────────────────────────────────────
 
-interface ParseResult {
-  valid: boolean
-  error?: string
-  statement_count: number
-  has_strategy: boolean
+interface PineParam {
+  name: string
+  type: 'int' | 'float'
+  value: number
+  title: string
+  min?: number
+  max?: number
+  step?: number
 }
 
-interface TranspileResult {
-  success: boolean
-  python_code: string
-  error?: string
+function parsePineParams(source: string): PineParam[] {
+  const params: PineParam[] = []
+  const re = /^(\w+)\s*=\s*input\.(int|float)\((.+)\)/gm
+  let match
+  while ((match = re.exec(source))) {
+    const [, name, type, argsStr] = match
+    const defMatch = argsStr.match(/^(-?\d+(?:\.\d+)?)/)
+    if (!defMatch) continue
+    const ptype = type as 'int' | 'float'
+    const value = ptype === 'int' ? parseInt(defMatch[1]) : parseFloat(defMatch[1])
+    const titleMatch = argsStr.match(/title\s*=\s*"([^"]*)"/)
+    const title = titleMatch ? titleMatch[1] : name
+    const minMatch = argsStr.match(/minval\s*=\s*(-?\d+(?:\.\d+)?)/)
+    const min = minMatch ? parseFloat(minMatch[1]) : undefined
+    const maxMatch = argsStr.match(/maxval\s*=\s*(-?\d+(?:\.\d+)?)/)
+    const max = maxMatch ? parseFloat(maxMatch[1]) : undefined
+    const stepMatch = argsStr.match(/step\s*=\s*(\d+(?:\.\d+)?)/)
+    const step = stepMatch ? parseFloat(stepMatch[1]) : undefined
+    params.push({ name, type: ptype, value, title, min, max, step })
+  }
+  return params
+}
+
+function updatePineParam(source: string, paramName: string, newValue: number): string {
+  const re = new RegExp(
+    `(${paramName}\\s*=\\s*input\\.(?:int|float)\\()(-?\\d+(?:\\.\\d+)?)`,
+  )
+  return source.replace(re, `$1${newValue}`)
+}
+
+// ─── Collapsible section ─────────────────────────────────────────────────────
+
+function Section({ title, children, defaultOpen = true, action }: {
+  title: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+  action?: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border-b border-tv-border">
+      <div className="flex items-center">
+        <button
+          className="flex-1 flex items-center justify-between px-3 py-2 text-[10px] font-semibold text-tv-muted uppercase tracking-wider hover:text-tv-text transition-colors"
+          onClick={() => setOpen((o) => !o)}
+        >
+          {title}
+          <svg
+            className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
+            viewBox="0 0 12 12"
+            fill="currentColor"
+          >
+            <path d="M6 8L1 3h10z" />
+          </svg>
+        </button>
+        {action && <div className="pr-3 shrink-0">{action}</div>}
+      </div>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </div>
+  )
 }
 
 const DEFAULT_PINE = `//@version=5
@@ -67,219 +125,88 @@ if ta.crossunder(fast_ema, slow_ema)
     strategy.close("Long")
 `
 
-function PineEditorPanel({
-  loading,
-  status,
-  onRun,
-  transpileResult,
-  setTranspileResult,
-}: {
-  loading: boolean
-  status: string
-  onRun: (req: BacktestRequest) => void
-  transpileResult: TranspileResult | null
-  setTranspileResult: (v: TranspileResult | null) => void
-}) {
+const CUSTOM_KEY = '__custom__'
+
+// ─── Main Backtest page ──────────────────────────────────────────────────────
+
+export default function BacktestPage() {
+  const [strategies, setStrategies] = useState<StrategySchema[]>([])
+  const [exchanges, setExchanges] = useState<Exchange[]>([])
+
+  // Unified state
+  const [selectedStrategy, setSelectedStrategy] = useState(CUSTOM_KEY)
   const [source, setSource] = useState(DEFAULT_PINE)
+  const [pineParams, setPineParams] = useState<PineParam[]>([])
+  const [exchange, setExchange] = useState('bitget')
   const [symbol, setSymbol] = useState('BTC/USDT:USDT')
   const [timeframe, setTimeframe] = useState('1h')
   const [startDate, setStartDate] = useState('2026-01-01')
   const [endDate, setEndDate] = useState('2026-03-12')
   const [warmupDays, setWarmupDays] = useState(60)
-  const [exchange, setExchange] = useState('bitget')
-  const [parseResult, setParseResult] = useState<ParseResult | null>(null)
-
-  const handleRun = useCallback(() => {
-    onRun({
-      pine_source: source,
-      exchange,
-      symbol,
-      timeframe,
-      start_date: startDate,
-      end_date: endDate,
-      warmup_days: warmupDays,
-    })
-  }, [source, symbol, exchange, timeframe, startDate, endDate, warmupDays, onRun])
-
-  const validateSyntax = useCallback(async () => {
-    setParseResult(null)
-    try {
-      const res = await fetch(`${BASE}/pine/parse`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pine_source: source }),
-      })
-      setParseResult(await res.json())
-    } catch { /* ignore */ }
-  }, [source])
-
-  const transpile = useCallback(async () => {
-    setTranspileResult(null)
-    try {
-      const res = await fetch(`${BASE}/pine/transpile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pine_source: source }),
-      })
-      const data: TranspileResult = await res.json()
-      setTranspileResult(data.success ? data : null)
-    } catch { /* ignore */ }
-  }, [source, setTranspileResult])
-
-  return (
-    <div className="flex flex-col h-full bg-tv-panel border-r border-tv-border overflow-hidden">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-tv-border flex items-center justify-between shrink-0">
-        <span className="text-[11px] font-semibold text-tv-muted uppercase tracking-wider">Pine Editor</span>
-        <div className="flex gap-1">
-          <button
-            onClick={validateSyntax}
-            className="px-2 py-0.5 text-[10px] font-medium rounded bg-tv-border text-tv-text hover:bg-tv-muted/30"
-          >
-            Validate
-          </button>
-          <button
-            onClick={transpile}
-            className="px-2 py-0.5 text-[10px] font-medium rounded bg-tv-border text-tv-text hover:bg-tv-muted/30"
-          >
-            Transpile
-          </button>
-        </div>
-      </div>
-
-      {/* Editor textarea */}
-      <textarea
-        value={source}
-        onChange={(e) => setSource(e.target.value)}
-        className="flex-1 bg-tv-bg text-tv-text text-xs font-mono p-3 resize-none outline-none border-none min-h-0"
-        spellCheck={false}
-        placeholder="Enter Pine Script code..."
-      />
-
-      {/* Parse validation feedback */}
-      {parseResult && (
-        <div className={`px-3 py-1.5 text-[10px] border-t border-tv-border shrink-0 ${parseResult.valid ? 'text-green-400 bg-green-900/20' : 'text-red-400 bg-red-900/20'}`}>
-          {parseResult.valid
-            ? `Valid — ${parseResult.statement_count} statements${parseResult.has_strategy ? ', strategy detected' : ''}`
-            : `Error: ${parseResult.error}`}
-        </div>
-      )}
-
-      {/* Controls */}
-      <div className="p-3 border-t border-tv-border space-y-2 shrink-0">
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] text-tv-muted block mb-0.5">Symbol</label>
-            <input value={symbol} onChange={(e) => setSymbol(e.target.value)}
-              className="w-full bg-tv-bg border border-tv-border rounded px-2 py-1 text-xs text-tv-text outline-none" />
-          </div>
-          <div>
-            <label className="text-[10px] text-tv-muted block mb-0.5">Exchange</label>
-            <select value={exchange} onChange={(e) => setExchange(e.target.value)}
-              className="w-full bg-tv-bg border border-tv-border rounded px-2 py-1 text-xs text-tv-text outline-none">
-              <option value="bitget">Bitget</option>
-              <option value="binance">Binance</option>
-              <option value="okx">OKX</option>
-              <option value="bybit">Bybit</option>
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="text-[10px] text-tv-muted block mb-0.5">Timeframe</label>
-            <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}
-              className="w-full bg-tv-bg border border-tv-border rounded px-2 py-1 text-xs text-tv-text outline-none">
-              <option value="1m">1m</option>
-              <option value="5m">5m</option>
-              <option value="15m">15m</option>
-              <option value="1h">1h</option>
-              <option value="4h">4h</option>
-              <option value="1d">1d</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] text-tv-muted block mb-0.5">Start</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-              className="w-full bg-tv-bg border border-tv-border rounded px-2 py-1 text-xs text-tv-text outline-none" />
-          </div>
-          <div>
-            <label className="text-[10px] text-tv-muted block mb-0.5">End</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-              className="w-full bg-tv-bg border border-tv-border rounded px-2 py-1 text-xs text-tv-text outline-none" />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] text-tv-muted block mb-0.5">Warmup Days</label>
-            <input type="number" value={warmupDays} onChange={(e) => setWarmupDays(Number(e.target.value))}
-              className="w-full bg-tv-bg border border-tv-border rounded px-2 py-1 text-xs text-tv-text outline-none"
-              min={0} max={365} />
-          </div>
-          <div className="flex items-end">
-            <button onClick={handleRun} disabled={loading}
-              className="w-full py-1.5 text-xs font-medium rounded bg-tv-blue text-white hover:bg-tv-blue/80 disabled:opacity-50">
-              {loading ? `Running (${status})…` : '▶ Run Backtest'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Main Backtest page ───────────────────────────────────────────────────────
-
-export default function BacktestPage() {
-  const [mode, setMode] = useState<'strategy' | 'editor'>('strategy')
-  const [strategies, setStrategies] = useState<StrategySchema[]>([])
-  const [exchanges, setExchanges] = useState<Exchange[]>([])
-
-  // Form state (strategy mode)
-  const [strategy, setStrategy] = useState('')
-  const [exchange, setExchange] = useState('bitget')
-  const [symbol, setSymbol] = useState('')
-  const [useDateRange, setUseDateRange] = useState(false)
-  const [period, setPeriod] = useState('1y')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [leverage, setLeverage] = useState(1)
-  const [mesaIndex, setMesaIndex] = useState(0)
-  const [configOverride, setConfigOverride] = useState<Record<string, string | number | boolean>>({})
-  const [filterOverride, setFilterOverride] = useState<Record<string, string | number | boolean>>({})
-
-  // Job / result state (shared)
+  // Job / result state
   const [jobId, setJobId] = useState<string | null>(null)
   const [status, setStatus] = useState<string>('')
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [transpileResult, setTranspileResult] = useState<TranspileResult | null>(null)
 
   // Resizable bottom panel
   const { height: bottomHeight, onMouseDown: onDragStart } = useResizablePanel(280)
+
+  // Track whether source change is from param update (skip re-parse)
+  const paramUpdateRef = useRef(false)
 
   // Load strategies + exchanges on mount
   useEffect(() => {
     api.strategies().then((data) => {
       setStrategies(data)
-      if (data.length > 0) setStrategy(data[0].name)
+      // Default to first strategy if available
+      if (data.length > 0) {
+        setSelectedStrategy(data[0].name)
+        api.strategySource(data[0].name).then(({ source: src }) => {
+          setSource(src)
+          setPineParams(parsePineParams(src))
+        })
+      }
     })
-    api.exchanges().then((data) => {
-      setExchanges(data)
-    })
+    api.exchanges().then(setExchanges)
   }, [])
 
-  // Build default overrides when strategy changes
-  const selectedSchema = strategies.find((s) => s.name === strategy)
-  useEffect(() => {
-    if (!selectedSchema) return
-    const cfg: Record<string, string | number | boolean> = {}
-    for (const f of selectedSchema.config_fields) if (f.default != null) cfg[f.name] = f.default as string | number | boolean
-    const flt: Record<string, string | number | boolean> = {}
-    for (const f of selectedSchema.filter_fields) if (f.default != null) flt[f.name] = f.default as string | number | boolean
-    setConfigOverride(cfg)
-    setFilterOverride(flt)
-  }, [strategy])
+  // When selected strategy changes, load its source
+  const handleStrategyChange = useCallback((name: string) => {
+    setSelectedStrategy(name)
+    if (name === CUSTOM_KEY) {
+      setSource(DEFAULT_PINE)
+      setPineParams(parsePineParams(DEFAULT_PINE))
+    } else {
+      api.strategySource(name).then(({ source: src }) => {
+        setSource(src)
+        setPineParams(parsePineParams(src))
+      })
+    }
+  }, [])
+
+  // When source is edited directly, re-parse params
+  const handleSourceChange = useCallback((newSource: string) => {
+    setSource(newSource)
+    if (paramUpdateRef.current) {
+      paramUpdateRef.current = false
+      return
+    }
+    setPineParams(parsePineParams(newSource))
+  }, [])
+
+  // When a parameter value is changed, update the source
+  const handleParamChange = useCallback((paramName: string, newValue: number) => {
+    paramUpdateRef.current = true
+    setSource((prev) => {
+      const updated = updatePineParam(prev, paramName, newValue)
+      return updated
+    })
+    setPineParams((prev) =>
+      prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p))
+    )
+  }, [])
 
   // Poll job status
   useEffect(() => {
@@ -310,115 +237,182 @@ export default function BacktestPage() {
     return () => { cancelled = true }
   }, [jobId])
 
-  // Submit backtest (shared by both modes)
-  const submitBacktest = useCallback(async (req: BacktestRequest) => {
+  // Submit backtest — always sends pine_source
+  const handleRun = useCallback(async () => {
     setLoading(true)
     setResult(null)
     setError(null)
     setStatus('pending')
-    setTranspileResult(null)
     try {
+      const req: BacktestRequest = {
+        pine_source: source,
+        exchange,
+        symbol,
+        timeframe,
+        start_date: startDate,
+        end_date: endDate,
+        warmup_days: warmupDays,
+      }
       const job = await api.runBacktest(req)
       setJobId(job.job_id)
     } catch (e) {
       setError(String(e))
       setLoading(false)
     }
-  }, [])
+  }, [source, exchange, symbol, timeframe, startDate, endDate, warmupDays])
 
-  // Strategy mode run handler
-  const handleStrategyRun = useCallback(() => {
-    const req: BacktestRequest = {
-      strategy,
-      exchange,
-      symbol: symbol || undefined,
-      leverage,
-      mesa_index: mesaIndex,
-      config_override: Object.keys(configOverride).length ? configOverride : undefined,
-      filter_override: Object.keys(filterOverride).length ? filterOverride : undefined,
-    }
-    if (useDateRange) {
-      req.start_date = startDate || undefined
-      req.end_date = endDate || undefined
-    } else {
-      req.period = period
-    }
-    submitBacktest(req)
-  }, [strategy, exchange, symbol, leverage, mesaIndex, configOverride, filterOverride, useDateRange, period, startDate, endDate, submitBacktest])
+  const selectedExchange = exchanges.find((e) => e.id === exchange)
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
-
-      {/* ── Main body: left panel + chart ─────────────────────────── */}
       <div className="flex flex-1 min-h-0">
 
-        {/* Left panel */}
-        <div className="w-64 shrink-0 flex flex-col" style={{ height: '100%' }}>
-          {/* Mode tabs */}
-          <div className="flex border-b border-tv-border bg-tv-panel shrink-0">
-            <button
-              onClick={() => setMode('strategy')}
-              className={`flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider border-b-2 transition-colors ${
-                mode === 'strategy' ? 'border-tv-blue text-tv-text' : 'border-transparent text-tv-muted hover:text-tv-text'
-              }`}
-            >
-              Strategy
-            </button>
-            <button
-              onClick={() => setMode('editor')}
-              className={`flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider border-b-2 transition-colors ${
-                mode === 'editor' ? 'border-tv-blue text-tv-text' : 'border-transparent text-tv-muted hover:text-tv-text'
-              }`}
-            >
-              Pine Editor
-            </button>
+        {/* ── Left unified panel ──────────────────────────────────────── */}
+        <div className="w-80 shrink-0 flex flex-col bg-tv-panel border-r border-tv-border" style={{ height: '100%' }}>
+
+          {/* Header */}
+          <div className="px-3 py-2 border-b border-tv-border flex items-center justify-between shrink-0">
+            <span className="text-[11px] font-semibold text-tv-muted uppercase tracking-wider">Backtest</span>
           </div>
 
-          {/* Panel body */}
-          <div className="flex-1 min-h-0">
-            {mode === 'strategy' ? (
-              <ParameterPanel
-                strategies={strategies}
-                exchanges={exchanges}
-                strategy={strategy}
-                exchange={exchange}
-                symbol={symbol}
-                period={period}
-                leverage={leverage}
-                mesaIndex={mesaIndex}
-                useDateRange={useDateRange}
-                startDate={startDate}
-                endDate={endDate}
-                configOverride={configOverride}
-                filterOverride={filterOverride}
-                loading={loading}
-                status={status}
-                onStrategyChange={setStrategy}
-                onExchangeChange={setExchange}
-                onSymbolChange={setSymbol}
-                onPeriodChange={setPeriod}
-                onLeverageChange={setLeverage}
-                onMesaIndexChange={setMesaIndex}
-                onUseDateRangeChange={setUseDateRange}
-                onStartDateChange={setStartDate}
-                onEndDateChange={setEndDate}
-                onConfigChange={setConfigOverride}
-                onFilterChange={setFilterOverride}
-                onRun={handleStrategyRun}
-              />
-            ) : (
-              <PineEditorPanel
-                loading={loading}
-                status={status}
-                onRun={submitBacktest}
-                transpileResult={transpileResult}
-                setTranspileResult={setTranspileResult}
-              />
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+
+            {/* Strategy selector */}
+            <Section title="Strategy">
+              <div className="space-y-1">
+                <div className="flex flex-col gap-0.5 py-1">
+                  <label className="text-[10px] text-tv-muted">Strategy</label>
+                  <select
+                    className="tv-select text-xs py-1"
+                    value={selectedStrategy}
+                    onChange={(e) => handleStrategyChange(e.target.value)}
+                  >
+                    <option value={CUSTOM_KEY}>Custom Script</option>
+                    {strategies.map((s) => (
+                      <option key={s.name} value={s.name}>{s.display_name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </Section>
+
+            {/* Pine Script editor */}
+            <Section title="Pine Script">
+              <div className="flex flex-col gap-1">
+                <textarea
+                  value={source}
+                  onChange={(e) => handleSourceChange(e.target.value)}
+                  className="w-full bg-tv-bg text-tv-text text-[11px] font-mono p-2 rounded border border-tv-border resize-y outline-none focus:border-tv-blue/50"
+                  spellCheck={false}
+                  placeholder="Enter Pine Script code..."
+                  rows={12}
+                  style={{ minHeight: 120, maxHeight: 400 }}
+                />
+              </div>
+            </Section>
+
+            {/* Parameters (auto-extracted from Pine source) */}
+            {pineParams.length > 0 && (
+              <Section title={`Parameters (${pineParams.length})`}>
+                <div className="space-y-0">
+                  {pineParams.map((p) => (
+                    <div key={p.name} className="flex flex-col gap-0.5 py-1">
+                      <label className="text-[10px] text-tv-muted">{p.title}</label>
+                      <input
+                        type="number"
+                        className="tv-input text-xs py-1"
+                        value={p.value}
+                        step={p.step ?? (p.type === 'int' ? 1 : 0.01)}
+                        min={p.min ?? undefined}
+                        max={p.max ?? undefined}
+                        onChange={(e) => {
+                          const v = p.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value)
+                          if (!isNaN(v)) handleParamChange(p.name, v)
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Section>
             )}
+
+            {/* Backtest settings */}
+            <Section title="Settings">
+              <div className="space-y-1">
+                <div className="flex flex-col gap-0.5 py-1">
+                  <label className="text-[10px] text-tv-muted">Exchange</label>
+                  <select className="tv-select text-xs py-1" value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                    {exchanges.map((ex) => (
+                      <option key={ex.id} value={ex.id}>{ex.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-0.5 py-1">
+                  <label className="text-[10px] text-tv-muted">
+                    Symbol <span className="text-tv-border">({selectedExchange?.default_symbol ?? '…'})</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="tv-input text-xs py-1"
+                    placeholder={selectedExchange?.default_symbol ?? ''}
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-0.5 py-1">
+                  <label className="text-[10px] text-tv-muted">Timeframe</label>
+                  <select className="tv-select text-xs py-1" value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+                    <option value="1m">1m</option>
+                    <option value="5m">5m</option>
+                    <option value="15m">15m</option>
+                    <option value="1h">1h</option>
+                    <option value="4h">4h</option>
+                    <option value="1d">1d</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <label className="text-[10px] text-tv-muted">Start Date</label>
+                    <input type="date" className="tv-input text-xs py-1" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <label className="text-[10px] text-tv-muted">End Date</label>
+                    <input type="date" className="tv-input text-xs py-1" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-0.5 py-1">
+                  <label className="text-[10px] text-tv-muted">Warmup Days</label>
+                  <input
+                    type="number"
+                    className="tv-input text-xs py-1"
+                    value={warmupDays}
+                    onChange={(e) => setWarmupDays(Number(e.target.value))}
+                    min={0} max={365}
+                  />
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          {/* Run button at bottom */}
+          <div className="shrink-0 border-t border-tv-border p-3 space-y-2">
+            {status && loading && (
+              <div className={`text-xs text-center capitalize ${status === 'running' ? 'text-tv-blue animate-pulse' : 'text-tv-muted'}`}>
+                {status === 'running' ? '● Running…' : status}
+              </div>
+            )}
+            <button
+              className="tv-btn-primary w-full"
+              onClick={handleRun}
+              disabled={loading || !source.trim()}
+            >
+              {loading ? 'Running…' : '▶ Run Backtest'}
+            </button>
           </div>
         </div>
 
-        {/* Right: chart area + bottom panel */}
+        {/* ── Right: chart area + bottom panel ────────────────────────── */}
         <div className="flex flex-col flex-1 min-w-0">
 
           {/* Chart area */}
@@ -448,11 +442,7 @@ export default function BacktestPage() {
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
                       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                     </svg>
-                    <span className="text-sm">
-                      {mode === 'strategy'
-                        ? 'Configure parameters and click Run Backtest'
-                        : 'Write Pine Script and click Run Backtest'}
-                    </span>
+                    <span className="text-sm">Select a strategy or write Pine Script, then click Run Backtest</span>
                   </div>
                 )}
               </div>
@@ -474,19 +464,6 @@ export default function BacktestPage() {
               style={{ height: bottomHeight }}
             >
               <StrategyTester result={result} />
-            </div>
-          )}
-
-          {/* Transpile result (floating panel) */}
-          {transpileResult?.python_code && (
-            <div className="absolute bottom-4 right-4 w-[500px] max-h-[400px] bg-tv-panel border border-tv-border rounded shadow-lg overflow-hidden z-50 flex flex-col">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-tv-border">
-                <span className="text-xs font-medium text-tv-text">Transpiled Python</span>
-                <button onClick={() => setTranspileResult(null)} className="text-tv-muted hover:text-tv-text text-xs">✕</button>
-              </div>
-              <pre className="flex-1 p-3 text-xs font-mono text-tv-text whitespace-pre-wrap overflow-auto">
-                {transpileResult.python_code}
-              </pre>
             </div>
           )}
 

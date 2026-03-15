@@ -45,6 +45,8 @@ class Trade:
     pnl: float
     comment_entry: str = ""
     comment_exit: str = ""
+    mfe: float = 0.0  # Maximum Favorable Excursion (absolute, per unit)
+    mae: float = 0.0  # Maximum Adverse Excursion (absolute, per unit, negative)
 
 
 @dataclass
@@ -56,6 +58,8 @@ class Position:
     entry_price: float = 0.0
     entry_bar: int = 0
     comment: str = ""
+    _mfe: float = 0.0  # best favorable move per unit
+    _mae: float = 0.0  # worst adverse move per unit (negative)
 
     @property
     def is_flat(self) -> bool:
@@ -321,6 +325,8 @@ class StrategyContext:
                 pnl=pnl,
                 comment_entry=self.position.comment,
                 comment_exit=comment,
+                mfe=self.position._mfe * close_qty,
+                mae=self.position._mae * close_qty,
             )
         )
 
@@ -331,18 +337,37 @@ class StrategyContext:
             self.position = Position()
             self._entry_count = 0
 
-    def update_equity(self, current_price: float) -> None:
-        """Track unrealised equity at end of bar."""
+    def update_equity(
+        self,
+        current_price: float,
+        bar_high: float | None = None,
+        bar_low: float | None = None,
+    ) -> None:
+        """Track unrealised equity at end of bar and update MFE/MAE."""
         unrealised = 0.0
         if not self.position.is_flat:
             if self.position.direction == Direction.LONG:
                 unrealised = (
                     current_price - self.position.entry_price
                 ) * self.position.qty
+                # MFE/MAE tracking using bar high/low
+                if bar_high is not None:
+                    fav = bar_high - self.position.entry_price
+                    self.position._mfe = max(self.position._mfe, fav)
+                if bar_low is not None:
+                    adv = bar_low - self.position.entry_price
+                    self.position._mae = min(self.position._mae, adv)
             else:
                 unrealised = (
                     self.position.entry_price - current_price
                 ) * self.position.qty
+                # MFE/MAE for short: favorable = price drops, adverse = price rises
+                if bar_low is not None:
+                    fav = self.position.entry_price - bar_low
+                    self.position._mfe = max(self.position._mfe, fav)
+                if bar_high is not None:
+                    adv = self.position.entry_price - bar_high
+                    self.position._mae = min(self.position._mae, adv)
         self._equity_curve.append(self.equity + unrealised)
 
     @property

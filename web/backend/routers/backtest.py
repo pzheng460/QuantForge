@@ -1,9 +1,8 @@
-"""Backtest and Pine Script utility endpoints (parse, transpile)."""
+"""Backtest endpoints."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 from fastapi import (
     APIRouter,
@@ -12,7 +11,6 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from pydantic import BaseModel
 
 from web.backend.jobs import create_job, get_job, run_backtest_job
 from web.backend.models import BacktestRequest, JobStatusOut
@@ -79,59 +77,3 @@ async def backtest_websocket(websocket: WebSocket, job_id: str):
         pass
     finally:
         await websocket.close()
-
-
-# ─── Pine Script utilities ───────────────────────────────────────────────────
-
-
-class PineParseRequest(BaseModel):
-    pine_source: str
-
-
-class PineParseResponse(BaseModel):
-    valid: bool
-    error: Optional[str] = None
-    statement_count: int = 0
-    has_strategy: bool = False
-
-
-class PineTranspileRequest(BaseModel):
-    pine_source: str
-
-
-class PineTranspileResponse(BaseModel):
-    success: bool
-    python_code: str = ""
-    error: Optional[str] = None
-
-
-@router.post("/pine/parse", response_model=PineParseResponse)
-async def parse_pine(req: PineParseRequest) -> PineParseResponse:
-    """Parse Pine Script source and validate syntax."""
-    try:
-        from quantforge.pine.parser.parser import parse
-        from quantforge.pine.parser.ast_nodes import StrategyDecl
-
-        ast = parse(req.pine_source)
-        has_strategy = any(isinstance(d, StrategyDecl) for d in ast.declarations)
-        return PineParseResponse(
-            valid=True,
-            statement_count=len(ast.body),
-            has_strategy=has_strategy,
-        )
-    except Exception as e:
-        return PineParseResponse(valid=False, error=str(e))
-
-
-@router.post("/pine/transpile", response_model=PineTranspileResponse)
-async def transpile_pine(req: PineTranspileRequest) -> PineTranspileResponse:
-    """Transpile Pine Script to QuantForge Python code."""
-    try:
-        from quantforge.pine.parser.parser import parse
-        from quantforge.pine.transpiler.codegen import transpile
-
-        ast = parse(req.pine_source)
-        python_code = transpile(ast)
-        return PineTranspileResponse(success=True, python_code=python_code)
-    except Exception as e:
-        return PineTranspileResponse(success=False, error=str(e))
