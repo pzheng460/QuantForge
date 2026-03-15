@@ -1,38 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { api } from '../api/client'
+import type { BacktestResult, JobStatus } from '../types'
 
 const BASE = '/api'
-
-interface PineMetrics {
-  initial_capital: number
-  final_equity: number
-  net_pnl: number
-  return_pct: number
-  total_trades: number
-  winning_trades: number
-  losing_trades: number
-  win_rate: number
-  profit_factor: number
-  max_drawdown: number
-}
-
-interface PineTrade {
-  direction: string
-  entry_price: number
-  exit_price: number
-  pnl: number
-  entry_bar: number
-  exit_bar: number
-  comment_entry: string
-  comment_exit: string
-}
-
-interface BacktestResult {
-  success: boolean
-  error?: string
-  metrics?: PineMetrics
-  trades: PineTrade[]
-  equity_curve: number[]
-}
 
 interface ParseResult {
   valid: boolean
@@ -69,11 +39,45 @@ export default function PinePage() {
   const [exchange, setExchange] = useState('bitget')
 
   const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('')
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [transpileResult, setTranspileResult] = useState<TranspileResult | null>(null)
   const [activeTab, setActiveTab] = useState<'results' | 'trades' | 'transpile'>('results')
   const [error, setError] = useState<string | null>(null)
+
+  // Job polling
+  const [jobId, setJobId] = useState<string | null>(null)
+  const cancelledRef = useRef(false)
+
+  useEffect(() => {
+    if (!jobId) return
+    cancelledRef.current = false
+    const poll = async () => {
+      while (!cancelledRef.current) {
+        try {
+          const job: JobStatus = await api.getBacktestStatus(jobId)
+          if (cancelledRef.current) break
+          setStatus(job.status)
+          if (job.status === 'completed' && job.result) {
+            setResult(job.result)
+            setLoading(false)
+            setActiveTab('results')
+            break
+          } else if (job.status === 'failed') {
+            setError(job.error ?? 'Unknown error')
+            setLoading(false)
+            break
+          }
+        } catch {
+          // transient error, keep polling
+        }
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+    }
+    poll()
+    return () => { cancelledRef.current = true }
+  }, [jobId])
 
   const runBacktest = useCallback(async () => {
     setLoading(true)
@@ -81,30 +85,20 @@ export default function PinePage() {
     setResult(null)
     setParseResult(null)
     setTranspileResult(null)
+    setStatus('pending')
     try {
-      const res = await fetch(`${BASE}/pine/backtest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pine_source: source,
-          symbol,
-          exchange,
-          timeframe,
-          start: startDate,
-          end: endDate,
-          warmup_days: warmupDays,
-        }),
+      const job = await api.runBacktest({
+        pine_source: source,
+        exchange,
+        symbol,
+        timeframe,
+        start_date: startDate,
+        end_date: endDate,
+        warmup_days: warmupDays,
       })
-      const data: BacktestResult = await res.json()
-      if (!data.success) {
-        setError(data.error || 'Backtest failed')
-      } else {
-        setResult(data)
-        setActiveTab('results')
-      }
+      setJobId(job.job_id)
     } catch (e) {
       setError(String(e))
-    } finally {
       setLoading(false)
     }
   }, [source, symbol, exchange, timeframe, startDate, endDate, warmupDays])
@@ -264,7 +258,7 @@ export default function PinePage() {
                 disabled={loading}
                 className="w-full py-1.5 text-xs font-medium rounded bg-tv-blue text-white hover:bg-tv-blue/80 disabled:opacity-50"
               >
-                {loading ? 'Running...' : 'Run Backtest'}
+                {loading ? `Running (${status})...` : 'Run Backtest'}
               </button>
             </div>
           </div>
@@ -292,7 +286,7 @@ export default function PinePage() {
 
         {/* Error display */}
         {error && (
-          <div className="m-3 p-3 bg-red-900/20 border border-red-800 rounded text-red-400 text-xs font-mono whitespace-pre-wrap">
+          <div className="m-3 p-3 bg-red-900/20 border border-red-800 rounded text-red-400 text-xs font-mono whitespace-pre-wrap max-h-48 overflow-auto">
             {error}
           </div>
         )}
@@ -300,34 +294,37 @@ export default function PinePage() {
         {/* Loading state */}
         {loading && (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-tv-muted text-sm animate-pulse">Running Pine Script backtest...</div>
+            <div className="flex flex-col items-center gap-3 text-tv-muted">
+              <div className="w-8 h-8 border-2 border-tv-blue border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm capitalize">{status || 'Loading...'}</span>
+            </div>
           </div>
         )}
 
         {/* Results tab */}
-        {activeTab === 'results' && result?.metrics && !loading && (
+        {activeTab === 'results' && result && !loading && (
           <div className="p-4 overflow-auto">
             {/* Metrics cards */}
             <div className="grid grid-cols-5 gap-3 mb-4">
-              <MetricCard label="Net P&L" value={`$${result.metrics.net_pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} color={result.metrics.net_pnl >= 0 ? 'text-green-400' : 'text-red-400'} />
-              <MetricCard label="Return" value={`${(result.metrics.return_pct * 100).toFixed(2)}%`} color={result.metrics.return_pct >= 0 ? 'text-green-400' : 'text-red-400'} />
-              <MetricCard label="Total Trades" value={String(result.metrics.total_trades)} />
-              <MetricCard label="Win Rate" value={`${(result.metrics.win_rate * 100).toFixed(1)}%`} />
-              <MetricCard label="Profit Factor" value={result.metrics.profit_factor.toFixed(2)} />
+              <MetricCard label="Total Return" value={`${result.total_return_pct.toFixed(2)}%`} color={result.total_return_pct >= 0 ? 'text-green-400' : 'text-red-400'} />
+              <MetricCard label="Total Trades" value={String(result.total_trades)} />
+              <MetricCard label="Win Rate" value={`${result.win_rate_pct.toFixed(1)}%`} />
+              <MetricCard label="Profit Factor" value={result.profit_factor.toFixed(2)} />
+              <MetricCard label="Max Drawdown" value={`${result.max_drawdown_pct.toFixed(2)}%`} color="text-red-400" />
             </div>
             <div className="grid grid-cols-5 gap-3 mb-6">
-              <MetricCard label="Max Drawdown" value={`${(result.metrics.max_drawdown * 100).toFixed(2)}%`} color="text-red-400" />
-              <MetricCard label="Initial Capital" value={`$${result.metrics.initial_capital.toLocaleString()}`} />
-              <MetricCard label="Final Equity" value={`$${result.metrics.final_equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
-              <MetricCard label="Winning" value={String(result.metrics.winning_trades)} color="text-green-400" />
-              <MetricCard label="Losing" value={String(result.metrics.losing_trades)} color="text-red-400" />
+              <MetricCard label="Final Equity" value={`$${result.final_equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} />
+              <MetricCard label="Avg Win" value={`$${result.avg_win.toFixed(2)}`} color="text-green-400" />
+              <MetricCard label="Avg Loss" value={`$${result.avg_loss.toFixed(2)}`} color="text-red-400" />
+              <MetricCard label="Largest Win" value={`$${result.largest_win.toFixed(2)}`} color="text-green-400" />
+              <MetricCard label="Largest Loss" value={`$${result.largest_loss.toFixed(2)}`} color="text-red-400" />
             </div>
 
             {/* Simple equity curve using SVG */}
             {result.equity_curve.length > 0 && (
               <div className="bg-tv-panel border border-tv-border rounded p-3">
                 <div className="text-xs text-tv-muted mb-2">Equity Curve</div>
-                <EquityChart data={result.equity_curve} />
+                <EquityChart data={result.equity_curve.map(p => p.strategy)} />
               </div>
             )}
           </div>
@@ -340,26 +337,26 @@ export default function PinePage() {
               <thead>
                 <tr className="text-tv-muted border-b border-tv-border">
                   <th className="text-left py-1.5 px-2">#</th>
-                  <th className="text-left py-1.5 px-2">Direction</th>
-                  <th className="text-right py-1.5 px-2">Entry Price</th>
-                  <th className="text-right py-1.5 px-2">Exit Price</th>
+                  <th className="text-left py-1.5 px-2">Side</th>
+                  <th className="text-right py-1.5 px-2">Price</th>
                   <th className="text-right py-1.5 px-2">P&L</th>
-                  <th className="text-left py-1.5 px-2">Entry Comment</th>
+                  <th className="text-right py-1.5 px-2">P&L %</th>
                 </tr>
               </thead>
               <tbody>
                 {result.trades.map((t, i) => (
                   <tr key={i} className="border-b border-tv-border/50 hover:bg-tv-panel/50">
                     <td className="py-1.5 px-2 text-tv-muted">{i + 1}</td>
-                    <td className={`py-1.5 px-2 font-medium ${t.direction === 'long' ? 'text-green-400' : 'text-red-400'}`}>
-                      {t.direction.toUpperCase()}
+                    <td className={`py-1.5 px-2 font-medium ${t.side === 'long' ? 'text-green-400' : 'text-red-400'}`}>
+                      {t.side.toUpperCase()}
                     </td>
-                    <td className="py-1.5 px-2 text-right">{t.entry_price.toFixed(2)}</td>
-                    <td className="py-1.5 px-2 text-right">{t.exit_price.toFixed(2)}</td>
+                    <td className="py-1.5 px-2 text-right">{t.price.toFixed(2)}</td>
                     <td className={`py-1.5 px-2 text-right font-medium ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {t.pnl >= 0 ? '+' : ''}{t.pnl.toFixed(2)}
                     </td>
-                    <td className="py-1.5 px-2 text-tv-muted">{t.comment_entry}</td>
+                    <td className={`py-1.5 px-2 text-right ${t.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {t.pnl_pct >= 0 ? '+' : ''}{t.pnl_pct.toFixed(2)}%
+                    </td>
                   </tr>
                 ))}
               </tbody>

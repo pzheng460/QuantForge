@@ -112,13 +112,16 @@ export interface JobStatus {
 }
 
 export interface BacktestRequest {
-  strategy: string
+  strategy?: string
+  pine_source?: string
   exchange: string
   symbol?: string
+  timeframe?: string
   period?: string
   start_date?: string
   end_date?: string
   leverage?: number
+  warmup_days?: number
   mesa_index?: number
   config_override?: Record<string, number | string | boolean>
   filter_override?: Record<string, number | string | boolean>
@@ -127,13 +130,17 @@ export interface BacktestRequest {
 // ─── Optimizer types ──────────────────────────────────────────────────────────
 
 export interface OptimizeRequest {
-  strategy: string
+  strategy?: string
+  pine_source?: string
   exchange: string
   symbol?: string
+  timeframe?: string
   period?: string
   start_date?: string
   end_date?: string
   leverage?: number
+  warmup_days?: number
+  metric?: string
   mode: 'grid' | 'wfo' | 'full' | 'heatmap'
   n_jobs?: number
   resolution?: number

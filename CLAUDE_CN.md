@@ -253,11 +253,16 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 
 `ta.sma`, `ta.ema`, `ta.rma`, `ta.rsi`, `ta.atr`, `ta.adx`, `ta.macd`, `ta.bb`, `ta.stoch`, `ta.stdev`, `ta.crossover`, `ta.crossunder`, `ta.highest`, `ta.lowest`, `ta.change`, `ta.tr`
 
-### Pine Web UI
+### Web UI 架构
 
-- 后端：`web/backend/routers/pine.py` — 解析、回测、转译的 FastAPI 端点
-- 前端：`web/frontend/src/pages/PinePage.tsx` — Pine Script 编辑器与回测运行器
-- 路由：Web UI 中的 `/pine`
+所有回测和优化逻辑统一在主回测模块中：
+- `web/backend/jobs.py` — 共享工具（`_fetch_ohlcv`、`_resolve_pine_source`、`_resolve_date_range`）及回测/优化任务运行器
+- `web/backend/routers/backtest.py` — `/backtest/run`（POST，接受策略文件名或 Pine 源码）、`/backtest/{id}`（GET，轮询状态）
+- `web/backend/routers/optimize.py` — `/optimize/run`（POST，Pine 网格搜索）、`/optimize/{id}`（GET，轮询状态）
+- `web/backend/routers/pine.py` — 仅工具端点：`/pine/parse` 和 `/pine/transpile`
+- `web/backend/routers/strategies.py` — `/strategies`（列出 Pine 文件及解析的输入参数）、`/exchanges`
+- 前端页面：`Backtest.tsx`（策略选择器+图表）、`PinePage.tsx`（Pine 编辑器+通过任务轮询回测）、`Optimizer.tsx`
+- 路由：Web UI 中的 `/backtest`、`/pine`、`/optimizer`
 
 ### Pine 实盘交易引擎
 

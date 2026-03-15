@@ -257,11 +257,16 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 
 `ta.sma`, `ta.ema`, `ta.rma`, `ta.rsi`, `ta.atr`, `ta.adx`, `ta.macd`, `ta.bb`, `ta.stoch`, `ta.stdev`, `ta.crossover`, `ta.crossunder`, `ta.highest`, `ta.lowest`, `ta.change`, `ta.tr`
 
-### Pine Web UI
+### Web UI Architecture
 
-- Backend: `web/backend/routers/pine.py` — FastAPI endpoints for parse, backtest, transpile
-- Frontend: `web/frontend/src/pages/PinePage.tsx` — Pine Script editor with backtest runner
-- Route: `/pine` in the web UI
+All backtest and optimization logic is unified in the main backtest module:
+- `web/backend/jobs.py` — Shared helpers (`_fetch_ohlcv`, `_resolve_pine_source`, `_resolve_date_range`) and job runners for both backtest and optimization
+- `web/backend/routers/backtest.py` — `/backtest/run` (POST, accepts `strategy` file name OR `pine_source` raw code), `/backtest/{id}` (GET, poll status)
+- `web/backend/routers/optimize.py` — `/optimize/run` (POST, Pine grid search), `/optimize/{id}` (GET, poll status)
+- `web/backend/routers/pine.py` — Utility-only: `/pine/parse` and `/pine/transpile`
+- `web/backend/routers/strategies.py` — `/strategies` (lists Pine files with parsed input params), `/exchanges`
+- Frontend pages: `Backtest.tsx` (strategy selector + chart), `PinePage.tsx` (Pine editor + backtest via job polling), `Optimizer.tsx`
+- Route: `/backtest`, `/pine`, `/optimizer` in the web UI
 
 ### Pine Live Trading Engine
 

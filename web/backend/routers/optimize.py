@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 from web.backend.jobs import create_job, get_job, run_optimize_job
 from web.backend.models import OptimizeRequest, OptimizeJobStatusOut
@@ -13,16 +19,6 @@ router = APIRouter()
 
 
 def _job_to_status(job_id: str, job: dict) -> OptimizeJobStatusOut:
-    from web.backend.models import GridSearchResultOut, WFOResultOut, ThreeStageResultOut, HeatmapResultOut
-
-    def _unwrap(key, cls):
-        v = job.get(key)
-        if v is None:
-            return None
-        if isinstance(v, cls):
-            return v
-        return cls(**v)
-
     return OptimizeJobStatusOut(
         job_id=job_id,
         status=job["status"],

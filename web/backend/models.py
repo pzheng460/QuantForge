@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 _VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
 _VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid"}
@@ -11,16 +11,25 @@ _VALID_MODES = {"grid", "wfo", "full", "heatmap"}
 
 
 class BacktestRequest(BaseModel):
-    strategy: str
+    strategy: Optional[str] = None  # Pine strategy file name (from strategies dir)
+    pine_source: Optional[str] = None  # Raw Pine Script source code
     exchange: str = "bitget"
     symbol: Optional[str] = None
+    timeframe: str = "1h"
     period: Optional[str] = "1y"
-    start_date: Optional[str] = None   # YYYY-MM-DD
-    end_date: Optional[str] = None     # YYYY-MM-DD
+    start_date: Optional[str] = None  # YYYY-MM-DD
+    end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
+    warmup_days: int = 60
     mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
     filter_override: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def check_strategy_or_source(self):
+        if not self.strategy and not self.pine_source:
+            raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+        return self
 
     @field_validator("exchange")
     @classmethod
@@ -108,16 +117,16 @@ class BacktestResultOut(BaseModel):
 
 class JobStatusOut(BaseModel):
     job_id: str
-    status: str          # pending | running | completed | failed
+    status: str  # pending | running | completed | failed
     error: Optional[str] = None
     result: Optional[BacktestResultOut] = None
 
 
 class SchemaField(BaseModel):
     name: str
-    type: str            # float | int | str | bool
+    type: str  # float | int | str | bool
     default: Any
-    label: str           # human-readable label
+    label: str  # human-readable label
     min: Optional[float] = None
     max: Optional[float] = None
     step: Optional[float] = None
@@ -133,17 +142,28 @@ class StrategySchema(BaseModel):
 
 # ─── Optimizer models ────────────────────────────────────────────────────────
 
+
 class OptimizeRequest(BaseModel):
-    strategy: str
+    strategy: Optional[str] = None  # Pine strategy file name
+    pine_source: Optional[str] = None  # Raw Pine Script source code
     exchange: str = "bitget"
     symbol: Optional[str] = None
+    timeframe: str = "1h"
     period: Optional[str] = "1y"
-    start_date: Optional[str] = None   # YYYY-MM-DD
-    end_date: Optional[str] = None     # YYYY-MM-DD
+    start_date: Optional[str] = None  # YYYY-MM-DD
+    end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
-    mode: str = "grid"                 # grid | wfo | full | heatmap
+    warmup_days: int = 60
+    metric: str = "sharpe"
+    mode: str = "grid"  # grid | wfo | full | heatmap
     n_jobs: int = 1
-    resolution: int = 15               # heatmap grid resolution
+    resolution: int = 15  # heatmap grid resolution
+
+    @model_validator(mode="after")
+    def check_strategy_or_source(self):
+        if not self.strategy and not self.pine_source:
+            raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+        return self
 
     @field_validator("exchange")
     @classmethod
@@ -292,6 +312,7 @@ class OptimizeJobStatusOut(BaseModel):
 
 
 # ─── Live monitoring models ─────────────────────────────────────────────────
+
 
 class LiveTradeOut(BaseModel):
     symbol: str

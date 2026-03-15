@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 from web.backend.jobs import create_job, get_job, run_backtest_job
 from web.backend.models import BacktestRequest, JobStatusOut
@@ -60,7 +66,9 @@ async def backtest_websocket(websocket: WebSocket, job_id: str):
                 )
                 break
             elif status == "failed":
-                await websocket.send_json({"status": "failed", "error": job.get("error")})
+                await websocket.send_json(
+                    {"status": "failed", "error": job.get("error")}
+                )
                 break
             else:
                 await websocket.send_json({"status": status})
