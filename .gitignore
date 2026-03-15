@@ -44,6 +44,3 @@ appendonlydir/
 # Strategy artifacts
 strategy/**/*.log
 strategy/results/
-
-# Live trading runtime data
-*/live_performance.json

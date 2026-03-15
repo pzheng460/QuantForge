@@ -294,7 +294,7 @@ QuantForge 交易所连接器（通过 ccxt）
 
 **实时性能仪表板集成：**
 - `DemoTracker.to_dict()` 将盈亏、交易、回撤序列化为 `LivePerformanceOut` 兼容 JSON
-- `PineLiveEngine._flush_performance()` 每根 K 线后写入 `{项目根目录}/{策略名}/live_performance.json`
+- `PineLiveEngine._flush_performance()` 每根 K 线后写入 `~/.quantforge/live/{策略名}/live_performance.json`
 - Web 后端 `_find_perf_files()` 通过 `rglob("live_performance.json")` 发现这些文件
 - WebSocket 端点 `/ws/live/performance` 每 3 秒推送更新
 

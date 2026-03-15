@@ -21,16 +21,16 @@ from web.backend.models import (
 
 router = APIRouter()
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_LIVE_DIR = Path.home() / ".quantforge" / "live"
 
 
 def _find_perf_files() -> dict[str, Path]:
     """Return mapping of strategy_name -> performance JSON path."""
     result: dict[str, Path] = {}
-    # Scan for live_performance.json files in project root
-    for p in _PROJECT_ROOT.rglob("live_performance.json"):
-        parent = p.parent.name
-        result[parent] = p
+    if not _LIVE_DIR.exists():
+        return result
+    for p in _LIVE_DIR.glob("*/live_performance.json"):
+        result[p.parent.name] = p
     return result
 
 

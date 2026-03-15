@@ -313,7 +313,7 @@ class PineLiveEngine:
         if tracker is None:
             return
         try:
-            perf_dir = Path(__file__).resolve().parents[3] / self.strategy_name
+            perf_dir = Path.home() / ".quantforge" / "live" / self.strategy_name
             perf_dir.mkdir(parents=True, exist_ok=True)
             perf_path = perf_dir / "live_performance.json"
 

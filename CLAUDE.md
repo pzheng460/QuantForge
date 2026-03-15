@@ -302,7 +302,7 @@ Exchange
 
 **Live performance dashboard integration:**
 - `DemoTracker.to_dict()` serializes P&L, trades, drawdown to `LivePerformanceOut`-compatible JSON
-- `PineLiveEngine._flush_performance()` writes `{project_root}/{strategy_name}/live_performance.json` after each bar
+- `PineLiveEngine._flush_performance()` writes `~/.quantforge/live/{strategy_name}/live_performance.json` after each bar
 - Web backend `_find_perf_files()` discovers these files via `rglob("live_performance.json")`
 - WebSocket endpoint `/ws/live/performance` streams updates every 3 seconds
 
