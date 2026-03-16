@@ -79,6 +79,7 @@ class PineLiveEngine:
         position_size_usdt: float = 100.0,
         dry_run: bool = False,
         strategy_name: str = "pine_strategy",
+        leverage: int = 1,
     ) -> None:
         self.pine_source = pine_source
         self.exchange = exchange
@@ -89,6 +90,7 @@ class PineLiveEngine:
         self.warmup_bars = warmup_bars
         self.position_size_usdt = position_size_usdt
         self.strategy_name = strategy_name
+        self.leverage = leverage
 
         # Parse once
         self.ast = parse(pine_source)
@@ -130,6 +132,18 @@ class PineLiveEngine:
                 )
                 mode = "DEMO (sandbox)" if self.demo else "LIVE"
                 logger.info("CcxtConnector initialised — %s order submission", mode)
+
+                # Set leverage before trading starts
+                if self.leverage > 0:
+                    try:
+                        result = connector._exchange.set_leverage(
+                            self.leverage, self.symbol
+                        )
+                        logger.info(
+                            "Leverage set to %dx for %s", self.leverage, self.symbol
+                        )
+                    except Exception:
+                        logger.exception("Failed to set leverage")
             except Exception:
                 logger.exception(
                     "Failed to initialise CcxtConnector — falling back to dry-run"

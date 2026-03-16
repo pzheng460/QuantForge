@@ -228,6 +228,7 @@ def _run_live(args: argparse.Namespace) -> None:
         position_size_usdt=args.position_size,
         dry_run=args.dry_run,
         strategy_name=pine_file.stem,
+        leverage=args.leverage,
     )
 
     try:
@@ -475,6 +476,12 @@ def main() -> None:
         type=float,
         default=100.0,
         help="Position size in USDT (default: 100)",
+    )
+    lv.add_argument(
+        "--leverage",
+        type=int,
+        default=1,
+        help="Leverage multiplier (default: 1)",
     )
 
     # optimize subcommand
