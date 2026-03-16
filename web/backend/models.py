@@ -368,3 +368,33 @@ class LiveStrategyStatusOut(BaseModel):
     display_name: str
     is_active: bool
     performance: Optional[LivePerformanceOut] = None
+
+
+# ─── Live engine management models ────────────────────────────────────────────
+
+
+class LiveStartRequest(BaseModel):
+    strategy: Optional[str] = None
+    pine_source: Optional[str] = None
+    exchange: str = "bitget"
+    symbol: Optional[str] = None
+    timeframe: str = "1h"
+    demo: bool = True
+    position_size_usdt: float = 100.0
+    leverage: int = 1
+    warmup_bars: int = 500
+    config_override: Optional[Dict[str, Any]] = None
+
+
+class LiveEngineOut(BaseModel):
+    engine_id: str
+    status: str  # warmup | running | stopped | failed
+    strategy: str = ""
+    exchange: str = ""
+    symbol: str = ""
+    timeframe: str = ""
+    demo: bool = True
+    leverage: int = 1
+    created_at: str = ""
+    error: Optional[str] = None
+    performance: Optional[LivePerformanceOut] = None

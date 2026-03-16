@@ -302,3 +302,32 @@ export interface LiveStrategyStatus {
   is_active: boolean
   performance?: LivePerformance
 }
+
+// ─── Live engine management types ───────────────────────────────────────────
+
+export interface LiveStartRequest {
+  strategy?: string
+  pine_source?: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  demo: boolean
+  position_size_usdt: number
+  leverage: number
+  warmup_bars: number
+  config_override?: Record<string, number>
+}
+
+export interface LiveEngineOut {
+  engine_id: string
+  status: 'warmup' | 'running' | 'stopped' | 'failed'
+  strategy: string
+  exchange: string
+  symbol: string
+  timeframe: string
+  demo: boolean
+  leverage: number
+  created_at: string
+  error?: string
+  performance?: LivePerformance
+}

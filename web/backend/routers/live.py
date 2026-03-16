@@ -1,7 +1,8 @@
-"""Live monitoring endpoints — reads PerformanceTracker JSON files.
+"""Live monitoring & engine management endpoints.
 
-NOTE: The old Python strategy registry (strategy/) has been removed.
-Live monitoring now works with Pine-based strategies.
+Provides read-only performance monitoring (JSON file scanning) plus
+start/stop control for PineLiveEngine instances running as asyncio
+tasks inside the FastAPI process.
 """
 
 from __future__ import annotations
@@ -11,10 +12,12 @@ import json
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from web.backend.models import (
+    LiveEngineOut,
     LivePerformanceOut,
+    LiveStartRequest,
     LiveStrategyStatusOut,
     LiveTradeOut,
 )
@@ -22,6 +25,9 @@ from web.backend.models import (
 router = APIRouter()
 
 _LIVE_DIR = Path.home() / ".quantforge" / "live"
+
+
+# ─── Helpers (used by live_engines.py too) ────────────────────────────────────
 
 
 def _find_perf_files() -> dict[str, Path]:
@@ -46,6 +52,9 @@ def _load_perf(path: Path) -> LivePerformanceOut | None:
         return LivePerformanceOut(**data, trades=trades)
     except (json.JSONDecodeError, TypeError, KeyError):
         return None
+
+
+# ─── Read-only monitoring endpoints ──────────────────────────────────────────
 
 
 @router.get("/live/strategies", response_model=List[LiveStrategyStatusOut])
@@ -95,3 +104,101 @@ async def ws_live_performance(ws: WebSocket):
             await asyncio.sleep(3)
     except WebSocketDisconnect:
         pass
+
+
+# ─── Engine management endpoints ─────────────────────────────────────────────
+
+
+@router.post("/live/start", response_model=LiveEngineOut)
+async def start_live(req: LiveStartRequest) -> LiveEngineOut:
+    """Start a new PineLiveEngine as an asyncio task."""
+    from web.backend.live_engines import list_engines, start_engine
+
+    # Prevent duplicate engines for the same strategy
+    for eng in list_engines():
+        if (
+            eng["strategy"] == (req.strategy or "custom_strategy")
+            and eng["status"] in ("warmup", "running")
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Engine for '{eng['strategy']}' is already {eng['status']}",
+            )
+
+    try:
+        engine_id = await start_engine(
+            strategy=req.strategy,
+            pine_source=req.pine_source,
+            exchange=req.exchange,
+            symbol=req.symbol,
+            timeframe=req.timeframe,
+            demo=req.demo,
+            position_size_usdt=req.position_size_usdt,
+            leverage=req.leverage,
+            warmup_bars=req.warmup_bars,
+            config_override=req.config_override,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    from web.backend.live_engines import get_engine
+
+    entry = get_engine(engine_id)
+    return LiveEngineOut(
+        engine_id=engine_id,
+        status=entry["status"],
+        strategy=entry["strategy"],
+        exchange=entry["exchange"],
+        symbol=entry["symbol"],
+        timeframe=entry["timeframe"],
+        demo=entry["demo"],
+        leverage=entry["leverage"],
+        created_at=entry["created_at"],
+    )
+
+
+@router.post("/live/stop/{engine_id}", response_model=LiveEngineOut)
+async def stop_live(engine_id: str) -> LiveEngineOut:
+    """Stop a running engine."""
+    from web.backend.live_engines import get_engine, stop_engine
+
+    entry = get_engine(engine_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Engine {engine_id} not found")
+
+    if entry["status"] not in ("warmup", "running"):
+        raise HTTPException(
+            status_code=400, detail=f"Engine is {entry['status']}, cannot stop"
+        )
+
+    await stop_engine(engine_id)
+
+    entry = get_engine(engine_id)
+    perf_files = _find_perf_files()
+    perf = None
+    if entry["strategy"] in perf_files:
+        perf = _load_perf(perf_files[entry["strategy"]])
+
+    return LiveEngineOut(
+        engine_id=engine_id,
+        status=entry["status"],
+        strategy=entry["strategy"],
+        exchange=entry["exchange"],
+        symbol=entry["symbol"],
+        timeframe=entry["timeframe"],
+        demo=entry["demo"],
+        leverage=entry["leverage"],
+        created_at=entry["created_at"],
+        error=entry["error"],
+        performance=perf,
+    )
+
+
+@router.get("/live/engines", response_model=List[LiveEngineOut])
+def get_live_engines() -> List[LiveEngineOut]:
+    """List all engines with their current status and performance."""
+    from web.backend.live_engines import list_engines
+
+    return [LiveEngineOut(**eng) for eng in list_engines()]

@@ -7,6 +7,8 @@ import type {
   OptimizeJobStatus,
   LivePerformance,
   LiveStrategyStatus,
+  LiveStartRequest,
+  LiveEngineOut,
 } from '../types'
 
 const BASE = '/api'
@@ -47,6 +49,13 @@ export const api = {
 
   liveStrategies: (): Promise<LiveStrategyStatus[]> => get('/live/strategies'),
   livePerformance: (): Promise<LivePerformance> => get('/live/performance'),
+
+  // Live engine management
+  startLive: (req: LiveStartRequest): Promise<LiveEngineOut> =>
+    post('/live/start', req),
+  stopLive: (engineId: string): Promise<LiveEngineOut> =>
+    post(`/live/stop/${engineId}`, {}),
+  liveEngines: (): Promise<LiveEngineOut[]> => get('/live/engines'),
 }
 
 /** Subscribe to an optimize job via WebSocket. Returns a cleanup function. */

@@ -263,10 +263,12 @@ All backtest and optimization logic is unified in the main backtest module:
 - `web/backend/jobs.py` — Shared helpers (`_fetch_ohlcv`, `_resolve_pine_source`, `_resolve_date_range`) and job runners for both backtest and optimization
 - `web/backend/routers/backtest.py` — `/backtest/run` (POST, accepts `strategy` file name OR `pine_source` raw code), `/backtest/{id}` (GET, poll status)
 - `web/backend/routers/optimize.py` — `/optimize/run` (POST, Pine grid search), `/optimize/{id}` (GET, poll status)
-- `web/backend/routers/pine.py` — Utility-only: `/pine/parse` and `/pine/transpile`
 - `web/backend/routers/strategies.py` — `/strategies` (lists Pine files with parsed input params), `/exchanges`
-- Frontend pages: `Backtest.tsx` (strategy selector + chart), `PinePage.tsx` (Pine editor + backtest via job polling), `Optimizer.tsx`
-- Route: `/backtest`, `/pine`, `/optimizer` in the web UI
+- `web/backend/routers/live.py` — Live engine management: `/live/start` (POST), `/live/stop/{id}` (POST), `/live/engines` (GET), `/ws/live/performance` (WS)
+- `web/backend/live_engines.py` — In-memory engine manager: `start_engine()`, `stop_engine()`, `list_engines()` — runs PineLiveEngine as asyncio tasks
+- Frontend pages: `Dashboard.tsx` (live trading: strategy selector + start/stop + StrategyTester), `Backtest.tsx`, `Optimizer.tsx`
+- `web/frontend/src/utils/liveAdapter.ts` — Converts `LivePerformance` → `BacktestResult` for StrategyTester rendering
+- Route: `/` (live trading), `/backtest`, `/optimizer` in the web UI
 
 ### Pine Live Trading Engine
 

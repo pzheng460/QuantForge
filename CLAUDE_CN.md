@@ -257,12 +257,14 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 
 所有回测和优化逻辑统一在主回测模块中：
 - `web/backend/jobs.py` — 共享工具（`_fetch_ohlcv`、`_resolve_pine_source`、`_resolve_date_range`）及回测/优化任务运行器
-- `web/backend/routers/backtest.py` — `/backtest/run`（POST，接受策略文件名或 Pine 源码）、`/backtest/{id}`（GET，轮询状态）
-- `web/backend/routers/optimize.py` — `/optimize/run`（POST，Pine 网格搜索）、`/optimize/{id}`（GET，轮询状态）
-- `web/backend/routers/pine.py` — 仅工具端点：`/pine/parse` 和 `/pine/transpile`
-- `web/backend/routers/strategies.py` — `/strategies`（列出 Pine 文件及解析的输入参数）、`/exchanges`
-- 前端页面：`Backtest.tsx`（策略选择器+图表）、`PinePage.tsx`（Pine 编辑器+通过任务轮询回测）、`Optimizer.tsx`
-- 路由：Web UI 中的 `/backtest`、`/pine`、`/optimizer`
+- `web/backend/routers/backtest.py` — `/backtest/run`（POST）、`/backtest/{id}`（GET，轮询状态）
+- `web/backend/routers/optimize.py` — `/optimize/run`（POST）、`/optimize/{id}`（GET）
+- `web/backend/routers/strategies.py` — `/strategies`、`/exchanges`
+- `web/backend/routers/live.py` — 实盘引擎管理：`/live/start`（POST）、`/live/stop/{id}`（POST）、`/live/engines`（GET）、`/ws/live/performance`（WS）
+- `web/backend/live_engines.py` — 内存引擎管理器：`start_engine()`、`stop_engine()`、`list_engines()` — 以 asyncio 任务运行 PineLiveEngine
+- 前端页面：`Dashboard.tsx`（实盘交易：策略选择器+启停控制+StrategyTester）、`Backtest.tsx`、`Optimizer.tsx`
+- `web/frontend/src/utils/liveAdapter.ts` — 将 `LivePerformance` 转换为 `BacktestResult` 供 StrategyTester 渲染
+- 路由：`/`（实盘交易）、`/backtest`、`/optimizer`
 
 ### Pine 实盘交易引擎
 

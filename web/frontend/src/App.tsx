@@ -159,7 +159,7 @@ function AppContent() {
           QuantForge
         </span>
         <div className="flex items-center gap-0.5">
-          <NavItem to="/" label="Dashboard" />
+          <NavItem to="/" label="Live Trading" />
           <NavItem to="/backtest" label="Backtest" />
           <NavItem to="/optimizer" label="Optimizer" />
         </div>
