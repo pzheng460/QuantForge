@@ -141,6 +141,8 @@ class CcxtConnector:
                     config["apiKey"] = settings.BITGET.DEMO.API_KEY
                     config["secret"] = settings.BITGET.DEMO.SECRET
                     config["password"] = settings.BITGET.DEMO.PASSPHRASE
+                    # Bitget UTA demo uses paptrading header (not sandbox URLs)
+                    config["headers"] = {"paptrading": "1"}
                 else:
                     config["apiKey"] = settings.BITGET.API_KEY
                     config["secret"] = settings.BITGET.SECRET
@@ -177,7 +179,9 @@ class CcxtConnector:
 
         exchange = exchange_cls(config)
 
-        if self.demo:
+        # Bitget demo uses paptrading header (set above), not sandbox mode.
+        # Other exchanges may still need set_sandbox_mode.
+        if self.demo and self.exchange_id != "bitget":
             exchange.set_sandbox_mode(True)
 
         exchange.load_markets()
@@ -200,6 +204,9 @@ class CcxtConnector:
         params: dict = {}
         if reduce_only:
             params["reduceOnly"] = True
+        # Bitget UTA requires uta=True to use v3 unified account API
+        if self.exchange_id == "bitget":
+            params["uta"] = True
 
         logger.info(
             "Submitting %s %s %.6f %s (reduce_only=%s)",
@@ -224,6 +231,8 @@ class CcxtConnector:
         params: dict = {}
         if reduce_only:
             params["reduceOnly"] = True
+        if self.exchange_id == "bitget":
+            params["uta"] = True
 
         logger.info(
             "Submitting LIMIT %s %.6f @ %.2f %s",
