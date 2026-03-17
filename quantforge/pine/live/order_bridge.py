@@ -285,7 +285,12 @@ class OrderBridge:
         limit: float | None = None,
         stop: float | None = None,
     ) -> None:
-        """Submit an order via the connector or legacy _submit_fn."""
+        """Submit an order via the connector or legacy _submit_fn.
+
+        The Pine interpreter computes *qty* in its own units (e.g. percent
+        of equity).  For real exchange submission we convert to an actual
+        base-currency quantity using ``position_size_usdt / current_price``.
+        """
         if self.demo:
             return
 
@@ -299,19 +304,28 @@ class OrderBridge:
             logger.warning("No connector configured — order not submitted")
             return
 
+        # Convert Pine qty → exchange qty based on position size and price
+        exchange_qty = qty
+        if self._last_price > 0 and self.position_size_usdt > 0:
+            exchange_qty = round(self.position_size_usdt / self._last_price, 6)
+
         try:
             reduce_only = action in ("close", "exit")
+            logger.info(
+                "Exchange order: %s %s qty=%.6f (pine_qty=%.2f, usdt=%.0f, price=%.2f)",
+                action, side, exchange_qty, qty, self.position_size_usdt, self._last_price,
+            )
             if limit:
                 self._connector.submit_limit_order(
-                    side=side, qty=qty, price=limit, reduce_only=reduce_only
+                    side=side, qty=exchange_qty, price=limit, reduce_only=reduce_only
                 )
             else:
                 self._connector.submit_market_order(
-                    side=side, qty=qty, reduce_only=reduce_only
+                    side=side, qty=exchange_qty, reduce_only=reduce_only
                 )
         except Exception:
             logger.exception(
-                "Order submission failed: %s %s qty=%.6f", action, side, qty
+                "Order submission failed: %s %s qty=%.6f", action, side, exchange_qty
             )
 
     def on_entry(self, order: Order) -> None:
