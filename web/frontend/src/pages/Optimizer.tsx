@@ -172,7 +172,7 @@ export default function OptimizerPage() {
   // Set default strategy on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
-      setStrategy(strategies[0].name)
+      // Don't auto-select — start with empty state
       setInitialized(true)
     }
   }, [strategies, initialized])
@@ -357,6 +357,7 @@ export default function OptimizerPage() {
           <div className="flex flex-col gap-1">
             <label className="text-xs text-gray-500">Strategy</label>
             <select className="input text-sm" value={strategy} onChange={(e) => setStrategy(e.target.value)}>
+              <option value="">— Select —</option>
               {strategies.map((s) => <option key={s.name} value={s.name}>{s.display_name}</option>)}
             </select>
           </div>

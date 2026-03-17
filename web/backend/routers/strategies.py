@@ -115,6 +115,22 @@ def get_strategy_source(name: str):
     return {"source": pine_file.read_text()}
 
 
+@router.post("/strategies/{name}/rename")
+def rename_strategy(name: str, new_name: str):
+    """Rename a strategy file."""
+    import re
+    # Sanitize new_name
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', new_name.removesuffix('.pine'))
+    old_file = _PINE_STRATEGIES_DIR / f"{name}.pine"
+    new_file = _PINE_STRATEGIES_DIR / f"{safe_name}.pine"
+    if not old_file.exists():
+        raise HTTPException(404, f"Strategy '{name}' not found")
+    if new_file.exists():
+        raise HTTPException(409, f"Strategy '{safe_name}' already exists")
+    old_file.rename(new_file)
+    return {"old_name": name, "new_name": safe_name}
+
+
 @router.get("/exchanges")
 def get_exchanges():
     """Return list of supported exchanges."""

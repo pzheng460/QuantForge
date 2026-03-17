@@ -136,11 +136,7 @@ export default function DashboardPage() {
   // Set default strategy + load engines on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
-      setSelectedStrategy(strategies[0].name)
-      api.strategySource(strategies[0].name).then(({ source: src }) => {
-        setSource(src)
-        setPineParams(parsePineParams(src))
-      })
+      // Don't auto-select — start with empty state
       setInitialized(true)
     }
   }, [strategies, initialized])
@@ -277,6 +273,7 @@ export default function DashboardPage() {
                     onChange={(e) => handleStrategyChange(e.target.value)}
                     disabled={!!activeEngine}
                   >
+                    <option value="">— Select —</option>
                     <option value={CUSTOM_KEY}>Custom Script</option>
                     {strategies.map((s) => (
                       <option key={s.name} value={s.name}>{s.display_name}</option>
