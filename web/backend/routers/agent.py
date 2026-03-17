@@ -274,13 +274,17 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
         # Build prompt from template
         prompt_template = workflow.get("prompt_template", "")
         strategy_path = ""
+        work_path = ""
         if request.strategy:
             strategy_path = f"quantforge/pine/strategies/{request.strategy}"
+            # Working copy in /tmp to avoid modifying original
+            work_path = f"/tmp/optimize_{request.strategy}_{job_id[:8]}.pine"
 
         # Format prompt with variables
         prompt = prompt_template.format(
             skill_path=skill_dir,
             strategy_path=strategy_path,
+            work_path=work_path,
             exchange=request.exchange,
             symbol=request.symbol or "BTC/USDT:USDT",
             timeframe=request.timeframe,
