@@ -9,8 +9,10 @@ import type {
   LiveStrategyStatus,
   LiveStartRequest,
   LiveEngineOut,
-  ClosedLoopRequest,
-  ClosedLoopJobStatus,
+  AgentRunRequest,
+  AgentJobStatus,
+  AgentSkillInfo,
+  AgentEvent,
 } from '../types'
 
 const BASE = '/api'
@@ -42,18 +44,16 @@ export const api = {
 
   getBacktestStatus: (jobId: string): Promise<JobStatus> =>
     get(`/backtest/${jobId}`),
+  cancelBacktest: (jobId: string): Promise<void> =>
+    post(`/backtest/cancel/${jobId}`, {}),
 
   runOptimize: (req: OptimizeRequest): Promise<OptimizeJobStatus> =>
     post('/optimize/run', req),
-
   getOptimizeStatus: (jobId: string): Promise<OptimizeJobStatus> =>
     get(`/optimize/${jobId}`),
+  cancelOptimize: (jobId: string): Promise<void> =>
+    post(`/optimize/cancel/${jobId}`, {}),
 
-  runClosedLoop: (req: ClosedLoopRequest): Promise<ClosedLoopJobStatus> =>
-    post('/closedloop/run', req),
-
-  getClosedLoopStatus: (jobId: string): Promise<ClosedLoopJobStatus> =>
-    get(`/closedloop/${jobId}`),
 
   liveStrategies: (): Promise<LiveStrategyStatus[]> => get('/live/strategies'),
   livePerformance: (): Promise<LivePerformance> => get('/live/performance'),
@@ -64,6 +64,15 @@ export const api = {
   stopLive: (engineId: string): Promise<LiveEngineOut> =>
     post(`/live/stop/${engineId}`, {}),
   liveEngines: (): Promise<LiveEngineOut[]> => get('/live/engines'),
+
+  // Agent workflow management
+  runAgent: (req: AgentRunRequest): Promise<AgentJobStatus> =>
+    post('/agent/run', req),
+  getAgentStatus: (jobId: string): Promise<AgentJobStatus> =>
+    get(`/agent/${jobId}`),
+  stopAgent: (jobId: string): Promise<void> =>
+    post(`/agent/${jobId}/stop`, {}),
+  agentSkills: (): Promise<AgentSkillInfo[]> => get('/agent/skills'),
 }
 
 /** Subscribe to an optimize job via WebSocket. Returns a cleanup function. */
@@ -85,14 +94,14 @@ export function subscribeOptimize(
   return () => ws.close()
 }
 
-/** Subscribe to a closed-loop optimization job via WebSocket. Returns a cleanup function. */
-export function subscribeClosedLoop(
-  jobId: string,
-  onMessage: (msg: ClosedLoopJobStatus) => void,
+
+/** Subscribe to live performance updates via WebSocket. Returns a cleanup function. */
+export function subscribeLivePerformance(
+  onMessage: (msg: LivePerformance) => void,
   onError?: (e: Event) => void
 ): () => void {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/closedloop/${jobId}`)
+  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/live/performance`)
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
@@ -104,13 +113,14 @@ export function subscribeClosedLoop(
   return () => ws.close()
 }
 
-/** Subscribe to live performance updates via WebSocket. Returns a cleanup function. */
-export function subscribeLivePerformance(
-  onMessage: (msg: LivePerformance) => void,
+/** Subscribe to agent events via WebSocket. Returns a cleanup function. */
+export function subscribeAgent(
+  jobId: string,
+  onMessage: (event: AgentEvent) => void,
   onError?: (e: Event) => void
 ): () => void {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/live/performance`)
+  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/agent/${jobId}`)
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))

@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { api, subscribeLivePerformance } from '../api/client'
+import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
+import { useCatalog } from '../hooks/useCatalog'
 import type {
   LivePerformance,
   LiveEngineOut,
@@ -81,19 +83,6 @@ function Section({ title, children, defaultOpen = true }: {
   )
 }
 
-const DEFAULT_PINE = `//@version=5
-strategy("EMA Cross", overlay=true, initial_capital=100000)
-fast_len = input.int(9, title="Fast EMA")
-slow_len = input.int(21, title="Slow EMA")
-fast_ema = ta.ema(close, fast_len)
-slow_ema = ta.ema(close, slow_len)
-if ta.crossover(fast_ema, slow_ema)
-    strategy.entry("Long", strategy.long)
-if ta.crossunder(fast_ema, slow_ema)
-    strategy.close("Long")
-`
-
-const CUSTOM_KEY = '__custom__'
 
 // ─── Status badge ───────────────────────────────────────────────────────────
 
@@ -116,48 +105,48 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Main Live Trading page ─────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  // Strategy setup state
-  const [strategies, setStrategies] = useState<StrategySchema[]>([])
-  const [exchanges, setExchanges] = useState<Exchange[]>([])
-  const [selectedStrategy, setSelectedStrategy] = useState(CUSTOM_KEY)
-  const [source, setSource] = useState(DEFAULT_PINE)
-  const [pineParams, setPineParams] = useState<PineParam[]>([])
-  const [exchange, setExchange] = useState('bitget')
-  const [symbol, setSymbol] = useState('BTC/USDT:USDT')
-  const [timeframe, setTimeframe] = useState('1h')
-  const [positionSize, setPositionSize] = useState(100)
-  const [leverage, setLeverage] = useState(1)
-  const [warmupBars, setWarmupBars] = useState(500)
-  const [demo, setDemo] = useState(true)
+  const { strategies, exchanges } = useCatalog()
 
-  // Engine state
-  const [engines, setEngines] = useState<LiveEngineOut[]>([])
-  const [starting, setStarting] = useState(false)
-  const [startError, setStartError] = useState<string | null>(null)
+  // Zustand store (persists across tab switches)
+  const {
+    selectedStrategy, setSelectedStrategy,
+    source, setSource,
+    pineParams, setPineParams,
+    exchange, setExchange,
+    symbol, setSymbol,
+    timeframe, setTimeframe,
+    positionSize, setPositionSize,
+    leverage, setLeverage,
+    warmupBars, setWarmupBars,
+    demo, setDemo,
+    engines, setEngines,
+    starting, setStarting,
+    startError, setStartError,
+    perf, setPerf,
+    wsConnected, setWsConnected,
+    initialized, setInitialized,
+  } = useDashboardStore()
 
-  // Live performance & adapted result
-  const [perf, setPerf] = useState<LivePerformance | null>(null)
-  const [wsConnected, setWsConnected] = useState(false)
   const cleanupRef = useRef<(() => void) | null>(null)
-
   const paramUpdateRef = useRef(false)
 
   // Active engine (first running/warmup engine)
   const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
 
-  // Load strategies + exchanges + engines on mount
+  // Set default strategy + load engines on first-ever load
   useEffect(() => {
-    api.strategies().then((data) => {
-      setStrategies(data)
-      if (data.length > 0) {
-        setSelectedStrategy(data[0].name)
-        api.strategySource(data[0].name).then(({ source: src }) => {
-          setSource(src)
-          setPineParams(parsePineParams(src))
-        })
-      }
-    })
-    api.exchanges().then(setExchanges)
+    if (!initialized && strategies.length > 0) {
+      setSelectedStrategy(strategies[0].name)
+      api.strategySource(strategies[0].name).then(({ source: src }) => {
+        setSource(src)
+        setPineParams(parsePineParams(src))
+      })
+      setInitialized(true)
+    }
+  }, [strategies, initialized])
+
+  // Load live engines on mount
+  useEffect(() => {
     api.liveEngines().then(setEngines).catch(() => {})
   }, [])
 

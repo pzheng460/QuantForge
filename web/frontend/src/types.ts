@@ -113,7 +113,7 @@ export interface BacktestResult {
 
 export interface JobStatus {
   job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   error?: string
   result?: BacktestResult
 }
@@ -250,88 +250,13 @@ export interface HeatmapResult {
 
 export interface OptimizeJobStatus {
   job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   error?: string
   mode?: string
   grid_result?: GridSearchResult
   wfo_result?: WFOResult
   full_result?: ThreeStageResult
   heatmap_result?: HeatmapResult
-}
-
-// ─── Closed-loop optimization types ───────────────────────────────────────────
-
-export interface ClosedLoopRequest {
-  strategy?: string
-  pine_source?: string
-  exchange: string
-  symbol?: string
-  timeframe?: string
-  period?: string
-  start_date?: string
-  end_date?: string
-  max_iterations: number
-  warmup_days?: number
-}
-
-export interface FailureMode {
-  type: string  // WHIPSAW, HIGH_DD, LOW_WIN_RATE, etc.
-  severity: 'low' | 'medium' | 'high'
-  detail: string
-  constraint_hint: string
-}
-
-export interface ParameterChange {
-  name: string
-  before: number
-  after: number
-  reason: string
-}
-
-export interface MathematicalReflection {
-  risk_scenarios: string[]
-  constraints: string[]
-  reasoning: string
-  parameter_adjustments: ParameterChange[]
-}
-
-export interface ClosedLoopIteration {
-  iteration: number
-  level: number  // 1=param tuning, 2=function swap, 3=strategy restructure
-  metrics_before?: BacktestResult
-  metrics_after?: BacktestResult
-  failures: FailureMode[]
-  parameter_changes: ParameterChange[]
-  mathematical_reflection?: MathematicalReflection
-  pine_source_modified?: string
-  gate1_pass?: boolean
-  gate1_criteria?: Record<string, boolean>
-  improvement_pct?: number
-  status: 'pending' | 'running' | 'completed' | 'failed'
-}
-
-export interface HoldoutResult {
-  train_return: number
-  train_sharpe: number
-  train_drawdown: number
-  holdout_return: number
-  holdout_sharpe: number
-  holdout_drawdown: number
-  degradation_pct: number
-  pass_gate2: boolean
-}
-
-export interface ClosedLoopJobStatus {
-  job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  error?: string
-  iterations: ClosedLoopIteration[]
-  current_iteration: number
-  current_level: number
-  final_verdict?: 'converged' | 'max_iterations_reached' | 'gate1_failed' | 'gate2_failed' | 'no_improvement'
-  holdout_result?: HoldoutResult
-  original_pine_source?: string
-  final_pine_source?: string
 }
 
 // ─── Live monitoring types ──────────────────────────────────────────────────
@@ -405,4 +330,50 @@ export interface LiveEngineOut {
   created_at: string
   error?: string
   performance?: LivePerformance
+}
+
+// ─── Agent workflow types ──────────────────────────────────────────────────
+
+export interface AgentRunRequest {
+  skill_path: string  // e.g., "quantforge-optimizer"
+  strategy?: string
+  pine_source?: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  max_iterations: number
+  model?: string
+  max_budget_usd?: number
+}
+
+export interface AgentEvent {
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'error' | 'done'
+  tool_name?: string  // 'Read' | 'Edit' | 'Write' | 'Bash' | etc
+  content: string  // text content or tool input/output
+  file_path?: string  // for Read/Edit/Write
+  diff?: { old: string; new: string }  // for Edit
+  duration_ms?: number  // for tool calls
+  timestamp: string
+}
+
+export interface AgentJobStatus {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  started_at?: string
+  events_count: number
+  error?: string
+}
+
+export interface AgentMetric {
+  name: string
+  pattern: string
+  higher_is_better?: boolean
+  primary?: boolean
+}
+
+export interface AgentSkillInfo {
+  name: string
+  description: string
+  defaults: Record<string, unknown>
+  metrics: AgentMetric[]
 }

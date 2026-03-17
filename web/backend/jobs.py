@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,21 +27,50 @@ from web.backend.models import (
 
 # In-memory job store (process-scoped; resets on server restart)
 _jobs: Dict[str, Dict[str, Any]] = {}
+_cancel_flags: Dict[str, threading.Event] = {}
 
 _JOB_TTL = timedelta(hours=1)
 
 
+class JobCancelled(Exception):
+    """Raised when a job is cancelled via the cancel flag."""
+
+    pass
+
+
+def check_cancelled(job_id: str) -> None:
+    """Check if a job has been cancelled; raise JobCancelled if so."""
+    flag = _cancel_flags.get(job_id)
+    if flag and flag.is_set():
+        raise JobCancelled(f"Job {job_id} was cancelled")
+
+
+def cancel_job(job_id: str) -> bool:
+    """Cancel a running job. Returns True if successfully cancelled."""
+    job = _jobs.get(job_id)
+    if job is None:
+        return False
+    if job["status"] not in ("pending", "running"):
+        return False
+    flag = _cancel_flags.get(job_id)
+    if flag:
+        flag.set()
+    job["status"] = "cancelled"
+    return True
+
+
 def _cleanup_old_jobs() -> None:
-    """Remove completed/failed jobs older than TTL."""
+    """Remove completed/failed/cancelled jobs older than TTL."""
     now = datetime.now(timezone.utc)
     expired = [
         jid
         for jid, j in _jobs.items()
-        if j["status"] in ("completed", "failed")
+        if j["status"] in ("completed", "failed", "cancelled")
         and (now - j.get("created_at", now)) > _JOB_TTL
     ]
     for jid in expired:
         del _jobs[jid]
+        _cancel_flags.pop(jid, None)
 
 
 def create_job() -> str:
@@ -52,6 +82,7 @@ def create_job() -> str:
         "error": None,
         "created_at": datetime.now(timezone.utc),
     }
+    _cancel_flags[job_id] = threading.Event()
     return job_id
 
 
@@ -65,8 +96,12 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
 
     try:
         result = await asyncio.to_thread(_run_pine_backtest, req)
+        check_cancelled(job_id)
         _jobs[job_id]["result"] = result
         _jobs[job_id]["status"] = "completed"
+
+    except JobCancelled:
+        _jobs[job_id]["status"] = "cancelled"
 
     except Exception as exc:
         import traceback
@@ -323,6 +358,56 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
     total_return_pct = total_pnl / initial_capital * 100
     final_equity = period_equity[-1] if period_equity else initial_capital
 
+    # Compute risk metrics from period equity curve
+    bar_ms = _TF_MS.get(req.timeframe, 3_600_000)
+    periods_per_year = 365.25 * 24 * 3_600_000 / bar_ms
+
+    eq_returns = []
+    downside_returns = []
+    for i in range(1, len(period_equity)):
+        prev = period_equity[i - 1]
+        if prev > 0:
+            r = (period_equity[i] - prev) / prev
+            eq_returns.append(r)
+            if r < 0:
+                downside_returns.append(r)
+
+    if eq_returns:
+        mean_r = sum(eq_returns) / len(eq_returns)
+        var_r = sum((r - mean_r) ** 2 for r in eq_returns) / len(eq_returns)
+        std_r = var_r**0.5 if var_r > 0 else 0.0
+        sharpe_ratio = (mean_r / std_r) * (periods_per_year**0.5) if std_r > 0 else 0.0
+        ann_vol = std_r * (periods_per_year**0.5) * 100
+
+        # Sortino
+        if downside_returns:
+            down_var = sum(r**2 for r in downside_returns) / len(eq_returns)
+            down_std = down_var**0.5
+            sortino_ratio = (
+                (mean_r / down_std) * (periods_per_year**0.5) if down_std > 0 else 0.0
+            )
+        else:
+            sortino_ratio = 0.0
+
+        # Annualized return
+        n_periods = len(period_equity)
+        if n_periods > 1 and final_equity > 0 and initial_capital > 0:
+            ann_return = (
+                (final_equity / initial_capital) ** (periods_per_year / n_periods) - 1
+            ) * 100
+        else:
+            ann_return = 0.0
+
+        calmar_ratio = ann_return / max_dd if max_dd > 0 else 0.0
+        recovery_factor = total_return_pct / max_dd if max_dd > 0 else 0.0
+    else:
+        sharpe_ratio = 0.0
+        sortino_ratio = 0.0
+        ann_return = 0.0
+        ann_vol = 0.0
+        calmar_ratio = 0.0
+        recovery_factor = 0.0
+
     # Build equity curve for frontend
     bar_count = len(period_equity)
     step = max(1, bar_count // 2000)
@@ -388,16 +473,16 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         bh_return_pct=(period_ohlcv[-1][4] / period_ohlcv[0][4] - 1) * 100
         if period_ohlcv
         else 0.0,
-        annualized_return_pct=0.0,
+        annualized_return_pct=ann_return,
         max_drawdown_pct=max_dd,
         max_dd_duration_days=0.0,
-        sharpe_ratio=0.0,
+        sharpe_ratio=sharpe_ratio,
         sharpe_ci_lo=None,
         sharpe_ci_hi=None,
-        sortino_ratio=0.0,
-        calmar_ratio=0.0,
-        annualized_volatility_pct=0.0,
-        recovery_factor=0.0,
+        sortino_ratio=sortino_ratio,
+        calmar_ratio=calmar_ratio,
+        annualized_volatility_pct=ann_vol,
+        recovery_factor=recovery_factor,
         total_trades=total,
         win_rate_pct=win_rate,
         profit_factor=profit_factor,
@@ -992,20 +1077,27 @@ async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
     try:
         if req.mode == "grid":
             result = await asyncio.to_thread(_run_pine_optimize, req)
+            check_cancelled(job_id)
             _jobs[job_id]["grid_result"] = result
         elif req.mode == "wfo":
             result = await asyncio.to_thread(_run_wfo, req)
+            check_cancelled(job_id)
             _jobs[job_id]["wfo_result"] = result
         elif req.mode == "full":
             result = await asyncio.to_thread(_run_three_stage, req)
+            check_cancelled(job_id)
             _jobs[job_id]["full_result"] = result
         elif req.mode == "heatmap":
             result = await asyncio.to_thread(_run_heatmap, req)
+            check_cancelled(job_id)
             _jobs[job_id]["heatmap_result"] = result
         else:
             raise ValueError(f"Unknown optimization mode: {req.mode}")
 
         _jobs[job_id]["status"] = "completed"  # status AFTER result to avoid race
+
+    except JobCancelled:
+        _jobs[job_id]["status"] = "cancelled"
 
     except Exception as exc:
         import traceback

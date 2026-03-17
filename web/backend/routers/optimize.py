@@ -12,7 +12,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from web.backend.jobs import create_job, get_job, run_optimize_job
+from web.backend.jobs import create_job, get_job, run_optimize_job, cancel_job
 from web.backend.models import OptimizeRequest, OptimizeJobStatusOut
 
 router = APIRouter()
@@ -47,6 +47,14 @@ def get_optimize_status(job_id: str):
     return _job_to_optimize_status(job_id, job)
 
 
+@router.post("/optimize/cancel/{job_id}")
+def cancel_optimize(job_id: str):
+    """Cancel a running optimization job."""
+    if not cancel_job(job_id):
+        raise HTTPException(status_code=404, detail="Job not found or not cancellable")
+    return {"job_id": job_id, "status": "cancelled"}
+
+
 @router.websocket("/ws/optimize/{job_id}")
 async def optimize_websocket(websocket: WebSocket, job_id: str):
     """Stream optimization job status via WebSocket."""
@@ -59,7 +67,7 @@ async def optimize_websocket(websocket: WebSocket, job_id: str):
                 break
 
             status = job["status"]
-            if status in ("completed", "failed"):
+            if status in ("completed", "failed", "cancelled"):
                 out = _job_to_optimize_status(job_id, job)
                 await websocket.send_json(out.model_dump())
                 break

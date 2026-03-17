@@ -12,7 +12,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from web.backend.jobs import create_job, get_job, run_backtest_job
+from web.backend.jobs import create_job, get_job, run_backtest_job, cancel_job
 from web.backend.models import BacktestRequest, JobStatusOut
 
 router = APIRouter()
@@ -43,6 +43,14 @@ def get_backtest_status(job_id: str):
     )
 
 
+@router.post("/backtest/cancel/{job_id}")
+def cancel_backtest(job_id: str):
+    """Cancel a running backtest job."""
+    if not cancel_job(job_id):
+        raise HTTPException(status_code=404, detail="Job not found or not cancellable")
+    return {"job_id": job_id, "status": "cancelled"}
+
+
 @router.websocket("/ws/backtest/{job_id}")
 async def backtest_websocket(websocket: WebSocket, job_id: str):
     """Stream backtest job status via WebSocket."""
@@ -64,9 +72,9 @@ async def backtest_websocket(websocket: WebSocket, job_id: str):
                     }
                 )
                 break
-            elif status == "failed":
+            elif status in ("failed", "cancelled"):
                 await websocket.send_json(
-                    {"status": "failed", "error": job.get("error")}
+                    {"status": status, "error": job.get("error")}
                 )
                 break
             else:

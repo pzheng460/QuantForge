@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { api } from '../api/client'
+import { useBacktestStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/backtestStore'
+import { useCatalog } from '../hooks/useCatalog'
 import type { BacktestRequest, BacktestResult, StrategySchema, Exchange, JobStatus } from '../types'
 import TradingChart from '../components/chart/TradingChart'
 import StrategyTester from '../components/StrategyTester'
@@ -113,42 +115,29 @@ function Section({ title, children, defaultOpen = true, action }: {
   )
 }
 
-const DEFAULT_PINE = `//@version=5
-strategy("EMA Cross", overlay=true, initial_capital=100000)
-fast_len = input.int(9, title="Fast EMA")
-slow_len = input.int(21, title="Slow EMA")
-fast_ema = ta.ema(close, fast_len)
-slow_ema = ta.ema(close, slow_len)
-if ta.crossover(fast_ema, slow_ema)
-    strategy.entry("Long", strategy.long)
-if ta.crossunder(fast_ema, slow_ema)
-    strategy.close("Long")
-`
-
-const CUSTOM_KEY = '__custom__'
-
 // ─── Main Backtest page ──────────────────────────────────────────────────────
 
 export default function BacktestPage() {
-  const [strategies, setStrategies] = useState<StrategySchema[]>([])
-  const [exchanges, setExchanges] = useState<Exchange[]>([])
+  const { strategies, exchanges } = useCatalog()
 
-  // Unified state
-  const [selectedStrategy, setSelectedStrategy] = useState(CUSTOM_KEY)
-  const [source, setSource] = useState(DEFAULT_PINE)
-  const [pineParams, setPineParams] = useState<PineParam[]>([])
-  const [exchange, setExchange] = useState('bitget')
-  const [symbol, setSymbol] = useState('BTC/USDT:USDT')
-  const [timeframe, setTimeframe] = useState('1h')
-  const [startDate, setStartDate] = useState('2026-01-01')
-  const [endDate, setEndDate] = useState('2026-03-12')
-  const [warmupDays, setWarmupDays] = useState(60)
-  // Job / result state
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [status, setStatus] = useState<string>('')
-  const [result, setResult] = useState<BacktestResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  // Zustand store (persists across tab switches)
+  const {
+    selectedStrategy, setSelectedStrategy,
+    source, setSource,
+    pineParams, setPineParams,
+    exchange, setExchange,
+    symbol, setSymbol,
+    timeframe, setTimeframe,
+    startDate, setStartDate,
+    endDate, setEndDate,
+    warmupDays, setWarmupDays,
+    jobId, setJobId,
+    status, setStatus,
+    result, setResult,
+    error, setError,
+    loading, setLoading,
+    initialized, setInitialized,
+  } = useBacktestStore()
 
   // Resizable bottom panel
   const { height: bottomHeight, onMouseDown: onDragStart } = useResizablePanel(280)
@@ -156,21 +145,17 @@ export default function BacktestPage() {
   // Track whether source change is from param update (skip re-parse)
   const paramUpdateRef = useRef(false)
 
-  // Load strategies + exchanges on mount
+  // Set default strategy on first-ever load
   useEffect(() => {
-    api.strategies().then((data) => {
-      setStrategies(data)
-      // Default to first strategy if available
-      if (data.length > 0) {
-        setSelectedStrategy(data[0].name)
-        api.strategySource(data[0].name).then(({ source: src }) => {
-          setSource(src)
-          setPineParams(parsePineParams(src))
-        })
-      }
-    })
-    api.exchanges().then(setExchanges)
-  }, [])
+    if (!initialized && strategies.length > 0) {
+      setSelectedStrategy(strategies[0].name)
+      api.strategySource(strategies[0].name).then(({ source: src }) => {
+        setSource(src)
+        setPineParams(parsePineParams(src))
+      })
+      setInitialized(true)
+    }
+  }, [strategies, initialized])
 
   // When selected strategy changes, load its source
   const handleStrategyChange = useCallback((name: string) => {
@@ -208,9 +193,10 @@ export default function BacktestPage() {
     )
   }, [])
 
-  // Poll job status
+  // Poll job status — skip if already finished
   useEffect(() => {
     if (!jobId) return
+    if (status === 'completed' || status === 'failed') return
     let cancelled = false
     const poll = async () => {
       while (!cancelled) {
@@ -260,6 +246,15 @@ export default function BacktestPage() {
       setLoading(false)
     }
   }, [source, exchange, symbol, timeframe, startDate, endDate, warmupDays])
+
+  const handleCancel = useCallback(async () => {
+    if (!jobId) return
+    try {
+      await api.cancelBacktest(jobId)
+      setStatus('cancelled')
+      setLoading(false)
+    } catch { /* ignore */ }
+  }, [jobId, setStatus, setLoading])
 
   const selectedExchange = exchanges.find((e) => e.id === exchange)
 
@@ -395,20 +390,29 @@ export default function BacktestPage() {
             </Section>
           </div>
 
-          {/* Run button at bottom */}
+          {/* Run / Cancel buttons at bottom */}
           <div className="shrink-0 border-t border-tv-border p-3 space-y-2">
-            {status && loading && (
+            {(status === 'pending' || status === 'running') && (
               <div className={`text-xs text-center capitalize ${status === 'running' ? 'text-tv-blue animate-pulse' : 'text-tv-muted'}`}>
                 {status === 'running' ? '● Running…' : status}
               </div>
             )}
-            <button
-              className="tv-btn-primary w-full"
-              onClick={handleRun}
-              disabled={loading || !source.trim()}
-            >
-              {loading ? 'Running…' : '▶ Run Backtest'}
-            </button>
+            {status === 'pending' || status === 'running' ? (
+              <button
+                className="w-full py-1.5 rounded text-xs font-semibold bg-tv-red/20 text-tv-red hover:bg-tv-red/30 transition-colors"
+                onClick={handleCancel}
+              >
+                ■ Cancel
+              </button>
+            ) : (
+              <button
+                className="tv-btn-primary w-full"
+                onClick={handleRun}
+                disabled={loading || !source.trim()}
+              >
+                {loading ? 'Submitting…' : '▶ Run Backtest'}
+              </button>
+            )}
           </div>
         </div>
 
