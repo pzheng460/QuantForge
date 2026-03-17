@@ -370,6 +370,102 @@ class LiveStrategyStatusOut(BaseModel):
     performance: Optional[LivePerformanceOut] = None
 
 
+# ─── Closed-loop optimization models ─────────────────────────────────────────
+
+
+class ClosedLoopRequest(BaseModel):
+    strategy: Optional[str] = None  # Pine strategy file name
+    pine_source: Optional[str] = None  # Raw Pine Script source code
+    exchange: str = "bitget"
+    symbol: Optional[str] = None
+    timeframe: str = "1h"
+    period: Optional[str] = "1y"
+    start_date: Optional[str] = None  # YYYY-MM-DD
+    end_date: Optional[str] = None  # YYYY-MM-DD
+    max_iterations: int = 9
+    warmup_days: int = 60
+
+    @model_validator(mode="after")
+    def check_strategy_or_source(self):
+        if not self.strategy and not self.pine_source:
+            raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+        return self
+
+    @field_validator("exchange")
+    @classmethod
+    def validate_exchange(cls, v: str) -> str:
+        if v not in _VALID_EXCHANGES:
+            raise ValueError(f"exchange must be one of {_VALID_EXCHANGES}")
+        return v
+
+    @field_validator("max_iterations")
+    @classmethod
+    def validate_max_iterations(cls, v: int) -> int:
+        if not (1 <= v <= 9):
+            raise ValueError("max_iterations must be between 1 and 9")
+        return v
+
+
+class FailureModeOut(BaseModel):
+    type: str  # WHIPSAW, HIGH_DD, LOW_WIN_RATE, etc.
+    severity: str  # low, medium, high
+    detail: str
+    constraint_hint: str
+
+
+class ParameterChangeOut(BaseModel):
+    name: str
+    before: float
+    after: float
+    reason: str
+
+
+class MathematicalReflectionOut(BaseModel):
+    risk_scenarios: List[str]
+    constraints: List[str]
+    reasoning: str
+    parameter_adjustments: List[ParameterChangeOut]
+
+
+class ClosedLoopIteration(BaseModel):
+    iteration: int
+    level: int  # 1=param tuning, 2=function swap, 3=strategy restructure
+    metrics_before: Optional[BacktestResultOut] = None
+    metrics_after: Optional[BacktestResultOut] = None
+    failures: List[FailureModeOut] = []
+    parameter_changes: List[ParameterChangeOut] = []
+    mathematical_reflection: Optional[MathematicalReflectionOut] = None
+    pine_source_modified: Optional[str] = None
+    gate1_pass: Optional[bool] = None
+    gate1_criteria: Optional[Dict[str, Any]] = None
+    improvement_pct: Optional[float] = None
+    status: str = "pending"  # pending, running, completed, failed
+
+
+class HoldoutResultOut(BaseModel):
+    train_return: float
+    train_sharpe: float
+    train_drawdown: float
+    holdout_return: float
+    holdout_sharpe: float
+    holdout_drawdown: float
+    degradation_pct: float
+    pass_gate2: bool
+
+
+class ClosedLoopJobStatus(BaseModel):
+    job_id: str
+    status: str  # pending, running, completed, failed
+    error: Optional[str] = None
+    iterations: List[ClosedLoopIteration] = []
+    current_iteration: int = 0
+    current_level: int = 1
+    final_verdict: Optional[str] = None  # converged, max_iterations_reached, gate1_failed, gate2_failed
+    holdout_result: Optional[HoldoutResultOut] = None
+    original_pine_source: Optional[str] = None
+    final_pine_source: Optional[str] = None
+
+
 # ─── Live engine management models ────────────────────────────────────────────
 
 

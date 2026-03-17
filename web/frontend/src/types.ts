@@ -259,6 +259,81 @@ export interface OptimizeJobStatus {
   heatmap_result?: HeatmapResult
 }
 
+// ─── Closed-loop optimization types ───────────────────────────────────────────
+
+export interface ClosedLoopRequest {
+  strategy?: string
+  pine_source?: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  period?: string
+  start_date?: string
+  end_date?: string
+  max_iterations: number
+  warmup_days?: number
+}
+
+export interface FailureMode {
+  type: string  // WHIPSAW, HIGH_DD, LOW_WIN_RATE, etc.
+  severity: 'low' | 'medium' | 'high'
+  detail: string
+  constraint_hint: string
+}
+
+export interface ParameterChange {
+  name: string
+  before: number
+  after: number
+  reason: string
+}
+
+export interface MathematicalReflection {
+  risk_scenarios: string[]
+  constraints: string[]
+  reasoning: string
+  parameter_adjustments: ParameterChange[]
+}
+
+export interface ClosedLoopIteration {
+  iteration: number
+  level: number  // 1=param tuning, 2=function swap, 3=strategy restructure
+  metrics_before?: BacktestResult
+  metrics_after?: BacktestResult
+  failures: FailureMode[]
+  parameter_changes: ParameterChange[]
+  mathematical_reflection?: MathematicalReflection
+  pine_source_modified?: string
+  gate1_pass?: boolean
+  gate1_criteria?: Record<string, boolean>
+  improvement_pct?: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+}
+
+export interface HoldoutResult {
+  train_return: number
+  train_sharpe: number
+  train_drawdown: number
+  holdout_return: number
+  holdout_sharpe: number
+  holdout_drawdown: number
+  degradation_pct: number
+  pass_gate2: boolean
+}
+
+export interface ClosedLoopJobStatus {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  error?: string
+  iterations: ClosedLoopIteration[]
+  current_iteration: number
+  current_level: number
+  final_verdict?: 'converged' | 'max_iterations_reached' | 'gate1_failed' | 'gate2_failed' | 'no_improvement'
+  holdout_result?: HoldoutResult
+  original_pine_source?: string
+  final_pine_source?: string
+}
+
 // ─── Live monitoring types ──────────────────────────────────────────────────
 
 export interface LiveTrade {

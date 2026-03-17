@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from web.backend.routers import strategies, backtest, optimize, live
+from web.backend.routers import strategies, backtest, optimize, live, closedloop
 
 app = FastAPI(
     title="QuantForge API",
@@ -23,6 +23,7 @@ app.include_router(strategies.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(optimize.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
+app.include_router(closedloop.router, prefix="/api")
 
 
 @app.get("/api/health")

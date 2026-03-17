@@ -1,0 +1,38 @@
+//@version=5
+strategy("Bollinger Band v4", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+bb_period = input.int(20, title="BB Period", minval=10, maxval=50, step=5)
+bb_multiplier = input.float(2.0, title="BB Multiplier", minval=1.0, maxval=3.0, step=0.5)
+trend_sma_period = input.int(100, title="Trend SMA Period", minval=50, maxval=200, step=25)
+stop_loss_pct = input.float(0.03, title="Stop Loss %", minval=0.01, maxval=0.10, step=0.01)
+min_bb_width = input.float(0.015, title="Min BB Width", minval=0.005, maxval=0.05, step=0.005)
+
+// --- Indicators ---
+[bb_mid, bb_upper, bb_lower] = ta.bb(close, bb_period, bb_multiplier)
+trend_sma = ta.sma(close, trend_sma_period)
+bb_width = (bb_upper - bb_lower) / bb_mid
+
+// --- BB Width regime filter ---
+volatile_enough = bb_width > min_bb_width
+
+// --- Entry conditions (with width filter) ---
+long_entry = close <= bb_lower and close > trend_sma and volatile_enough
+short_entry = close >= bb_upper and close < trend_sma and volatile_enough
+
+if long_entry
+    strategy.entry("Long", strategy.long)
+if short_entry
+    strategy.entry("Short", strategy.short)
+
+// --- Stop loss ---
+if strategy.position_size > 0
+    strategy.exit("Long SL", "Long", stop=strategy.position_avg_price * (1 - stop_loss_pct))
+if strategy.position_size < 0
+    strategy.exit("Short SL", "Short", stop=strategy.position_avg_price * (1 + stop_loss_pct))
+
+// --- Exit at middle band ---
+if strategy.position_size > 0 and close >= bb_mid
+    strategy.close("Long")
+if strategy.position_size < 0 and close <= bb_mid
+    strategy.close("Short")

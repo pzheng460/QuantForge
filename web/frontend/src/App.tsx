@@ -3,6 +3,7 @@ import { Routes, Route, NavLink } from 'react-router-dom'
 import BacktestPage from './pages/Backtest'
 import DashboardPage from './pages/Dashboard'
 import OptimizerPage from './pages/Optimizer'
+import ClosedLoopPage from './pages/ClosedLoop'
 import { TimezoneProvider, useTimezone } from './hooks/useTimezone'
 
 function NavItem({ to, label }: { to: string; label: string }) {
@@ -162,6 +163,7 @@ function AppContent() {
           <NavItem to="/" label="Live Trading" />
           <NavItem to="/backtest" label="Backtest" />
           <NavItem to="/optimizer" label="Optimizer" />
+          <NavItem to="/closedloop" label="AI Optimizer" />
         </div>
         <div className="ml-auto">
           <TimezoneSelector />
@@ -182,6 +184,7 @@ function AppContent() {
               <OptimizerPage />
             </div>
           } />
+          <Route path="/closedloop" element={<ClosedLoopPage />} />
         </Routes>
       </main>
     </div>
