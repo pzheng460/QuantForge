@@ -267,10 +267,11 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
         # Build Claude Code command
         cmd = [
             "claude",
+            "--print",
+            "--verbose",
             "--permission-mode", "bypassPermissions",
             "--output-format", "stream-json",
             "--model", request.model,
-            "--print",
             "--max-turns", "80",
             "-p", prompt
         ]
