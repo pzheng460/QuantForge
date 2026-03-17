@@ -326,6 +326,42 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
 
 # ─── API endpoints ────────────────────────────────────────────────────────────
 
+@router.get("/agent/skills", response_model=List[AgentSkillInfo])
+async def list_agent_skills():
+    """List available skills by scanning for workflow.yaml files."""
+    skills_dir = Path.home() / ".openclaw" / "skills"
+    skills = []
+
+    if skills_dir.exists():
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.is_dir():
+                workflow_file = skill_dir / "workflow.yaml"
+                if workflow_file.exists():
+                    try:
+                        with open(workflow_file) as f:
+                            workflow = yaml.safe_load(f)
+
+                        metrics = []
+                        for metric_data in workflow.get("metrics", []):
+                            metrics.append(AgentMetric(
+                                name=metric_data["name"],
+                                pattern=metric_data["pattern"],
+                                higher_is_better=metric_data.get("higher_is_better"),
+                                primary=metric_data.get("primary", False)
+                            ))
+
+                        skills.append(AgentSkillInfo(
+                            name=skill_dir.name,
+                            description=workflow.get("description", ""),
+                            defaults=workflow.get("defaults", {}),
+                            metrics=metrics
+                        ))
+                    except Exception as e:
+                        # Skip invalid workflow files
+                        continue
+
+    return skills
+
 @router.post("/agent/run", response_model=AgentJobStatus)
 async def run_agent(request: AgentRunRequest):
     """Start a Claude Code agent job."""
@@ -373,42 +409,6 @@ async def stop_agent(job_id: str):
 
     agent_manager.update_job(job_id, status="cancelled")
     return {"status": "cancelled"}
-
-@router.get("/agent/skills", response_model=List[AgentSkillInfo])
-async def list_agent_skills():
-    """List available skills by scanning for workflow.yaml files."""
-    skills_dir = Path.home() / ".openclaw" / "skills"
-    skills = []
-
-    if skills_dir.exists():
-        for skill_dir in skills_dir.iterdir():
-            if skill_dir.is_dir():
-                workflow_file = skill_dir / "workflow.yaml"
-                if workflow_file.exists():
-                    try:
-                        with open(workflow_file) as f:
-                            workflow = yaml.safe_load(f)
-
-                        metrics = []
-                        for metric_data in workflow.get("metrics", []):
-                            metrics.append(AgentMetric(
-                                name=metric_data["name"],
-                                pattern=metric_data["pattern"],
-                                higher_is_better=metric_data.get("higher_is_better"),
-                                primary=metric_data.get("primary", False)
-                            ))
-
-                        skills.append(AgentSkillInfo(
-                            name=skill_dir.name,
-                            description=workflow.get("description", ""),
-                            defaults=workflow.get("defaults", {}),
-                            metrics=metrics
-                        ))
-                    except Exception as e:
-                        # Skip invalid workflow files
-                        continue
-
-    return skills
 
 @router.websocket("/ws/agent/{job_id}")
 async def agent_websocket(websocket: WebSocket, job_id: str):
