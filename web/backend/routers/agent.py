@@ -148,85 +148,108 @@ agent_manager = AgentJobManager()
 
 # ─── Event parsing ───────────────────────────────────────────────────────────
 
-def parse_claude_event(line: str) -> Optional[AgentEvent]:
-    """Parse a single line of Claude Code stream-json output into an AgentEvent."""
+def parse_claude_events(line: str) -> List[AgentEvent]:
+    """Parse a single line of Claude Code stream-json output into AgentEvent(s).
+    
+    One CC message can contain multiple content items (thinking + tool_use),
+    so we return a list.
+    """
     try:
         data = json.loads(line.strip())
     except (json.JSONDecodeError, AttributeError):
-        return None
+        return []
 
     timestamp = str(time.time())
+    events: List[AgentEvent] = []
 
-    # Handle assistant messages (thinking + tool_use)
+    # Handle assistant messages (thinking + tool_use + text)
     if data.get("type") == "assistant":
         content_items = data.get("message", {}).get("content", [])
         for item in content_items:
-            if item.get("type") == "text":
-                # Thinking text
-                text = item.get("text", "").strip()
+            if item.get("type") == "thinking":
+                text = item.get("thinking", "").strip()
                 if text:
-                    return AgentEvent(
+                    events.append(AgentEvent(
                         type="thinking",
                         content=text,
                         timestamp=timestamp
-                    )
+                    ))
+            elif item.get("type") == "text":
+                text = item.get("text", "").strip()
+                if text:
+                    events.append(AgentEvent(
+                        type="thinking",
+                        content=text,
+                        timestamp=timestamp
+                    ))
             elif item.get("type") == "tool_use":
-                # Tool call
                 tool_name = item.get("name", "")
                 tool_input = item.get("input", {})
 
-                # Extract file path for file operations
-                file_path = None
-                if "file_path" in tool_input:
-                    file_path = tool_input["file_path"]
+                file_path = (
+                    tool_input.get("file_path")
+                    or tool_input.get("path")
+                    or tool_input.get("file")
+                )
 
-                # Format tool input as readable text
                 if tool_name == "Bash":
                     content = f"$ {tool_input.get('command', '')}"
                 elif tool_name in ["Read", "Write", "Edit"]:
-                    content = f"{file_path or ''}"
-                    if tool_name == "Edit" and "old_string" in tool_input and "new_string" in tool_input:
-                        diff = {
-                            "old": tool_input["old_string"],
-                            "new": tool_input["new_string"]
-                        }
-                        return AgentEvent(
-                            type="tool_call",
-                            tool_name=tool_name,
-                            content=content,
-                            file_path=file_path,
-                            diff=diff,
-                            timestamp=timestamp
-                        )
+                    content = file_path or ""
                 else:
-                    content = json.dumps(tool_input, indent=2)
+                    content = json.dumps(tool_input, indent=2)[:500]
 
-                return AgentEvent(
+                diff = None
+                if tool_name == "Edit" and "old_string" in tool_input and "new_string" in tool_input:
+                    diff = {
+                        "old": tool_input["old_string"],
+                        "new": tool_input["new_string"]
+                    }
+
+                events.append(AgentEvent(
                     type="tool_call",
                     tool_name=tool_name,
                     content=content,
                     file_path=file_path,
+                    diff=diff,
                     timestamp=timestamp
-                )
+                ))
 
-    # Handle tool results
-    elif data.get("type") == "result" and data.get("subtype") == "tool_result":
-        content = data.get("content", "")
-        return AgentEvent(
-            type="tool_result",
-            content=str(content),
-            timestamp=timestamp
-        )
+    # Handle tool results (multiple possible subtypes)
+    elif data.get("type") == "result":
+        subtype = data.get("subtype", "")
+        if subtype == "tool_result":
+            content = data.get("content", "")
+            if isinstance(content, list):
+                # Some tool results are arrays of content blocks
+                content = "\n".join(
+                    c.get("text", str(c)) if isinstance(c, dict) else str(c)
+                    for c in content
+                )
+            events.append(AgentEvent(
+                type="tool_result",
+                content=str(content)[:2000],
+                timestamp=timestamp
+            ))
+        elif subtype == "success":
+            # Final result
+            result_text = data.get("result", "")
+            cost = data.get("total_cost_usd", 0)
+            events.append(AgentEvent(
+                type="done",
+                content=f"{result_text}\n\n💰 Cost: ${cost:.4f}",
+                timestamp=timestamp
+            ))
 
     # Handle errors
     elif data.get("type") == "error":
-        return AgentEvent(
+        events.append(AgentEvent(
             type="error",
-            content=data.get("message", "Unknown error"),
+            content=data.get("message", str(data.get("error", "Unknown error"))),
             timestamp=timestamp
-        )
+        ))
 
-    return None
+    return events
 
 # ─── Background process management ────────────────────────────────────────────
 
@@ -298,12 +321,13 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
             if not line_str:
                 continue
 
-            # Parse event
-            event = parse_claude_event(line_str)
-            if event:
+            # Parse events (one CC line can produce multiple events)
+            parsed = parse_claude_events(line_str)
+            if parsed:
                 job = agent_manager.get_job(job_id)
                 if job:
-                    job["events"].append(event.dict())
+                    for event in parsed:
+                        job["events"].append(event.dict())
 
         # Wait for completion
         await process.wait()

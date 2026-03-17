@@ -1,13 +1,13 @@
 //@version=5
-strategy("EMA Crossover v3", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=75)
+strategy("EMA Crossover v3", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=60)
 
 // --- Inputs ---
 fast_period = input.int(6, title="Fast EMA", minval=3, maxval=20, step=1)
 slow_period = input.int(13, title="Slow EMA", minval=10, maxval=50, step=1)
 adx_period = input.int(14, title="ADX Period")
-adx_threshold = input.int(26, title="ADX Threshold", minval=10, maxval=40)
+adx_threshold = input.int(30, title="ADX Threshold", minval=10, maxval=40)
 atr_period = input.int(14, title="ATR Period")
-stop_loss_mult = input.float(1.5, title="Stop Loss ATR Multiplier", minval=0.5, maxval=3.0, step=0.1)
+stop_loss_mult = input.float(2.0, title="Stop Loss ATR Multiplier", minval=0.5, maxval=3.0, step=0.1)
 
 // --- Indicators ---
 fast = ta.ema(close, fast_period)
