@@ -21,37 +21,53 @@ function parseMetricsFromEvents(events: AgentEvent[], metrics: AgentMetric[]): P
   let currentIteration = 1
 
   for (const event of events) {
-    if (event.type === 'tool_result' && event.content) {
-      // Check for iteration markers
-      if (event.content.includes('Iteration') || event.content.includes('iteration')) {
-        const iterMatch = event.content.match(/[Ii]teration[:\s]+(\d+)/);
-        if (iterMatch) {
-          currentIteration = parseInt(iterMatch[1])
-        }
-      }
+    // Scan ALL event types for metrics — CC outputs them in thinking, tool_result, and exec output
+    if (!event.content) continue
 
-      // Parse metrics using regex patterns
-      for (const metric of metrics) {
-        try {
-          const regex = new RegExp(metric.pattern, 'g')
-          let match
-          while ((match = regex.exec(event.content)) !== null) {
-            const value = parseFloat(match[1])
-            if (!isNaN(value)) {
+    // Check for iteration markers
+    if (event.content.includes('Iteration') || event.content.includes('iteration')) {
+      const iterMatch = event.content.match(/[Ii]teration[:\s]+(\d+)/)
+      if (iterMatch) {
+        currentIteration = parseInt(iterMatch[1])
+      }
+    }
+
+    // Detect new backtest run → bump iteration if we see metrics again
+    if (event.type === 'tool_call' && event.tool_name === 'Bash' && event.content.includes('backtest')) {
+      // Next metrics will be from a new backtest run
+    }
+
+    // Parse metrics from any event that has content
+    const foundInThisEvent: string[] = []
+    for (const metric of metrics) {
+      try {
+        const regex = new RegExp(metric.pattern, 'g')
+        let match
+        while ((match = regex.exec(event.content)) !== null) {
+          const value = parseFloat(match[1])
+          if (!isNaN(value)) {
+            // Avoid duplicate entries from same event
+            const key = `${metric.name}:${value}:${event.timestamp}`
+            if (!foundInThisEvent.includes(key)) {
+              foundInThisEvent.push(key)
               parsedMetrics.push({
                 name: metric.name,
                 value,
                 iteration: currentIteration,
                 timestamp: event.timestamp,
-                higher_is_better: metric.higher_is_better
+                higher_is_better: metric.higher_is_better ?? undefined
               })
             }
           }
-        } catch (error) {
-          // Invalid regex, skip
-          console.warn(`Invalid regex pattern for metric ${metric.name}:`, metric.pattern)
         }
+      } catch {
+        // Invalid regex, skip
       }
+    }
+
+    // If we found metrics in a thinking event that references results, bump iteration for next round
+    if (foundInThisEvent.length >= 2 && event.type === 'thinking') {
+      currentIteration++
     }
   }
 

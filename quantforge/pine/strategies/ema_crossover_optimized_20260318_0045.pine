@@ -1,0 +1,27 @@
+//@version=5
+strategy("EMA Crossover", overlay=true, initial_capital=100000)
+
+// --- Inputs ---
+fast_period = input.int(5, title="Fast EMA", minval=3, maxval=20, step=1)
+slow_period = input.int(13, title="Slow EMA", minval=10, maxval=50, step=1)
+adx_period = input.int(14, title="ADX Period", minval=5, maxval=30, step=1)
+adx_threshold = input.int(22, title="ADX Trend Threshold", minval=15, maxval=40, step=1)
+
+// --- Indicators ---
+fast = ta.ema(close, fast_period)
+slow = ta.ema(close, slow_period)
+adx_val = ta.adx(adx_period)
+
+// --- Regime Filter ---
+trending = adx_val > adx_threshold
+
+// --- Entry (Only in Trending Markets) ---
+if ta.crossover(fast, slow) and trending
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(fast, slow) and trending
+    strategy.entry("Short", strategy.short)
+
+// --- Regime Change: Close Positions ---
+if not trending
+    strategy.close("Long")
+    strategy.close("Short")
