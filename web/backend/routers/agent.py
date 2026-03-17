@@ -7,7 +7,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 try:
     import yaml
@@ -116,7 +116,7 @@ class AgentMetric(BaseModel):
 class AgentSkillInfo(BaseModel):
     name: str
     description: str
-    defaults: Dict[str, str]
+    defaults: Dict[str, Any]
     metrics: List[AgentMetric]
 
 # ─── Agent job manager ───────────────────────────────────────────────────────

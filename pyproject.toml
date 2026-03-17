@@ -38,6 +38,7 @@ dependencies = [
     "curl-cffi>=0.13.0",
     "picows>=1.10.1",
     "dynaconf[redis]>=3.2.12",
+    "pyyaml>=6.0.3",
 ]
 
 [project.scripts]
