@@ -276,15 +276,19 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
         strategy_path = ""
         work_path = ""
         if request.strategy:
-            strategy_path = f"quantforge/pine/strategies/{request.strategy}"
+            strategy_name = request.strategy.removesuffix(".pine")
+            strategy_path = f"quantforge/pine/strategies/{strategy_name}.pine"
             # Working copy in /tmp to avoid modifying original
-            work_path = f"/tmp/optimize_{request.strategy}_{job_id[:8]}.pine"
+            work_path = f"/tmp/optimize_{strategy_name}_{job_id[:8]}.pine"
+            # Final output saved alongside original as {name}_optimized.pine
+            output_path = f"quantforge/pine/strategies/{strategy_name}_optimized.pine"
 
         # Format prompt with variables
         prompt = prompt_template.format(
             skill_path=skill_dir,
             strategy_path=strategy_path,
             work_path=work_path,
+            output_path=output_path,
             exchange=request.exchange,
             symbol=request.symbol or "BTC/USDT:USDT",
             timeframe=request.timeframe,
