@@ -270,7 +270,9 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
             "--permission-mode", "bypassPermissions",
             "--output-format", "stream-json",
             "--model", request.model,
-            "--prompt", prompt
+            "--print",
+            "--max-turns", "80",
+            "-p", prompt
         ]
 
         agent_manager.update_job(job_id, status="running", started_at=str(time.time()))
