@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { OptimizeJobStatus } from '../types'
+import type { AgentEvent, AgentSkillInfo, OptimizeJobStatus } from '../types'
 
 interface OptimizerState {
   // Form
@@ -15,12 +15,20 @@ interface OptimizerState {
   nJobs: number
   resolution: number
 
-  // Job
+  // Grid Job
   jobId: string | null
   status: string
   jobResult: OptimizeJobStatus | null
   error: string | null
   loading: boolean
+
+  // Agent Job (persisted across tab switches)
+  agentJobId: string | null
+  agentStatus: string
+  agentEvents: AgentEvent[]
+  agentError: string | null
+  agentSkills: AgentSkillInfo[]
+  selectedSkill: string
 
   // Track if initial strategy has been loaded
   initialized: boolean
@@ -43,6 +51,14 @@ interface OptimizerState {
   setJobResult: (v: OptimizeJobStatus | null) => void
   setError: (v: string | null) => void
   setLoading: (v: boolean) => void
+  setAgentJobId: (v: string | null) => void
+  setAgentStatus: (v: string) => void
+  addAgentEvent: (e: AgentEvent) => void
+  setAgentEvents: (events: AgentEvent[]) => void
+  setAgentError: (v: string | null) => void
+  setAgentSkills: (v: AgentSkillInfo[]) => void
+  setSelectedSkill: (v: string) => void
+  resetAgent: () => void
 }
 
 export const useOptimizerStore = create<OptimizerState>((set) => ({
@@ -64,6 +80,13 @@ export const useOptimizerStore = create<OptimizerState>((set) => ({
   error: null,
   loading: false,
 
+  agentJobId: null,
+  agentStatus: '',
+  agentEvents: [],
+  agentError: null,
+  agentSkills: [],
+  selectedSkill: '',
+
   initialized: false,
   setInitialized: (v) => set({ initialized: v }),
 
@@ -83,4 +106,12 @@ export const useOptimizerStore = create<OptimizerState>((set) => ({
   setJobResult: (v) => set({ jobResult: v }),
   setError: (v) => set({ error: v }),
   setLoading: (v) => set({ loading: v }),
+  setAgentJobId: (v) => set({ agentJobId: v }),
+  setAgentStatus: (v) => set({ agentStatus: v }),
+  addAgentEvent: (e) => set((s) => ({ agentEvents: [...s.agentEvents, e] })),
+  setAgentEvents: (events) => set({ agentEvents: events }),
+  setAgentError: (v) => set({ agentError: v }),
+  setAgentSkills: (v) => set({ agentSkills: v }),
+  setSelectedSkill: (v) => set({ selectedSkill: v }),
+  resetAgent: () => set({ agentJobId: null, agentStatus: '', agentEvents: [], agentError: null }),
 }))

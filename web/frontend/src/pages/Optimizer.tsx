@@ -144,13 +144,16 @@ export default function OptimizerPage() {
     initialized, setInitialized,
   } = useOptimizerStore()
 
-  // Agent-specific state
-  const [agentJobId, setAgentJobId] = useState<string | null>(null)
-  const [agentStatus, setAgentStatus] = useState<string>('')
-  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([])
-  const [agentError, setAgentError] = useState<string | null>(null)
-  const [agentSkills, setAgentSkills] = useState<AgentSkillInfo[]>([])
-  const [selectedSkill, setSelectedSkill] = useState<string>('')
+  // Agent-specific state (persisted in store across tab switches)
+  const {
+    agentJobId, setAgentJobId,
+    agentStatus, setAgentStatus,
+    agentEvents, addAgentEvent,
+    agentError, setAgentError,
+    agentSkills, setAgentSkills,
+    selectedSkill, setSelectedSkill,
+    resetAgent,
+  } = useOptimizerStore()
 
   const wsCleanupRef = useRef<(() => void) | null>(null)
 
@@ -204,7 +207,7 @@ export default function OptimizerPage() {
     const cleanup = subscribeAgent(
       agentJobId,
       (event) => {
-        setAgentEvents(prev => [...prev, event])
+        addAgentEvent(event)
       },
       (err) => { setAgentError(String(err)) }
     )
@@ -261,8 +264,7 @@ export default function OptimizerPage() {
   const handleAIRun = useCallback(async () => {
     if (!selectedSkill) return
 
-    setAgentEvents([])
-    setAgentError(null)
+    resetAgent()
     setAgentStatus('pending')
 
     const req: AgentRunRequest = {
