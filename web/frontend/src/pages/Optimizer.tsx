@@ -466,10 +466,10 @@ export default function OptimizerPage() {
       {/* AI Trace Viewer */}
       {mode === 'ai' && agentJobId && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-          <div className="lg:col-span-2 border border-tv-border rounded-lg bg-tv-panel">
-            <AgentTraceViewer events={agentEvents} status={agentStatus} />
+          <div className="lg:col-span-2 border border-tv-border rounded-lg bg-tv-panel overflow-hidden h-full flex flex-col">
+            <AgentTraceViewer events={agentEvents} status={agentStatus} className="h-full" />
           </div>
-          <div className="border border-tv-border rounded-lg bg-tv-panel">
+          <div className="border border-tv-border rounded-lg bg-tv-panel overflow-hidden h-full">
             <MetricsSummary
               events={agentEvents}
               metrics={selectedSkillInfo?.metrics || []}
