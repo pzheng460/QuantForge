@@ -202,14 +202,19 @@ export default function OptimizerPage() {
   // WebSocket subscription for AI agent
   useEffect(() => {
     if (!agentJobId) return
-    if (agentStatus === 'completed' || agentStatus === 'failed') return
+    if (agentStatus === 'completed' || agentStatus === 'failed' || agentStatus === 'cancelled') return
 
     const cleanup = subscribeAgent(
       agentJobId,
       (event) => {
+        // Skip duplicate events we already have (reconnection replays history)
         addAgentEvent(event)
       },
-      (err) => { setAgentError(String(err)) }
+      () => {
+        // WS errors are normal during tab switches / reconnects — don't treat as failure.
+        // The status poll below will detect real failures.
+        console.warn('Agent WS disconnected, status poll will detect real errors')
+      }
     )
 
     return cleanup

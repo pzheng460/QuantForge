@@ -108,7 +108,14 @@ export const useOptimizerStore = create<OptimizerState>((set) => ({
   setLoading: (v) => set({ loading: v }),
   setAgentJobId: (v) => set({ agentJobId: v }),
   setAgentStatus: (v) => set({ agentStatus: v }),
-  addAgentEvent: (e) => set((s) => ({ agentEvents: [...s.agentEvents, e] })),
+  addAgentEvent: (e) => set((s) => {
+    // Deduplicate by timestamp+type+tool_name to handle WS reconnection replays
+    const isDup = s.agentEvents.some(
+      existing => existing.timestamp === e.timestamp && existing.type === e.type && existing.tool_name === e.tool_name && existing.content === e.content
+    )
+    if (isDup) return s
+    return { agentEvents: [...s.agentEvents, e] }
+  }),
   setAgentEvents: (events) => set({ agentEvents: events }),
   setAgentError: (v) => set({ agentError: v }),
   setAgentSkills: (v) => set({ agentSkills: v }),
