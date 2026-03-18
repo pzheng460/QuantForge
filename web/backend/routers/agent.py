@@ -280,10 +280,10 @@ async def run_claude_agent(job_id: str, request: AgentRunRequest):
             strategy_path = f"quantforge/pine/strategies/{strategy_name}.pine"
             # Working copy in /tmp to avoid modifying original
             work_path = f"/tmp/optimize_{strategy_name}_{job_id[:8]}.pine"
-            # Final output saved alongside original with timestamp
+            # Final output saved in optimized/ subdirectory with timestamp
             from datetime import datetime
             ts = datetime.now().strftime("%Y%m%d_%H%M")
-            output_path = f"quantforge/pine/strategies/{strategy_name}_optimized_{ts}.pine"
+            output_path = f"quantforge/pine/strategies/optimized/{strategy_name}_optimized_{ts}.pine"
 
         # Format prompt with variables
         prompt = prompt_template.format(
