@@ -1,5 +1,5 @@
 //@version=5
-strategy("EMA Crossover", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=78)
+strategy("EMA Crossover v2", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=78)
 
 // --- Inputs ---
 fast_period = input.int(5, title="Fast EMA", minval=3, maxval=20, step=1)
