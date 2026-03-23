@@ -39,7 +39,8 @@ class VirtualTrade:
     direction: str
     entry_price: float
     exit_price: float
-    pnl: float
+    qty: float  # actual position quantity in base currency
+    pnl: float  # P&L in USDT (price_diff * qty)
     entry_time: float
     exit_time: float
 
@@ -50,10 +51,13 @@ class DemoTracker:
 
     initial_capital: float = 100_000.0
     symbol: str = ""
+    position_size_usdt: float = 100.0
+    leverage: int = 1
     trades: list[VirtualTrade] = field(default_factory=list)
     _entry_price: float = 0.0
     _entry_time: float = 0.0
     _position_side: str | None = None
+    _position_qty: float = 0.0  # base currency qty for current position
 
     def on_entry(self, direction: str, price: float) -> None:
         """Record a new entry."""
@@ -63,25 +67,32 @@ class DemoTracker:
         self._entry_price = price
         self._entry_time = time.time()
         self._position_side = direction
+        # Calculate actual position qty: (notional * leverage) / price
+        if price > 0:
+            self._position_qty = (self.position_size_usdt * self.leverage) / price
+        else:
+            self._position_qty = 0.0
 
     def on_close(self, price: float) -> None:
         """Close current position and record P&L."""
         if not self._position_side or self._entry_price == 0:
             return
         if self._position_side == "long":
-            pnl = price - self._entry_price
+            pnl = (price - self._entry_price) * self._position_qty
         else:
-            pnl = self._entry_price - price
+            pnl = (self._entry_price - price) * self._position_qty
         self.trades.append(VirtualTrade(
             direction=self._position_side,
             entry_price=self._entry_price,
             exit_price=price,
+            qty=self._position_qty,
             pnl=pnl,
             entry_time=self._entry_time,
             exit_time=time.time(),
         ))
         self._position_side = None
         self._entry_price = 0.0
+        self._position_qty = 0.0
 
     @property
     def total_pnl(self) -> float:
@@ -109,9 +120,9 @@ class DemoTracker:
         unrealized = 0.0
         if self._position_side and self._entry_price > 0 and current_price > 0:
             if self._position_side == "long":
-                unrealized = current_price - self._entry_price
+                unrealized = (current_price - self._entry_price) * self._position_qty
             else:
-                unrealized = self._entry_price - current_price
+                unrealized = (self._entry_price - current_price) * self._position_qty
 
         total = realized + unrealized
         lines = [
@@ -139,9 +150,9 @@ class DemoTracker:
         unrealized = 0.0
         if self._position_side and self._entry_price > 0 and current_price > 0:
             if self._position_side == "long":
-                unrealized = current_price - self._entry_price
+                unrealized = (current_price - self._entry_price) * self._position_qty
             else:
-                unrealized = self._entry_price - current_price
+                unrealized = (self._entry_price - current_price) * self._position_qty
 
         current_balance = self.initial_capital + realized + unrealized
         peak = self.initial_capital
@@ -187,13 +198,15 @@ class DemoTracker:
 
         trades_out = []
         for t in self.trades:
-            pnl_pct = t.pnl / t.entry_price * 100 if t.entry_price > 0 else 0.0
+            # pnl_pct = pnl / notional_value * 100
+            notional = t.entry_price * t.qty if t.qty > 0 else 1.0
+            pnl_pct = t.pnl / notional * 100 if notional > 0 else 0.0
             trades_out.append({
                 "symbol": self.symbol,
                 "side": t.direction,
                 "entry_price": t.entry_price,
                 "exit_price": t.exit_price,
-                "amount": 0.0,
+                "amount": t.qty,
                 "entry_time": datetime.fromtimestamp(
                     t.entry_time, tz=timezone.utc
                 ).isoformat(),
@@ -251,11 +264,13 @@ class OrderBridge:
         self,
         demo: bool = True,
         position_size_usdt: float = 100.0,
+        leverage: int = 1,
         connector=None,
         symbol: str = "",
     ) -> None:
         self.demo = demo
         self.position_size_usdt = position_size_usdt
+        self.leverage = leverage
 
         # Accumulated signal history
         self.signals: list[SignalRecord] = []
@@ -272,7 +287,11 @@ class OrderBridge:
         self._position_qty: float = 0.0
 
         # P&L tracking (always enabled for web dashboard visibility)
-        self._demo_tracker = DemoTracker(symbol=symbol)
+        self._demo_tracker = DemoTracker(
+            symbol=symbol,
+            position_size_usdt=position_size_usdt,
+            leverage=leverage,
+        )
         self._last_price: float = 0.0
 
     # --- Callbacks wired into StrategyContext ---

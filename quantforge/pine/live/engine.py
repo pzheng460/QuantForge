@@ -152,6 +152,7 @@ class PineLiveEngine:
         self._bridge = OrderBridge(
             demo=self.dry_run,  # Only skip orders in dry-run mode
             position_size_usdt=self.position_size_usdt,
+            leverage=self.leverage,
             connector=connector,
             symbol=self.symbol,
         )
