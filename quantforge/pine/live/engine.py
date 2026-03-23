@@ -22,6 +22,7 @@ Usage
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -198,25 +199,67 @@ class PineLiveEngine:
         self._flush_performance(self._bridge._last_price if self._bridge else 0.0)
         logger.info("Pine live engine stopped after %d bars", self._bars_processed)
 
+    def _config_fingerprint(self) -> str:
+        """Generate a fingerprint of the current strategy configuration.
+
+        Used to detect whether a saved performance file belongs to the
+        same configuration or a different one (changed params, new test).
+        """
+        config_str = (
+            f"{self.pine_source}|{self.exchange}|{self.symbol}|"
+            f"{self.timeframe}|{self.position_size_usdt}|{self.leverage}"
+        )
+        return hashlib.sha256(config_str.encode()).hexdigest()[:16]
+
     def _restore_trade_history(self) -> None:
-        """Restore DemoTracker trade history from live_performance.json."""
+        """Restore DemoTracker trade history from live_performance.json.
+
+        Only restores if the saved config fingerprint matches the current
+        configuration.  If it doesn't match (strategy changed), the old
+        file is archived and a fresh run begins.
+        """
         perf_path = (
             Path.home() / ".quantforge" / "live"
             / self.strategy_name / "live_performance.json"
         )
         if not perf_path.exists():
+            logger.info("No previous performance file — starting fresh")
             return
+
         try:
             with open(perf_path, "r") as f:
                 data = json.load(f)
-            trades = data.get("trades", [])
-            if trades and self._bridge and self._bridge.demo_tracker:
-                self._bridge.demo_tracker.restore_trades(trades)
-                logger.info(
-                    "Restored %d trades from %s", len(trades), perf_path,
-                )
         except Exception:
-            logger.exception("Failed to restore trade history from %s", perf_path)
+            logger.exception("Failed to read %s — starting fresh", perf_path)
+            return
+
+        saved_fp = data.get("config_fingerprint", "")
+        current_fp = self._config_fingerprint()
+
+        if saved_fp != current_fp:
+            # Config changed — archive old file and start fresh
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_path = perf_path.with_name(f"live_performance_{ts}.json")
+            try:
+                perf_path.rename(archive_path)
+                logger.warning(
+                    "Config fingerprint mismatch (saved=%s, current=%s). "
+                    "Archived old data to %s — starting fresh run",
+                    saved_fp or "<none>", current_fp, archive_path.name,
+                )
+            except Exception:
+                logger.exception("Failed to archive old performance file")
+            return
+
+        # Fingerprint matches — safe to restore
+        trades = data.get("trades", [])
+        if trades and self._bridge and self._bridge.demo_tracker:
+            self._bridge.demo_tracker.restore_trades(trades)
+            logger.info(
+                "Restored %d trades from %s (fingerprint=%s)",
+                len(trades), perf_path, current_fp,
+            )
 
     async def _sync_position_state(self, connector) -> None:
         """Sync OrderBridge position with exchange + Pine state after warmup.
@@ -424,6 +467,7 @@ class PineLiveEngine:
 
             data = tracker.to_dict(current_price)
             data["config_name"] = self.strategy_name
+            data["config_fingerprint"] = self._config_fingerprint()
             # Write atomically via temp file
             tmp = perf_path.with_suffix(".tmp")
             with open(tmp, "w") as f:
