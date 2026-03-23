@@ -157,6 +157,9 @@ class PineLiveEngine:
             symbol=self.symbol,
         )
 
+        # --- Restore trade history from disk ---
+        self._restore_trade_history()
+
         ctx = ExecutionContext()
         self._runtime = PineRuntime(ctx)
         self._runtime.init_incremental(self.ast)
@@ -168,7 +171,13 @@ class PineLiveEngine:
         # --- Warmup ---
         await self._run_warmup()
 
-        # Wire signal callbacks AFTER warmup
+        # --- Sync position state ---
+        # After warmup, Pine StrategyContext may have a position from
+        # replaying historical bars.  Sync OrderBridge to match so that
+        # the first real signal is handled correctly (e.g. reversal close).
+        await self._sync_position_state(connector)
+
+        # Wire signal callbacks AFTER warmup + position sync
         if self._runtime.strategy_ctx:
             self._runtime.strategy_ctx.set_signal_callbacks(
                 on_entry=self._bridge.on_entry,
@@ -188,6 +197,87 @@ class PineLiveEngine:
         self._running = False
         self._flush_performance(self._bridge._last_price if self._bridge else 0.0)
         logger.info("Pine live engine stopped after %d bars", self._bars_processed)
+
+    def _restore_trade_history(self) -> None:
+        """Restore DemoTracker trade history from live_performance.json."""
+        perf_path = (
+            Path.home() / ".quantforge" / "live"
+            / self.strategy_name / "live_performance.json"
+        )
+        if not perf_path.exists():
+            return
+        try:
+            with open(perf_path, "r") as f:
+                data = json.load(f)
+            trades = data.get("trades", [])
+            if trades and self._bridge and self._bridge.demo_tracker:
+                self._bridge.demo_tracker.restore_trades(trades)
+                logger.info(
+                    "Restored %d trades from %s", len(trades), perf_path,
+                )
+        except Exception:
+            logger.exception("Failed to restore trade history from %s", perf_path)
+
+    async def _sync_position_state(self, connector) -> None:
+        """Sync OrderBridge position with exchange + Pine state after warmup.
+
+        Priority:
+        1. Exchange position (ground truth for live/demo mode)
+        2. Pine StrategyContext position (fallback for dry-run mode)
+        """
+        exchange_pos = None
+
+        # Try to read exchange position (works for both live and demo/sandbox)
+        if connector is not None:
+            try:
+                positions = connector._exchange.fetch_positions([self.symbol])
+                for p in positions:
+                    if float(p.get("contracts", 0)) > 0:
+                        exchange_pos = p
+                        break
+            except Exception:
+                logger.exception("Failed to fetch exchange positions")
+
+        if exchange_pos:
+            side = exchange_pos.get("side")  # "long" or "short"
+            entry_price = float(exchange_pos.get("entryPrice", 0))
+            contracts = float(exchange_pos.get("contracts", 0))
+            self._bridge.sync_position(side, contracts, entry_price)
+            logger.info(
+                "Synced position from exchange: %s %.6f @ %.2f",
+                side, contracts, entry_price,
+            )
+            # Also sync Pine StrategyContext to match exchange
+            if self._runtime and self._runtime.strategy_ctx:
+                from quantforge.pine.interpreter.builtins.strategy import Direction
+                pine_dir = Direction.LONG if side == "long" else Direction.SHORT
+                ctx = self._runtime.strategy_ctx
+                ctx.position.direction = pine_dir
+                ctx.position.qty = contracts
+                ctx.position.entry_price = entry_price
+                logger.info("Pine StrategyContext synced to exchange position")
+            return
+
+        # Fallback: sync from Pine StrategyContext (dry-run or no exchange position)
+        if self._runtime and self._runtime.strategy_ctx:
+            pine_pos = self._runtime.strategy_ctx.position
+            if not pine_pos.is_flat:
+                side = pine_pos.direction.value  # "long" or "short"
+                entry = pine_pos.entry_price
+                qty = pine_pos.qty
+                # Convert Pine qty to actual base-currency qty
+                if entry > 0 and self.position_size_usdt > 0:
+                    actual_qty = (self.position_size_usdt * self.leverage) / entry
+                else:
+                    actual_qty = qty
+                self._bridge.sync_position(side, actual_qty, entry)
+                logger.info(
+                    "Synced position from Pine state: %s qty=%.6f entry=%.2f",
+                    side, actual_qty, entry,
+                )
+            else:
+                self._bridge.sync_position(None, 0.0, 0.0)
+                logger.info("Pine state is FLAT — no position to sync")
 
     async def _run_warmup(self) -> None:
         """Fetch historical bars and feed them to the interpreter."""

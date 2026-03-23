@@ -94,6 +94,49 @@ class DemoTracker:
         self._entry_price = 0.0
         self._position_qty = 0.0
 
+    def restore_trades(self, trades_data: list[dict]) -> None:
+        """Restore trade history from serialized data (e.g. live_performance.json)."""
+        from datetime import datetime
+
+        for t in trades_data:
+            entry_time = t.get("entry_time", "")
+            exit_time = t.get("exit_time", "")
+            # Parse ISO timestamps to epoch
+            try:
+                et = datetime.fromisoformat(entry_time).timestamp() if entry_time else 0.0
+            except (ValueError, TypeError):
+                et = 0.0
+            try:
+                xt = datetime.fromisoformat(exit_time).timestamp() if exit_time else 0.0
+            except (ValueError, TypeError):
+                xt = 0.0
+
+            self.trades.append(VirtualTrade(
+                direction=t.get("side", "long"),
+                entry_price=t.get("entry_price", 0.0),
+                exit_price=t.get("exit_price", 0.0),
+                qty=t.get("amount", 0.0),
+                pnl=t.get("pnl", 0.0),
+                entry_time=et,
+                exit_time=xt,
+            ))
+        if self.trades:
+            logger.info(
+                "Restored %d historical trades (total PnL: $%.2f)",
+                len(self.trades), self.total_pnl,
+            )
+
+    def restore_position(self, side: str, entry_price: float, qty: float) -> None:
+        """Restore an open position from exchange state."""
+        self._position_side = side
+        self._entry_price = entry_price
+        self._position_qty = qty
+        self._entry_time = time.time()  # approximate
+        logger.info(
+            "Restored open position: %s %.6f @ %.2f",
+            side.upper(), qty, entry_price,
+        )
+
     @property
     def total_pnl(self) -> float:
         return sum(t.pnl for t in self.trades)
@@ -293,6 +336,25 @@ class OrderBridge:
             leverage=leverage,
         )
         self._last_price: float = 0.0
+
+    def sync_position(self, side: str | None, qty: float, entry_price: float) -> None:
+        """Sync internal position state with external source (exchange or Pine).
+
+        Call this after warmup to ensure OrderBridge matches the actual state.
+        """
+        self._position_side = side
+        self._position_qty = qty
+        self._last_price = entry_price if entry_price > 0 else self._last_price
+        if self._demo_tracker and side:
+            self._demo_tracker.restore_position(side, entry_price, qty)
+        elif self._demo_tracker and not side:
+            # Ensure tracker is flat too
+            self._demo_tracker._position_side = None
+            self._demo_tracker._position_qty = 0.0
+        logger.info(
+            "Position synced: %s qty=%.6f entry=%.2f",
+            (side or "FLAT").upper(), qty, entry_price,
+        )
 
     # --- Callbacks wired into StrategyContext ---
 
