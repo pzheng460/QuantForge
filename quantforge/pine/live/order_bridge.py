@@ -49,7 +49,7 @@ class VirtualTrade:
 class DemoTracker:
     """Tracks virtual P&L in demo mode."""
 
-    initial_capital: float = 100_000.0
+    initial_capital: float = 10_000.0  # fetched from exchange at startup
     symbol: str = ""
     position_size_usdt: float = 100.0
     leverage: int = 1
@@ -261,11 +261,24 @@ class DemoTracker:
                 "exit_reason": "",
             })
 
+        # Open position state for restart recovery
+        open_position = None
+        if self._position_side:
+            open_position = {
+                "side": self._position_side,
+                "entry_price": self._entry_price,
+                "qty": self._position_qty,
+                "entry_time": datetime.fromtimestamp(
+                    self._entry_time, tz=timezone.utc
+                ).isoformat() if self._entry_time else "",
+            }
+
         return {
             "start_time": start_str,
             "last_update": now_str,
             "mesa_index": 0,
             "config_name": "",
+            "open_position": open_position,
             "initial_balance": self.initial_capital,
             "current_balance": current_balance,
             "peak_balance": peak,
@@ -310,6 +323,7 @@ class OrderBridge:
         leverage: int = 1,
         connector=None,
         symbol: str = "",
+        initial_capital: float | None = None,
     ) -> None:
         self.demo = demo
         self.position_size_usdt = position_size_usdt
@@ -329,8 +343,15 @@ class OrderBridge:
         self._position_side: str | None = None  # "long" / "short" / None
         self._position_qty: float = 0.0
 
+        # Dedup: prevent same signal from submitting multiple exchange orders
+        # within the same bar (e.g. Pine script evaluates strategy.entry twice)
+        self._dedup_bar: int = -1
+        self._dedup_entry_ids: set[str] = set()
+
         # P&L tracking (always enabled for web dashboard visibility)
+        capital = initial_capital if initial_capital is not None else 10_000.0
         self._demo_tracker = DemoTracker(
+            initial_capital=capital,
             symbol=symbol,
             position_size_usdt=position_size_usdt,
             leverage=leverage,
@@ -365,25 +386,27 @@ class OrderBridge:
         action: str,
         limit: float | None = None,
         stop: float | None = None,
-    ) -> None:
+    ) -> dict | None:
         """Submit an order via the connector or legacy _submit_fn.
+
+        Returns the ccxt order result dict, or ``None`` for demo/dry-run.
 
         The Pine interpreter computes *qty* in its own units (e.g. percent
         of equity).  For real exchange submission we convert to an actual
         base-currency quantity using ``position_size_usdt / current_price``.
         """
         if self.demo:
-            return
+            return None
 
         # Legacy callback path
         if self._submit_fn:
             self._submit_fn(side=side, qty=qty, action=action, limit=limit, stop=stop)
-            return
+            return None
 
         # CcxtConnector path
         if self._connector is None:
             logger.warning("No connector configured — order not submitted")
-            return
+            return None
 
         # Convert Pine qty → exchange qty based on position size and price
         exchange_qty = qty
@@ -397,20 +420,33 @@ class OrderBridge:
                 action, side, exchange_qty, qty, self.position_size_usdt, self._last_price,
             )
             if limit:
-                self._connector.submit_limit_order(
+                result = self._connector.submit_limit_order(
                     side=side, qty=exchange_qty, price=limit, reduce_only=reduce_only
                 )
             else:
-                self._connector.submit_market_order(
+                result = self._connector.submit_market_order(
                     side=side, qty=exchange_qty, reduce_only=reduce_only
                 )
+            return result
         except Exception:
             logger.exception(
                 "Order submission failed: %s %s qty=%.6f", action, side, exchange_qty
             )
+            return None
 
     def on_entry(self, order: Order) -> None:
         """Called when Pine interpreter places a strategy.entry() order."""
+        # --- Dedup guard: skip if same entry ID already processed this bar ---
+        if order.bar_index != self._dedup_bar:
+            self._dedup_bar = order.bar_index
+            self._dedup_entry_ids.clear()
+        if order.id in self._dedup_entry_ids:
+            logger.debug(
+                "Duplicate entry skipped: id=%s bar=%d", order.id, order.bar_index
+            )
+            return
+        self._dedup_entry_ids.add(order.id)
+
         rec = self._record(order)
         self.signals.append(rec)
 
@@ -423,13 +459,14 @@ class OrderBridge:
                 self._position_side.upper(),
                 self._position_qty,
             )
-            if self._demo_tracker:
-                self._demo_tracker.on_close(self._last_price)
-            self._submit_order(
+            close_result = self._submit_order(
                 side="sell" if self._position_side == "long" else "buy",
                 qty=self._position_qty,
                 action="close",
             )
+            close_fill = self._extract_fill_price(close_result)
+            if self._demo_tracker:
+                self._demo_tracker.on_close(close_fill)
             self._position_side = None
             self._position_qty = 0.0
 
@@ -445,16 +482,16 @@ class OrderBridge:
         self._position_side = direction
         self._position_qty = order.qty or 0.0
 
-        if self._demo_tracker:
-            self._demo_tracker.on_entry(direction, self._last_price)
-
-        self._submit_order(
+        entry_result = self._submit_order(
             side="buy" if direction == "long" else "sell",
             qty=order.qty or 0.0,
             action="entry",
             limit=order.limit,
             stop=order.stop,
         )
+        entry_fill = self._extract_fill_price(entry_result)
+        if self._demo_tracker:
+            self._demo_tracker.on_entry(direction, entry_fill)
 
     def on_close(self, order: Order) -> None:
         """Called when Pine interpreter places a strategy.close() order."""
@@ -468,13 +505,14 @@ class OrderBridge:
         )
 
         if self._position_side:
-            if self._demo_tracker:
-                self._demo_tracker.on_close(self._last_price)
-            self._submit_order(
+            close_result = self._submit_order(
                 side="sell" if self._position_side == "long" else "buy",
                 qty=self._position_qty,
                 action="close",
             )
+            close_fill = self._extract_fill_price(close_result)
+            if self._demo_tracker:
+                self._demo_tracker.on_close(close_fill)
 
         self._position_side = None
         self._position_qty = 0.0
@@ -502,6 +540,23 @@ class OrderBridge:
             )
 
     # --- Helpers ---
+
+    def _extract_fill_price(self, result: dict | None) -> float:
+        """Extract the average fill price from a ccxt order result.
+
+        Falls back to ``self._last_price`` if the result is unavailable or
+        does not contain a valid average price.
+        """
+        if result is not None:
+            avg = result.get("average")
+            if avg is not None:
+                try:
+                    price = float(avg)
+                    if price > 0:
+                        return price
+                except (TypeError, ValueError):
+                    pass
+        return self._last_price
 
     def update_price(self, price: float) -> None:
         """Update the current market price for P&L tracking."""

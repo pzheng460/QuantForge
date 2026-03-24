@@ -137,7 +137,7 @@ class PineLiveEngine:
                 # Set leverage before trading starts
                 if self.leverage > 0:
                     try:
-                        result = connector._exchange.set_leverage(
+                        connector._exchange.set_leverage(
                             self.leverage, self.symbol
                         )
                         logger.info(
@@ -145,10 +145,70 @@ class PineLiveEngine:
                         )
                     except Exception:
                         logger.exception("Failed to set leverage")
+
+                    # Verify actual leverage from exchange
+                    try:
+                        positions = connector._exchange.fetch_positions(
+                            [self.symbol]
+                        )
+                        actual_leverage = None
+                        for p in positions:
+                            lev = p.get("leverage")
+                            if lev is not None:
+                                actual_leverage = int(float(lev))
+                                break
+                        if actual_leverage is not None:
+                            if actual_leverage != self.leverage:
+                                logger.warning(
+                                    "LEVERAGE MISMATCH: configured=%dx "
+                                    "actual=%dx for %s",
+                                    self.leverage,
+                                    actual_leverage,
+                                    self.symbol,
+                                )
+                            else:
+                                logger.info(
+                                    "Leverage verified: %dx for %s",
+                                    actual_leverage,
+                                    self.symbol,
+                                )
+                        else:
+                            logger.warning(
+                                "Could not verify leverage — no position "
+                                "data returned for %s",
+                                self.symbol,
+                            )
+                    except Exception:
+                        logger.exception("Failed to verify leverage")
             except Exception:
                 logger.exception(
                     "Failed to initialise CcxtConnector — falling back to dry-run"
                 )
+
+        # Fetch real account balance for DemoTracker initial_capital
+        initial_capital = None
+        if connector is not None:
+            try:
+                params = {}
+                if self.exchange == "bitget":
+                    params["uta"] = True
+                balance = connector._exchange.fetch_balance(params)
+                usdt_total = float(balance.get("USDT", {}).get("total", 0))
+                if usdt_total > 0:
+                    initial_capital = usdt_total
+                    logger.info("Fetched account balance: %.2f USDT", usdt_total)
+                else:
+                    logger.warning(
+                        "USDT balance is 0 — using fallback initial capital"
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to fetch account balance — using fallback initial capital"
+                )
+
+        if initial_capital is None:
+            initial_capital = self.position_size_usdt * 100
+            logger.info("Using fallback initial capital: %.2f USDT", initial_capital)
 
         self._bridge = OrderBridge(
             demo=self.dry_run,  # Only skip orders in dry-run mode
@@ -156,6 +216,7 @@ class PineLiveEngine:
             leverage=self.leverage,
             connector=connector,
             symbol=self.symbol,
+            initial_capital=initial_capital,
         )
 
         # --- Restore trade history from disk ---
@@ -260,6 +321,20 @@ class PineLiveEngine:
                 "Restored %d trades from %s (fingerprint=%s)",
                 len(trades), perf_path, current_fp,
             )
+
+        # Restore open position as fallback (exchange sync will override later)
+        open_pos = data.get("open_position")
+        if open_pos and self._bridge:
+            side = open_pos.get("side")
+            entry_price = float(open_pos.get("entry_price", 0))
+            qty = float(open_pos.get("qty", 0))
+            if side and qty > 0:
+                self._bridge.sync_position(side, qty, entry_price)
+                logger.info(
+                    "Restored open position from disk: %s %.6f @ %.2f "
+                    "(will be overridden by exchange sync if available)",
+                    side.upper(), qty, entry_price,
+                )
 
     async def _sync_position_state(self, connector) -> None:
         """Sync OrderBridge position with exchange + Pine state after warmup.
