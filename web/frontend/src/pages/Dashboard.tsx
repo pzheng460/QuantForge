@@ -134,7 +134,7 @@ function LiveInfoBar({ activeEngine }: { activeEngine: LiveEngineOut }) {
 // ─── Report area: only re-renders when total_trades changes ─────────────────
 
 function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
-  const tradeCount = useDashboardStore((s) => s.perf?.total_trades ?? 0)
+  const perf = useDashboardStore((s) => s.perf)
   const setPerf = useDashboardStore((s) => s.setPerf)
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
 
@@ -154,23 +154,18 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
     return () => cleanup()
   }, [setPerf, setWsConnected])
 
-  // Cached report — once built, NEVER resets to null.
-  // Only rebuilds when a new trade closes (tradeCount increases).
-  const cachedResult = useRef<BacktestResult | null>(null)
-  const lastBuiltCount = useRef(0)
+  // Build report from perf on every valid WS push.
+  // Guard: once we have a result, never go back to null (stale data protection).
+  const lastGoodResult = useRef<BacktestResult | null>(null)
 
-  if (tradeCount > 0 && tradeCount !== lastBuiltCount.current) {
-    const perf = useDashboardStore.getState().perf
-    if (perf) {
-      lastBuiltCount.current = tradeCount
-      cachedResult.current = livePerformanceToBacktestResult(perf, {
-        exchange: activeEngine?.exchange,
-        strategy: activeEngine?.strategy,
-      })
-    }
+  if (perf && perf.total_trades > 0) {
+    lastGoodResult.current = livePerformanceToBacktestResult(perf, {
+      exchange: activeEngine?.exchange,
+      strategy: activeEngine?.strategy,
+    })
   }
 
-  const adaptedResult = cachedResult.current
+  const adaptedResult = lastGoodResult.current
 
 
   if (!activeEngine) {

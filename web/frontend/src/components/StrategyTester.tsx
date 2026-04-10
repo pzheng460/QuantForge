@@ -1,4 +1,4 @@
-import { useState, useMemo, memo } from 'react'
+import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { ChevronRight } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
@@ -1024,7 +1024,7 @@ interface Props {
   result: BacktestResult
 }
 
-function StrategyTesterInner({ result }: Props) {
+export default function StrategyTester({ result }: Props) {
   const [tab, setTab] = useState<Tab>('report')
   const { timezone } = useTimezone()
 
@@ -1074,12 +1074,3 @@ function StrategyTesterInner({ result }: Props) {
   )
 }
 
-/**
- * Only re-render when a new trade arrives. Live balance / PnL is
- * shown in the info bar above, not inside this component.
- */
-const StrategyTester = memo(StrategyTesterInner, (prev, next) => {
-  return prev.result.total_trades === next.result.total_trades
-})
-
-export default StrategyTester
