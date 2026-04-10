@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import clsx from 'clsx'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { AgentEvent } from '../types'
 
 interface AgentTraceViewerProps {
@@ -15,25 +16,33 @@ function EventIcon({ type, toolName }: { type: string; toolName?: string }) {
     if (toolName === 'Edit') return <span className="text-yellow-400">📝</span>
     if (toolName === 'Write') return <span className="text-purple-400">📄</span>
     if (toolName === 'Bash') return <span className="text-orange-400">⚡</span>
-    return <span className="text-gray-400">🔧</span>
+    return <span className="text-muted-foreground">🔧</span>
   }
-  if (type === 'tool_result') return <span className="text-gray-300">↩️</span>
+  if (type === 'tool_result') return <span className="text-muted-foreground/70">↩️</span>
   if (type === 'error') return <span className="text-red-400">❌</span>
   if (type === 'done') return <span className="text-green-400">✅</span>
-  return <span className="text-gray-400">•</span>
+  return <span className="text-muted-foreground">•</span>
 }
 
-function ThinkingEvent({ event, expanded, onToggle }: { event: AgentEvent; expanded: boolean; onToggle: () => void }) {
+function ThinkingEvent({
+  event,
+  expanded,
+  onToggle,
+}: {
+  event: AgentEvent
+  expanded: boolean
+  onToggle: () => void
+}) {
   const lines = event.content.split('\n')
   const previewLines = lines.slice(0, 3)
   const hasMore = lines.length > 3
 
   return (
-    <div className="border border-tv-border rounded-lg p-3 bg-tv-panel">
+    <div className="border border-border rounded-lg p-3 bg-card">
       <div className="flex items-start gap-2">
         <EventIcon type={event.type} toolName={event.tool_name} />
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-tv-text leading-relaxed">
+          <div className="text-sm text-foreground leading-relaxed">
             {expanded ? (
               <pre className="whitespace-pre-wrap font-mono text-xs">{event.content}</pre>
             ) : (
@@ -41,10 +50,10 @@ function ThinkingEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
                 {previewLines.map((line, i) => (
                   <div key={i}>{line}</div>
                 ))}
-                {hasMore && (
+                {lines.length > 3 && (
                   <button
                     onClick={onToggle}
-                    className="text-tv-blue hover:text-tv-blue-hover text-xs mt-1 font-medium"
+                    className="text-primary hover:text-primary/80 text-xs mt-1 font-medium"
                   >
                     Show more...
                   </button>
@@ -55,7 +64,7 @@ function ThinkingEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
           {expanded && hasMore && (
             <button
               onClick={onToggle}
-              className="text-tv-blue hover:text-tv-blue-hover text-xs mt-2 font-medium"
+              className="text-primary hover:text-primary/80 text-xs mt-2 font-medium"
             >
               Show less
             </button>
@@ -66,17 +75,25 @@ function ThinkingEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
   )
 }
 
-function ToolCallEvent({ event, expanded, onToggle }: { event: AgentEvent; expanded: boolean; onToggle: () => void }) {
+function ToolCallEvent({
+  event,
+  expanded,
+  onToggle,
+}: {
+  event: AgentEvent
+  expanded: boolean
+  onToggle: () => void
+}) {
   const { tool_name, file_path, diff, content } = event
 
   if (tool_name === 'Edit' && diff) {
     return (
-      <div className="border border-tv-border rounded-lg p-3 bg-tv-panel">
+      <div className="border border-border rounded-lg p-3 bg-card">
         <div className="flex items-center gap-2 mb-2">
           <EventIcon type={event.type} toolName={event.tool_name} />
-          <span className="text-sm font-medium text-tv-text">Edit: {file_path}</span>
+          <span className="text-sm font-medium text-foreground">Edit: {file_path}</span>
         </div>
-        <div className="bg-tv-bg border border-tv-border rounded overflow-hidden">
+        <div className="bg-background border border-border rounded overflow-hidden">
           <div className="bg-red-900 bg-opacity-20 p-2">
             <div className="text-red-300 text-xs font-medium mb-1">- Removed</div>
             <pre className="text-xs text-red-200 whitespace-pre-wrap">{diff.old}</pre>
@@ -92,10 +109,10 @@ function ToolCallEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
 
   if (tool_name === 'Bash') {
     return (
-      <div className="border border-tv-border rounded-lg p-3 bg-tv-panel">
+      <div className="border border-border rounded-lg p-3 bg-card">
         <div className="flex items-center gap-2">
           <EventIcon type={event.type} toolName={event.tool_name} />
-          <span className="text-sm text-tv-text font-mono">{content}</span>
+          <span className="text-sm text-foreground font-mono">{content}</span>
         </div>
       </div>
     )
@@ -103,10 +120,10 @@ function ToolCallEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
 
   if (tool_name === 'Read') {
     return (
-      <div className="border border-tv-border rounded-lg p-3 bg-tv-panel">
+      <div className="border border-border rounded-lg p-3 bg-card">
         <div className="flex items-center gap-2">
           <EventIcon type={event.type} toolName={event.tool_name} />
-          <span className="text-sm text-tv-text">Read: {file_path}</span>
+          <span className="text-sm text-foreground">Read: {file_path}</span>
         </div>
       </div>
     )
@@ -114,19 +131,19 @@ function ToolCallEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
 
   if (tool_name === 'Write') {
     return (
-      <div className="border border-tv-border rounded-lg p-3 bg-tv-panel">
+      <div className="border border-border rounded-lg p-3 bg-card">
         <div className="flex items-start gap-2">
           <EventIcon type={event.type} toolName={event.tool_name} />
           <div className="flex-1 min-w-0">
-            <div className="text-sm text-tv-text mb-2">Write: {file_path}</div>
+            <div className="text-sm text-foreground mb-2">Write: {file_path}</div>
             {expanded && (
-              <div className="bg-tv-bg border border-tv-border rounded p-2 max-h-96 overflow-auto">
-                <pre className="text-xs text-tv-text whitespace-pre-wrap">{content}</pre>
+              <div className="bg-background border border-border rounded p-2 max-h-96 overflow-auto">
+                <pre className="text-xs text-foreground whitespace-pre-wrap">{content}</pre>
               </div>
             )}
             <button
               onClick={onToggle}
-              className="text-tv-blue hover:text-tv-blue-hover text-xs mt-1 font-medium"
+              className="text-primary hover:text-primary/80 text-xs mt-1 font-medium"
             >
               {expanded ? 'Hide content' : 'Show content'}
             </button>
@@ -138,41 +155,51 @@ function ToolCallEvent({ event, expanded, onToggle }: { event: AgentEvent; expan
 
   // Generic tool call
   return (
-    <div className="border border-tv-border rounded-lg p-3 bg-tv-panel">
+    <div className="border border-border rounded-lg p-3 bg-card">
       <div className="flex items-start gap-2">
         <EventIcon type={event.type} toolName={event.tool_name} />
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-tv-text font-medium mb-1">{tool_name}</div>
-          <pre className="text-xs text-tv-muted whitespace-pre-wrap">{content}</pre>
+          <div className="text-sm text-foreground font-medium mb-1">{tool_name}</div>
+          <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{content}</pre>
         </div>
       </div>
     </div>
   )
 }
 
-function ToolResultEvent({ event, expanded, onToggle }: { event: AgentEvent; expanded: boolean; onToggle: () => void }) {
+function ToolResultEvent({
+  event,
+  expanded,
+  onToggle,
+}: {
+  event: AgentEvent
+  expanded: boolean
+  onToggle: () => void
+}) {
   const lines = event.content.split('\n')
   const isLong = lines.length > 10 || event.content.length > 1000
 
   return (
-    <div className="border border-tv-border rounded-lg bg-tv-bg">
+    <div className="border border-border rounded-lg bg-background">
       <div className="p-3">
         <div className="flex items-center gap-2 mb-2">
           <EventIcon type={event.type} />
-          <span className="text-sm text-tv-muted">Output</span>
+          <span className="text-sm text-muted-foreground">Output</span>
         </div>
-        <div className={clsx(
-          'bg-black text-green-300 p-3 rounded font-mono text-xs overflow-auto',
-          !expanded && isLong && 'max-h-32'
-        )}>
+        <div
+          className={cn(
+            'bg-black rounded font-mono text-xs text-green-300 p-2 overflow-auto',
+            !expanded && isLong && 'max-h-32',
+          )}
+        >
           <pre className="whitespace-pre-wrap">{event.content}</pre>
         </div>
         {isLong && (
           <button
             onClick={onToggle}
-            className="text-tv-blue hover:text-tv-blue-hover text-xs mt-2 font-medium"
+            className="text-primary hover:text-primary/80 text-xs mt-2 font-medium"
           >
-            {expanded ? 'Collapse' : 'Expand'}
+            {expanded ? 'Show less' : 'Expand'}
           </button>
         )}
       </div>
@@ -205,20 +232,28 @@ function DoneEvent({ event }: { event: AgentEvent }) {
   )
 }
 
-export default function AgentTraceViewer({ events, status, className }: AgentTraceViewerProps) {
+export default function AgentTraceViewer({
+  events,
+  status,
+  className,
+}: {
+  events: AgentEvent[]
+  status: string
+  className?: string
+}) {
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set())
   const [autoScroll, setAutoScroll] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevEventsLength = useRef(events.length)
 
   const toggleExpanded = (index: number) => {
-    const newExpanded = new Set(expandedEvents)
-    if (newExpanded.has(index)) {
-      newExpanded.delete(index)
+    const next = new Set(expandedEvents)
+    if (next.has(index)) {
+      next.delete(index)
     } else {
-      newExpanded.add(index)
+      next.add(index)
     }
-    setExpandedEvents(newExpanded)
+    setExpandedEvents(next)
   }
 
   // Auto-scroll to bottom when new events arrive
@@ -229,7 +264,7 @@ export default function AgentTraceViewer({ events, status, className }: AgentTra
     prevEventsLength.current = events.length
   }, [events.length, autoScroll])
 
-  // Pause auto-scroll when user scrolls up
+  // Detect when user scrolls up
   const handleScroll = () => {
     if (!scrollRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
@@ -238,32 +273,41 @@ export default function AgentTraceViewer({ events, status, className }: AgentTra
   }
 
   return (
-    <div className={clsx('flex flex-col h-full', className)}>
-      {/* Progress bar */}
-      <div className="flex items-center justify-between p-4 border-b border-tv-border">
+    <div className={cn('flex flex-col', className)}>
+      {/* Header bar */}
+      <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <div className="text-sm font-medium text-tv-text">
-            Agent Status: <span className={clsx(
-              'capitalize',
-              status === 'running' ? 'text-blue-400' :
-              status === 'completed' ? 'text-green-400' :
-              status === 'failed' ? 'text-red-400' : 'text-tv-muted'
-            )}>{status}</span>
+          <div className="text-sm font-medium text-foreground">
+            Agent Status:{' '}
+            <span
+              className={cn(
+                'capitalize',
+                status === 'running'
+                  ? 'text-blue-400'
+                  : status === 'completed'
+                    ? 'text-green-400'
+                    : status === 'failed'
+                      ? 'text-red-400'
+                      : 'text-muted-foreground',
+              )}
+            >
+              {status}
+            </span>
           </div>
-          <div className="text-xs text-tv-muted">{events.length} events</div>
+          <div className="text-xs text-muted-foreground">{events.length} events</div>
         </div>
         {!autoScroll && (
-          <button
+          <Button
+            size="sm"
             onClick={() => {
               setAutoScroll(true)
               if (scrollRef.current) {
                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight
               }
             }}
-            className="text-xs px-2 py-1 bg-tv-blue text-white rounded hover:bg-tv-blue-hover"
           >
             Resume auto-scroll
-          </button>
+          </Button>
         )}
       </div>
 
@@ -274,23 +318,45 @@ export default function AgentTraceViewer({ events, status, className }: AgentTra
         onScroll={handleScroll}
       >
         {events.length === 0 ? (
-          <div className="text-center text-tv-muted py-8">
+          <div className="text-center text-muted-foreground py-8">
             {status === 'pending' ? 'Waiting for agent to start...' : 'No events yet'}
           </div>
         ) : (
           events.map((event, index) => {
             const expanded = expandedEvents.has(index)
+            const toggle = () => toggleExpanded(index)
 
             if (event.type === 'thinking') {
-              return <ThinkingEvent key={index} event={event} expanded={expanded} onToggle={() => toggleExpanded(index)} />
+              return (
+                <ThinkingEvent
+                  key={index}
+                  event={event}
+                  expanded={expanded}
+                  onToggle={toggle}
+                />
+              )
             }
 
             if (event.type === 'tool_call') {
-              return <ToolCallEvent key={index} event={event} expanded={expanded} onToggle={() => toggleExpanded(index)} />
+              return (
+                <ToolCallEvent
+                  key={index}
+                  event={event}
+                  expanded={expanded}
+                  onToggle={toggle}
+                />
+              )
             }
 
             if (event.type === 'tool_result') {
-              return <ToolResultEvent key={index} event={event} expanded={expanded} onToggle={() => toggleExpanded(index)} />
+              return (
+                <ToolResultEvent
+                  key={index}
+                  event={event}
+                  expanded={expanded}
+                  onToggle={toggle}
+                />
+              )
             }
 
             if (event.type === 'error') {
@@ -306,8 +372,8 @@ export default function AgentTraceViewer({ events, status, className }: AgentTra
         )}
 
         {status === 'running' && (
-          <div className="flex items-center gap-2 text-tv-muted py-4">
-            <div className="animate-spin w-4 h-4 border-2 border-tv-border border-t-tv-blue rounded-full"></div>
+          <div className="flex items-center gap-2 text-muted-foreground py-4">
+            <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
             <span className="text-sm">Agent is working...</span>
           </div>
         )}

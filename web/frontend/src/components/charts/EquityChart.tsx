@@ -30,7 +30,7 @@ export default function EquityChart({ data }: Props) {
   return (
     <ResponsiveContainer width="100%" height={320}>
       <LineChart data={data} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(222,24%,15%)" />
         <XAxis
           dataKey="t"
           tickFormatter={fmtDate}

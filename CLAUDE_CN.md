@@ -255,6 +255,13 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 
 ### Web UI 架构
 
+**前端技术栈**：React 18 + TypeScript + Vite + Tailwind CSS + **shadcn/ui** 组件库
+- UI 组件（`Button`, `Input`, `Select`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible` 等）位于 `web/frontend/src/components/ui/`
+- 使用 CSS 变量主题系统（`index.css`），深色 TradingView 风格；颜色令牌：`--background`, `--foreground`, `--card`, `--primary`, `--muted`, `--border`, `--destructive`
+- 工具函数 `cn()` 位于 `@/lib/utils`（封装 `clsx` + `tailwind-merge`）
+- 路径别名 `@/` → `./src/`（在 `tsconfig.json` 和 `vite.config.ts` 中配置）
+- 交易相关颜色（盈利绿 `tv-green`、亏损红 `tv-red`）保留在 Tailwind 配置中
+
 所有回测和优化逻辑统一在主回测模块中：
 - `web/backend/jobs.py` — 共享工具（`_fetch_ohlcv`、`_resolve_pine_source`、`_resolve_date_range`）及回测/优化任务运行器
 - `web/backend/routers/backtest.py` — `/backtest/run`（POST）、`/backtest/{id}`（GET，轮询状态）

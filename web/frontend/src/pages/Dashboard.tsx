@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
 import { useCatalog } from '../hooks/useCatalog'
@@ -6,12 +7,25 @@ import type {
   LivePerformance,
   LiveEngineOut,
   LiveStartRequest,
+  BacktestResult,
   StrategySchema,
   Exchange,
-  BacktestResult,
 } from '../types'
 import StrategyTester from '../components/StrategyTester'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from '@/components/ui/collapsible'
 
 // ─── Pine parameter parsing (shared with Backtest) ──────────────────────────
 
@@ -57,48 +71,59 @@ function updatePineParam(source: string, paramName: string, newValue: number): s
 
 // ─── Collapsible section ────────────────────────────────────────────────────
 
-function Section({ title, children, defaultOpen = true }: {
+function Section({
+  title,
+  defaultOpen = true,
+  children,
+}: {
   title: string
   children: React.ReactNode
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border-b border-tv-border">
-      <button
-        className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-semibold text-tv-muted uppercase tracking-wider hover:text-tv-text transition-colors"
-        onClick={() => setOpen((o) => !o)}
-      >
-        {title}
-        <svg
-          className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 12 12"
-          fill="currentColor"
-        >
-          <path d="M6 8L1 3h10z" />
-        </svg>
-      </button>
-      {open && <div className="px-3 pb-3">{children}</div>}
-    </div>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="border-b border-border">
+        <CollapsibleTrigger asChild>
+          <button className="flex w-full items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+            {title}
+            <ChevronDown
+              className={cn(
+                'h-3 w-3 transition-transform',
+                open && 'rotate-180',
+              )}
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-3 pb-3">
+          {children}
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   )
 }
-
 
 // ─── Status badge ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    warmup: 'bg-yellow-500/20 text-yellow-400',
-    running: 'bg-tv-green/20 text-tv-green',
-    stopped: 'bg-tv-muted/20 text-tv-muted',
-    failed: 'bg-tv-red/20 text-tv-red',
+  const variantMap: Record<string, 'success' | 'warning' | 'secondary' | 'destructive'> = {
+    running: 'success',
+    warmup: 'warning',
+    stopped: 'secondary',
+    failed: 'destructive',
   }
+  const variant = variantMap[status] || 'secondary'
+
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium ${styles[status] || styles.stopped}`}>
-      {status === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-tv-green animate-pulse" />}
-      {status === 'warmup' && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
+    <Badge variant={variant} className="gap-1.5 text-[10px]">
+      {status === 'running' && (
+        <span className="w-1.5 h-1.5 rounded-full bg-tv-green animate-pulse" />
+      )}
+      {status === 'warmup' && (
+        <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+      )}
       {status.toUpperCase()}
-    </span>
+    </Badge>
   )
 }
 
@@ -107,7 +132,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function DashboardPage() {
   const { strategies, exchanges } = useCatalog()
 
-  // Zustand store (persists across tab switches)
+  // Zustand store (persists across route changes)
   const {
     selectedStrategy, setSelectedStrategy,
     source, setSource,
@@ -130,13 +155,15 @@ export default function DashboardPage() {
   const cleanupRef = useRef<(() => void) | null>(null)
   const paramUpdateRef = useRef(false)
 
-  // Active engine (first running/warmup engine)
-  const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
+  // Active engine (first running / warmup)
+  const activeEngine = engines.find(
+    (e) => e.status === 'running' || e.status === 'warmup',
+  )
 
   // Set default strategy + load engines on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
-      // Don't auto-select — start with empty state
+      // Don't auto-select — let the user choose
       setInitialized(true)
     }
   }, [strategies, initialized])
@@ -153,13 +180,13 @@ export default function DashboardPage() {
         setPerf(msg)
         setWsConnected(true)
       },
-      () => setWsConnected(false)
+      () => setWsConnected(false),
     )
     cleanupRef.current = cleanup
     return () => cleanup()
   }, [])
 
-  // Also poll engines list periodically to catch status changes
+  // Poll engines list periodically
   useEffect(() => {
     const interval = setInterval(() => {
       api.liveEngines().then(setEngines).catch(() => {})
@@ -167,34 +194,36 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Strategy selector
-  const handleStrategyChange = useCallback((name: string) => {
-    setSelectedStrategy(name)
-    if (name === CUSTOM_KEY) {
-      setSource(DEFAULT_PINE)
-      setPineParams(parsePineParams(DEFAULT_PINE))
-    } else {
-      api.strategySource(name).then(({ source: src }) => {
-        setSource(src)
-        setPineParams(parsePineParams(src))
-      })
-    }
-  }, [])
+  const handleStrategyChange = useCallback(
+    (name: string) => {
+      setSelectedStrategy(name)
+      if (name === CUSTOM_KEY) {
+        setSource(DEFAULT_PINE)
+        setPineParams(parsePineParams(DEFAULT_PINE))
+      } else {
+        api.strategySource(name).then(({ source: src }) => {
+          setSource(src)
+          setPineParams(parsePineParams(src))
+        })
+      }
+    },
+    [],
+  )
 
-  const handleSourceChange = useCallback((newSource: string) => {
-    setSource(newSource)
+  const handleSourceChange = useCallback((val: string) => {
+    setSource(val)
     if (paramUpdateRef.current) {
       paramUpdateRef.current = false
       return
     }
-    setPineParams(parsePineParams(newSource))
+    setPineParams(parsePineParams(val))
   }, [])
 
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
     paramUpdateRef.current = true
     setSource((prev) => updatePineParam(prev, paramName, newValue))
     setPineParams((prev) =>
-      prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p))
+      prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p)),
     )
   }, [])
 
@@ -208,16 +237,15 @@ export default function DashboardPage() {
         exchange,
         symbol,
         timeframe,
-        demo,
         position_size_usdt: positionSize,
         leverage,
         warmup_bars: warmupBars,
+        demo,
       }
-      if (selectedStrategy !== CUSTOM_KEY) {
+      if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) {
         req.strategy = selectedStrategy
       }
       await api.startLive(req)
-      // Refresh engines list
       const updated = await api.liveEngines()
       setEngines(updated)
     } catch (e) {
@@ -239,80 +267,91 @@ export default function DashboardPage() {
   }, [])
 
   // Convert live performance to BacktestResult for StrategyTester
-  const adaptedResult: BacktestResult | null = perf
-    ? livePerformanceToBacktestResult(perf, {
-        exchange: activeEngine?.exchange,
-        strategy: activeEngine?.strategy,
-      })
-    : null
+  const adaptedResult: BacktestResult | null =
+    perf
+      ? livePerformanceToBacktestResult(perf, {
+          exchange: activeEngine?.exchange,
+          strategy: activeEngine?.strategy,
+        })
+      : null
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
       <div className="flex flex-1 min-h-0">
-
         {/* ── Left panel: strategy selector + settings ─────────────── */}
-        <div className="w-80 shrink-0 flex flex-col bg-tv-panel border-r border-tv-border" style={{ height: '100%' }}>
-
+        <div
+          className="w-80 shrink-0 flex flex-col bg-card border-r border-border"
+          style={{ height: '100%' }}
+        >
           {/* Header */}
-          <div className="px-3 py-2 border-b border-tv-border flex items-center justify-between shrink-0">
-            <span className="text-[11px] font-semibold text-tv-muted uppercase tracking-wider">Live Trading</span>
+          <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Live Trading
+            </span>
             {activeEngine && <StatusBadge status={activeEngine.status} />}
           </div>
 
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-
             {/* Strategy selector */}
             <Section title="Strategy">
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
-                  <label className="text-[10px] text-tv-muted">Strategy</label>
-                  <select
-                    className="tv-select text-xs py-1"
+                  <Label>Strategy</Label>
+                  <Select
+                    className="text-xs h-7"
                     value={selectedStrategy}
                     onChange={(e) => handleStrategyChange(e.target.value)}
                     disabled={!!activeEngine}
                   >
                     <option value="">— Select —</option>
-                    <option value={CUSTOM_KEY}>Custom Script</option>
+                    <option value={CUSTOM_KEY}>Custom Pine Script</option>
                     {strategies.map((s) => (
-                      <option key={s.name} value={s.name}>{s.display_name}</option>
+                      <option key={s.name} value={s.name}>
+                        {s.display_name}
+                      </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               </div>
             </Section>
 
             {/* Pine Script editor */}
             <Section title="Pine Script" defaultOpen={!activeEngine}>
-              <textarea
-                value={source}
-                onChange={(e) => handleSourceChange(e.target.value)}
-                className="w-full bg-tv-bg text-tv-text text-[11px] font-mono p-2 rounded border border-tv-border resize-y outline-none focus:border-tv-blue/50"
+              <Textarea
+                className="w-full font-mono text-[11px] resize-y"
                 spellCheck={false}
                 rows={10}
                 style={{ minHeight: 100, maxHeight: 300 }}
+                value={source}
+                onChange={(e) => handleSourceChange(e.target.value)}
                 disabled={!!activeEngine}
               />
             </Section>
 
             {/* Parameters */}
             {pineParams.length > 0 && (
-              <Section title={`Parameters (${pineParams.length})`} defaultOpen={!activeEngine}>
+              <Section
+                title={`Parameters (${pineParams.length})`}
+                defaultOpen={!activeEngine}
+              >
                 <div className="space-y-0">
                   {pineParams.map((p) => (
                     <div key={p.name} className="flex flex-col gap-0.5 py-1">
-                      <label className="text-[10px] text-tv-muted">{p.title}</label>
-                      <input
+                      <Label>{p.title}</Label>
+                      <Input
                         type="number"
-                        className="tv-input text-xs py-1"
+                        className="text-xs h-7"
                         value={p.value}
                         step={p.step ?? (p.type === 'int' ? 1 : 0.01)}
                         min={p.min}
                         max={p.max}
                         disabled={!!activeEngine}
                         onChange={(e) => {
-                          const v = p.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value)
+                          const v =
+                            p.type === 'int'
+                              ? parseInt(e.target.value)
+                              : parseFloat(e.target.value)
                           if (!isNaN(v)) handleParamChange(p.name, v)
                         }}
                       />
@@ -326,55 +365,108 @@ export default function DashboardPage() {
             <Section title="Settings">
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
-                  <label className="text-[10px] text-tv-muted">Exchange</label>
-                  <select className="tv-select text-xs py-1" value={exchange} onChange={(e) => setExchange(e.target.value)} disabled={!!activeEngine}>
+                  <Label>Exchange</Label>
+                  <Select
+                    className="text-xs h-7"
+                    value={exchange}
+                    onChange={(e) => setExchange(e.target.value)}
+                    disabled={!!activeEngine}
+                  >
                     {exchanges.map((ex) => (
-                      <option key={ex.id} value={ex.id}>{ex.name}</option>
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
-                  <label className="text-[10px] text-tv-muted">Symbol</label>
-                  <input className="tv-input text-xs py-1" value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!activeEngine} />
+                  <Label className="text-[10px]">Symbol</Label>
+                  <Input
+                    className="text-xs h-7"
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value)}
+                    disabled={!!activeEngine}
+                  />
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
-                  <label className="text-[10px] text-tv-muted">Timeframe</label>
-                  <select className="tv-select text-xs py-1" value={timeframe} onChange={(e) => setTimeframe(e.target.value)} disabled={!!activeEngine}>
+                  <Label className="text-[10px]">Timeframe</Label>
+                  <Select
+                    className="text-xs h-7"
+                    value={timeframe}
+                    onChange={(e) => setTimeframe(e.target.value)}
+                    disabled={!!activeEngine}
+                  >
                     {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
-                      <option key={tf} value={tf}>{tf}</option>
+                      <option key={tf} value={tf}>
+                        {tf}
+                      </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div className="flex gap-2">
                   <div className="flex-1 flex flex-col gap-0.5 py-1">
-                    <label className="text-[10px] text-tv-muted">Position Size (USDT)</label>
-                    <input type="number" className="tv-input text-xs py-1" value={positionSize} onChange={(e) => setPositionSize(Number(e.target.value))} disabled={!!activeEngine} />
+                    <Label className="text-[10px]">Position Size (USDT)</Label>
+                    <Input
+                      type="number"
+                      className="text-xs h-7"
+                      value={positionSize}
+                      onChange={(e) => setPositionSize(Number(e.target.value))}
+                      disabled={!!activeEngine}
+                    />
                   </div>
                   <div className="flex-1 flex flex-col gap-0.5 py-1">
-                    <label className="text-[10px] text-tv-muted">Leverage</label>
-                    <input type="number" className="tv-input text-xs py-1" value={leverage} min={1} max={100} onChange={(e) => setLeverage(Number(e.target.value))} disabled={!!activeEngine} />
+                    <Label className="text-[10px]">Leverage</Label>
+                    <Input
+                      type="number"
+                      className="text-xs h-7"
+                      value={leverage}
+                      min={1}
+                      max={125}
+                      onChange={(e) => setLeverage(Number(e.target.value))}
+                      disabled={!!activeEngine}
+                    />
                   </div>
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
-                  <label className="text-[10px] text-tv-muted">Warmup Bars</label>
-                  <input type="number" className="tv-input text-xs py-1" value={warmupBars} onChange={(e) => setWarmupBars(Number(e.target.value))} disabled={!!activeEngine} />
+                  <Label className="text-[10px]">Warmup Bars</Label>
+                  <Input
+                    type="number"
+                    className="text-xs h-7"
+                    value={warmupBars}
+                    onChange={(e) => setWarmupBars(Number(e.target.value))}
+                    disabled={!!activeEngine}
+                  />
                 </div>
                 <div className="flex items-center gap-2 py-1">
-                  <input type="checkbox" id="demo-toggle" checked={demo} onChange={(e) => setDemo(e.target.checked)} disabled={!!activeEngine} className="rounded" />
-                  <label htmlFor="demo-toggle" className="text-[10px] text-tv-muted">Demo Mode (Sandbox)</label>
+                  <Checkbox
+                    id="demo-toggle"
+                    checked={demo}
+                    onCheckedChange={(checked) => setDemo(!!checked)}
+                    disabled={!!activeEngine}
+                  />
+                  <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">
+                    Demo Mode (Sandbox)
+                  </Label>
                 </div>
               </div>
             </Section>
 
-            {/* Running engines list */}
+            {/* Running engines */}
             {engines.length > 0 && (
               <Section title={`Engines (${engines.length})`}>
                 <div className="space-y-1">
                   {engines.map((eng) => (
-                    <div key={eng.engine_id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-tv-bg/50">
+                    <div
+                      key={eng.engine_id}
+                      className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50"
+                    >
                       <div className="flex-1 min-w-0">
-                        <div className="text-[11px] text-tv-text truncate">{eng.strategy}</div>
-                        <div className="text-[9px] text-tv-muted">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
+                        <div className="text-[11px] text-foreground truncate">
+                          {eng.strategy}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground">
+                          {eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}
+                        </div>
                       </div>
                       <StatusBadge status={eng.status} />
                     </div>
@@ -384,67 +476,99 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Bottom button */}
-          <div className="px-3 py-2 border-t border-tv-border shrink-0">
+          {/* Bottom action */}
+          <div className="px-3 py-2 border-t border-border shrink-0">
             {startError && (
-              <div className="text-[10px] text-tv-red mb-1 truncate" title={startError}>
+              <div
+                className="text-[10px] text-tv-red mb-1 truncate"
+                title={startError}
+              >
                 {startError}
               </div>
             )}
             {activeEngine ? (
-              <button
-                className="w-full py-1.5 rounded text-xs font-semibold bg-tv-red/20 text-tv-red hover:bg-tv-red/30 transition-colors"
+              <Button
+                variant="destructive"
+                size="sm"
+                className="w-full"
                 onClick={() => handleStop(activeEngine.engine_id)}
               >
                 Stop {activeEngine.strategy}
-              </button>
+              </Button>
             ) : (
-              <button
-                className="w-full py-1.5 rounded text-xs font-semibold bg-tv-blue text-white hover:bg-tv-blue/80 transition-colors disabled:opacity-40"
-                disabled={!source.trim() || starting}
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={starting || !source.trim()}
                 onClick={handleStart}
               >
                 {starting ? 'Starting...' : 'Start Live Trading'}
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        {/* ── Right panel: strategy report ────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 bg-tv-bg">
+        {/* ── Right panel: strategy tester / performance ─────────── */}
+        <div className="flex-1 flex flex-col min-w-0 bg-background">
           {activeEngine ? (
             <>
               {/* Engine info bar */}
-              <div className="px-4 py-2 border-b border-tv-border flex items-center gap-3 bg-tv-panel shrink-0">
+              <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
                 <StatusBadge status={activeEngine.status} />
-                <span className="text-xs text-tv-text font-medium">{activeEngine.strategy}</span>
-                <span className="text-[10px] text-tv-muted">{activeEngine.symbol}</span>
-                <span className="text-[10px] text-tv-muted">{activeEngine.timeframe}</span>
-                <span className="text-[10px] text-tv-muted">{activeEngine.exchange}</span>
-                {activeEngine.demo && <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">DEMO</span>}
-                {activeEngine.leverage > 1 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-tv-blue/20 text-tv-blue">{activeEngine.leverage}x</span>}
+                <span className="text-xs text-foreground font-medium">
+                  {activeEngine.strategy}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {activeEngine.symbol}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {activeEngine.timeframe}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {activeEngine.exchange}
+                </span>
+                {activeEngine.demo && (
+                  <Badge variant="warning" className="text-[9px]">
+                    DEMO
+                  </Badge>
+                )}
+                {activeEngine.leverage > 1 && (
+                  <Badge variant="outline" className="text-[9px]">
+                    {activeEngine.leverage}x
+                  </Badge>
+                )}
                 <div className="flex-1" />
-                <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-tv-green animate-pulse' : 'bg-tv-muted'}`} />
-                <span className="text-[9px] text-tv-muted">{wsConnected ? 'Connected' : 'Offline'}</span>
+                <span
+                  className={cn(
+                    'w-2 h-2 rounded-full',
+                    wsConnected ? 'bg-tv-green animate-pulse' : 'bg-muted-foreground',
+                  )}
+                />
+                <span className="text-[9px] text-muted-foreground">
+                  {wsConnected ? 'Connected' : 'Offline'}
+                </span>
               </div>
 
-              {/* Strategy Tester */}
+              {/* Strategy Tester content */}
               <div className="flex-1 overflow-auto">
                 {adaptedResult && adaptedResult.total_trades > 0 ? (
                   <StrategyTester result={adaptedResult} />
                 ) : (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center">
-                      <div className="text-tv-muted text-sm">
-                        {activeEngine.status === 'warmup' ? 'Warming up indicators...' : 'Waiting for trades...'}
+                      <div className="text-muted-foreground text-sm">
+                        {activeEngine.status === 'warmup'
+                          ? 'Warming up...'
+                          : 'Waiting for trades...'}
                       </div>
-                      <div className="text-tv-muted/60 text-xs mt-1">
-                        The strategy report will appear once the first trade is completed.
+                      <div className="text-muted-foreground/60 text-xs mt-1">
+                        The strategy report will appear once trades are executed.
                       </div>
                       {perf && (
-                        <div className="mt-4 text-[10px] text-tv-muted/80 space-y-0.5">
-                          <div>Balance: {perf.current_balance.toLocaleString()} USDT</div>
-                          <div>Last update: {perf.last_update || '—'}</div>
+                        <div className="mt-4 text-[10px] text-muted-foreground/80 space-y-0.5">
+                          <div>
+                            Balance: {perf.current_balance.toLocaleString()} USDT
+                          </div>
                         </div>
                       )}
                     </div>
@@ -453,17 +577,25 @@ export default function DashboardPage() {
               </div>
             </>
           ) : (
-            /* No active engine — show instructions */
+            /* No active engine */
             <div className="flex items-center justify-center h-full">
               <div className="text-center max-w-md">
-                <div className="text-tv-muted text-lg mb-2">No Live Engine Running</div>
-                <div className="text-tv-muted/60 text-xs leading-relaxed">
-                  Select a strategy, configure settings, and click "Start Live Trading"
-                  to begin. The strategy report will update in real-time as trades are executed.
+                <div className="text-muted-foreground text-lg mb-2">
+                  No Live Engine Running
                 </div>
-                {engines.filter((e) => e.status === 'stopped' || e.status === 'failed').length > 0 && (
-                  <div className="mt-4 text-[10px] text-tv-muted/50">
-                    {engines.filter((e) => e.status === 'stopped').length} stopped engine(s)
+                <div className="text-muted-foreground/60 text-xs leading-relaxed">
+                  Select a strategy, configure settings, and click "Start Live
+                  Trading" to begin. The strategy report will update in
+                  real-time as trades are executed.
+                </div>
+                {engines.filter(
+                  (e) => e.status === 'stopped' || e.status === 'failed',
+                ).length > 0 && (
+                  <div className="mt-4 text-[10px] text-muted-foreground/50">
+                    {
+                      engines.filter((e) => e.status === 'stopped').length
+                    }{' '}
+                    stopped engine(s)
                   </div>
                 )}
               </div>

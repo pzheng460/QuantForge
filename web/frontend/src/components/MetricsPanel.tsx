@@ -1,5 +1,5 @@
 import type { BacktestResult } from '../types'
-import clsx from 'clsx'
+import { cn } from '@/lib/utils'
 
 interface Props {
   result: BacktestResult
@@ -10,30 +10,27 @@ function Metric({
   value,
   positive,
   negative,
-  suffix = '',
   sub,
 }: {
   label: string
   value: string
   positive?: boolean
   negative?: boolean
-  suffix?: string
   sub?: string
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-gray-500">{label}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
       <span
-        className={clsx('text-lg font-semibold tabular-nums', {
-          'text-green-600': positive,
-          'text-red-500': negative,
-          'text-gray-900': !positive && !negative,
+        className={cn('text-lg font-semibold tabular-nums', {
+          'text-tv-green': positive,
+          'text-tv-red': negative,
+          'text-foreground': !positive && !negative,
         })}
       >
         {value}
-        {suffix && <span className="text-sm font-normal text-gray-500 ml-0.5">{suffix}</span>}
       </span>
-      {sub && <span className="text-xs text-gray-400">{sub}</span>}
+      {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
     </div>
   )
 }
@@ -55,16 +52,11 @@ function fmtDuration(hours: number): string {
 }
 
 export default function MetricsPanel({ result }: Props) {
-  const sharpeSub =
-    result.sharpe_ci_lo != null && result.sharpe_ci_hi != null
-      ? `95% CI [${result.sharpe_ci_lo.toFixed(2)}, ${result.sharpe_ci_hi.toFixed(2)}]`
-      : undefined
-
   return (
     <div className="space-y-6">
       {/* Returns row */}
       <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Returns</h3>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Returns</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <Metric
             label="Total Return"
@@ -102,12 +94,12 @@ export default function MetricsPanel({ result }: Props) {
 
       {/* Risk row */}
       <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Risk</h3>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Risk</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <Metric
             label="Max Drawdown"
             value={pct(result.max_drawdown_pct)}
-            negative={true}
+            negative
             sub={`Duration: ${num(result.max_dd_duration_days, 1)} days`}
           />
           <Metric
@@ -115,7 +107,11 @@ export default function MetricsPanel({ result }: Props) {
             value={num(result.sharpe_ratio)}
             positive={result.sharpe_ratio >= 1}
             negative={result.sharpe_ratio < 0}
-            sub={sharpeSub}
+            sub={
+              result.sharpe_ci_lo != null && result.sharpe_ci_hi != null
+                ? `95% CI [${result.sharpe_ci_lo.toFixed(2)}, ${result.sharpe_ci_hi.toFixed(2)}]`
+                : undefined
+            }
           />
           <Metric
             label="Sortino Ratio"
@@ -138,7 +134,7 @@ export default function MetricsPanel({ result }: Props) {
 
       {/* Trade stats */}
       <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Trade Statistics</h3>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Trade Statistics</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <Metric label="Total Trades" value={String(result.total_trades)} />
           <Metric
@@ -159,20 +155,25 @@ export default function MetricsPanel({ result }: Props) {
             negative={result.payoff_ratio < 1}
             sub="Avg Win / Avg Loss"
           />
-          <Metric label="Expectancy" value={`$${result.expectancy.toFixed(2)}`} positive={result.expectancy > 0} negative={result.expectancy < 0} />
-          <Metric label="Avg Win" value={`$${result.avg_win.toFixed(2)}`} positive={true} />
-          <Metric label="Avg Loss" value={`$${result.avg_loss.toFixed(2)}`} negative={true} />
-          <Metric label="Largest Win" value={`$${result.largest_win.toFixed(2)}`} positive={true} />
-          <Metric label="Largest Loss" value={`$${result.largest_loss.toFixed(2)}`} negative={true} />
+          <Metric
+            label="Expectancy"
+            value={`$${result.expectancy.toFixed(2)}`}
+            positive={result.expectancy > 0}
+            negative={result.expectancy < 0}
+          />
+          <Metric label="Avg Win" value={`$${result.avg_win.toFixed(2)}`} positive />
+          <Metric label="Avg Loss" value={`$${result.avg_loss.toFixed(2)}`} negative />
+          <Metric label="Largest Win" value={`$${result.largest_win.toFixed(2)}`} positive />
+          <Metric label="Largest Loss" value={`$${result.largest_loss.toFixed(2)}`} negative />
           <Metric
             label="Max Consec. Wins"
             value={String(result.max_consecutive_wins)}
-            positive={true}
+            positive
           />
           <Metric
             label="Max Consec. Losses"
             value={String(result.max_consecutive_losses)}
-            negative={true}
+            negative
           />
           <Metric
             label="Avg Trade Duration"
@@ -181,11 +182,24 @@ export default function MetricsPanel({ result }: Props) {
         </div>
       </div>
 
-      {/* Final equity */}
-      <div className="text-xs text-gray-400 border-t border-gray-100 pt-3 flex gap-6">
-        <span>Final Equity: <strong className="text-gray-700">${result.final_equity.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></span>
-        <span>Period: <strong className="text-gray-700">{result.period_start.slice(0, 10)} → {result.period_end.slice(0, 10)}</strong></span>
-        <span>Config: <strong className="text-gray-700">{result.config_name}</strong></span>
+      {/* Final equity footer */}
+      <div className="text-xs text-muted-foreground border-t border-border pt-3 flex flex-wrap gap-6">
+        <span>
+          Final Equity:{' '}
+          <span className="text-foreground font-medium">
+            ${result.final_equity.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </span>
+        </span>
+        <span>
+          Period:{' '}
+          <span className="text-foreground font-medium">
+            {result.period_start.slice(0, 10)} &rarr; {result.period_end.slice(0, 10)}
+          </span>
+        </span>
+        <span>
+          Config:{' '}
+          <span className="text-foreground font-medium">{result.config_name}</span>
+        </span>
       </div>
     </div>
   )

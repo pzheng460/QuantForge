@@ -1,18 +1,22 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
-import clsx from 'clsx'
+import { useEffect, useRef, useCallback } from 'react'
+import { cn } from '@/lib/utils'
 import { api, subscribeOptimize, subscribeAgent } from '../api/client'
 import { useOptimizerStore } from '../stores/optimizerStore'
 import { useCatalog } from '../hooks/useCatalog'
 import AgentTraceViewer from '../components/AgentTraceViewer'
 import MetricsSummary from '../components/MetricsSummary'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import type {
   OptimizeRequest,
   OptimizeJobStatus,
-  StrategySchema,
-  Exchange,
   GridSearchResult,
   AgentRunRequest,
-  AgentJobStatus,
   AgentEvent,
   AgentSkillInfo,
 } from '../types'
@@ -32,16 +36,20 @@ function pct(v: number, sign = true) {
 function num(v: number, d = 2) { return v.toFixed(d) }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-700',
-    running: 'bg-blue-100 text-blue-700 animate-pulse',
-    completed: 'bg-green-100 text-green-700',
-    failed: 'bg-red-100 text-red-700',
+  const variantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning'> = {
+    pending: 'warning',
+    running: 'default',
+    completed: 'success',
+    failed: 'destructive',
+    cancelled: 'secondary',
   }
   return (
-    <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', cls[status] ?? 'bg-gray-100 text-gray-600')}>
+    <Badge
+      variant={variantMap[status] ?? 'outline'}
+      className={cn(status === 'running' && 'animate-pulse')}
+    >
       {status}
-    </span>
+    </Badge>
   )
 }
 
@@ -49,63 +57,81 @@ function StatusBadge({ status }: { status: string }) {
 
 function GridResults({ r }: { r: GridSearchResult }) {
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-indigo-50 rounded-lg">
+    <div className="space-y-5">
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-sm bg-muted">
         <div>
-          <div className="text-xs text-gray-500">Best Sharpe</div>
-          <div className="text-xl font-semibold text-indigo-700">{num(r.best_sharpe)}</div>
+          <div className="text-xs text-muted-foreground">Best Sharpe</div>
+          <div className="text-xl font-semibold text-primary">{num(r.best_sharpe)}</div>
         </div>
         <div>
-          <div className="text-xs text-gray-500">Best Return</div>
-          <div className={clsx('text-xl font-semibold', r.best_return_pct >= 0 ? 'text-green-600' : 'text-red-500')}>
+          <div className="text-xs text-muted-foreground">Best Return</div>
+          <div className={cn('text-xl font-semibold', r.best_return_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
             {pct(r.best_return_pct)}
           </div>
         </div>
         <div>
-          <div className="text-xs text-gray-500">Max Drawdown</div>
-          <div className="text-xl font-semibold text-red-500">{pct(r.best_drawdown_pct, false)}</div>
+          <div className="text-xs text-muted-foreground">Max Drawdown</div>
+          <div className="text-xl font-semibold text-tv-red">{pct(r.best_drawdown_pct, false)}</div>
         </div>
         <div>
-          <div className="text-xs text-gray-500">Train Period</div>
-          <div className="text-sm font-medium text-gray-700">{r.train_start} → {r.train_end}</div>
+          <div className="text-xs text-muted-foreground">Train Period</div>
+          <div className="text-sm font-medium text-foreground">{r.train_start} &rarr; {r.train_end}</div>
         </div>
       </div>
 
+      {/* Best params */}
       <div>
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Best Parameters</div>
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Best Parameters</div>
         <div className="flex flex-wrap gap-2">
           {Object.entries(r.best_params).map(([k, v]) => (
-            <span key={k} className="text-xs bg-gray-100 rounded px-2 py-1">
-              <span className="text-gray-500">{k}:</span> <span className="font-medium">{String(v)}</span>
-            </span>
+            <Badge key={k} variant="secondary" className="text-xs">
+              <span className="text-muted-foreground">{k}:</span>{' '}
+              <span className="font-medium text-foreground">{String(v)}</span>
+            </Badge>
           ))}
         </div>
       </div>
 
+      {/* Top N table */}
       <div>
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Top {r.rows.length} Combinations</div>
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+          Top {r.rows.length} Combinations
+        </div>
         <div className="overflow-x-auto">
           <table className="text-xs w-full">
             <thead>
-              <tr className="border-b border-gray-100">
-                {['Rank', 'Sharpe', 'Return', 'Drawdown', 'Trades', 'Win%', 'Parameters'].map(h => (
-                  <th key={h} className="py-2 px-2 text-left text-gray-400 font-medium">{h}</th>
+              <tr className="border-b border-border">
+                {['Rank', 'Sharpe', 'Return', 'Drawdown', 'Trades', 'Win%', 'Parameters'].map((h) => (
+                  <th key={h} className="py-2 px-2 text-left text-muted-foreground font-medium">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {r.rows.map((row) => (
-                <tr key={row.rank} className={clsx('border-b border-gray-50 hover:bg-gray-50', row.rank === 1 && 'bg-indigo-50/50')}>
-                  <td className="py-1.5 px-2 text-gray-400">{row.rank}</td>
-                  <td className={clsx('py-1.5 px-2 tabular-nums font-medium', row.sharpe >= 1 ? 'text-green-600' : 'text-gray-700')}>{num(row.sharpe)}</td>
-                  <td className={clsx('py-1.5 px-2 tabular-nums', row.total_return_pct >= 0 ? 'text-green-600' : 'text-red-500')}>{pct(row.total_return_pct)}</td>
-                  <td className="py-1.5 px-2 tabular-nums text-red-500">{pct(row.max_drawdown_pct, false)}</td>
-                  <td className="py-1.5 px-2 tabular-nums">{row.total_trades}</td>
-                  <td className="py-1.5 px-2 tabular-nums">{num(row.win_rate_pct, 1)}%</td>
+                <tr
+                  key={row.rank}
+                  className={cn(
+                    'border-b border-border hover:bg-muted/50 transition-colors',
+                    row.rank === 1 && 'bg-primary/5',
+                  )}
+                >
+                  <td className="py-1.5 px-2 text-muted-foreground">{row.rank}</td>
+                  <td className={cn('py-1.5 px-2 tabular-nums font-medium', row.sharpe >= 1 ? 'text-tv-green' : 'text-foreground')}>
+                    {num(row.sharpe)}
+                  </td>
+                  <td className={cn('py-1.5 px-2 tabular-nums', row.total_return_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
+                    {pct(row.total_return_pct)}
+                  </td>
+                  <td className="py-1.5 px-2 tabular-nums text-tv-red">{pct(row.max_drawdown_pct, false)}</td>
+                  <td className="py-1.5 px-2 tabular-nums text-foreground">{row.total_trades}</td>
+                  <td className="py-1.5 px-2 tabular-nums text-foreground">{num(row.win_rate_pct, 1)}%</td>
                   <td className="py-1.5 px-2">
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(row.params).map(([k, v]) => (
-                        <span key={k} className="bg-gray-100 rounded px-1">{k}={String(v)}</span>
+                        <span key={k} className="bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
+                          {k}=<span className="text-foreground">{String(v)}</span>
+                        </span>
                       ))}
                     </div>
                   </td>
@@ -150,41 +176,42 @@ export default function OptimizerPage() {
     agentStatus, setAgentStatus,
     agentEvents, addAgentEvent,
     agentError, setAgentError,
-    agentSkills, setAgentSkills,
+    agentSkills, setAgentSkills: _setSkills,
     selectedSkill, setSelectedSkill,
     resetAgent,
   } = useOptimizerStore()
+
+  const setAgentSkills = _setSkills
 
   const wsCleanupRef = useRef<(() => void) | null>(null)
 
   // Load agent skills
   useEffect(() => {
     api.agentSkills()
-      .then(skills => {
+      .then((skills) => {
         setAgentSkills(skills)
         if (skills.length > 0 && !selectedSkill) {
           setSelectedSkill(skills[0].name)
         }
       })
-      .catch(console.error)
+      .catch(() => {})
   }, [selectedSkill])
 
-  // Set default strategy on first-ever load
+  // Set default state on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
-      // Don't auto-select — start with empty state
       setInitialized(true)
     }
   }, [strategies, initialized])
 
-  // WebSocket subscription for grid search — reconnects on remount if job is still running
+  // WebSocket subscription for grid search -- reconnects on remount if job is still running
   useEffect(() => {
     if (!jobId || mode !== 'grid') return
     if (status === 'completed' || status === 'failed') return
     wsCleanupRef.current?.()
     wsCleanupRef.current = subscribeOptimize(
       jobId,
-      (msg) => {
+      (msg: OptimizeJobStatus) => {
         setStatus(msg.status)
         if (msg.status === 'completed') {
           setJobResult(msg)
@@ -206,15 +233,8 @@ export default function OptimizerPage() {
 
     const cleanup = subscribeAgent(
       agentJobId,
-      (event) => {
-        // Skip duplicate events we already have (reconnection replays history)
-        addAgentEvent(event)
-      },
-      () => {
-        // WS errors are normal during tab switches / reconnects — don't treat as failure.
-        // The status poll below will detect real failures.
-        console.warn('Agent WS disconnected, status poll will detect real errors')
-      }
+      (event) => { addAgentEvent(event) },
+      () => { console.warn('Agent WS disconnected, status poll will detect real errors') },
     )
 
     return cleanup
@@ -239,6 +259,8 @@ export default function OptimizerPage() {
 
     return () => clearInterval(interval)
   }, [agentJobId])
+
+  // ─── Handlers ───────────────────────────────────────────────────────────────
 
   const handleGridRun = useCallback(async () => {
     setLoading(true)
@@ -282,8 +304,8 @@ export default function OptimizerPage() {
     }
 
     try {
-      const agentJob = await api.runAgent(req)
-      setAgentJobId(agentJob.job_id)
+      const job = await api.runAgent(req)
+      setAgentJobId(job.job_id)
     } catch (e) {
       setAgentError(String(e))
     }
@@ -305,177 +327,220 @@ export default function OptimizerPage() {
   }, [mode, jobId, agentJobId])
 
   const selectedExchange = exchanges.find((e) => e.id === exchange)
-  const selectedSkillInfo = agentSkills.find(s => s.name === selectedSkill)
+  const selectedSkillInfo = agentSkills.find((s) => s.name === selectedSkill)
+  const isRunning =
+    (mode === 'grid' && (status === 'pending' || status === 'running')) ||
+    (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running'))
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-gray-900">Optimizer</h1>
+      <h1 className="text-2xl font-semibold text-foreground">Optimizer</h1>
 
-      {/* Config */}
-      <div className="card space-y-5">
-        <h2 className="text-sm font-semibold text-gray-700">Configuration</h2>
+      {/* ── Configuration Card ────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Configuration</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
 
-        {/* Mode selector */}
-        <div>
-          <label className="text-xs text-gray-500 block mb-2">Optimization Mode</label>
-          <div className="grid grid-cols-2 gap-2">
-            {MODES.map((m) => (
-              <button
-                key={m.value}
-                onClick={() => setMode(m.value as typeof mode)}
-                className={clsx(
-                  'text-left p-3 rounded-lg border transition-colors',
-                  mode === m.value
-                    ? 'border-brand-500 bg-brand-50 text-brand-700'
-                    : 'border-gray-200 hover:border-gray-300 text-gray-600',
-                )}
-              >
-                <div className="font-medium text-sm">{m.label}</div>
-                <div className="text-xs text-gray-400 mt-0.5">{m.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* AI skill selector (only for AI mode) */}
-        {mode === 'ai' && (
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">AI Skill</label>
-            <select className="input text-sm" value={selectedSkill} onChange={(e) => setSelectedSkill(e.target.value)}>
-              {agentSkills.map((skill) => (
-                <option key={skill.name} value={skill.name}>{skill.name}</option>
+          {/* Mode selector */}
+          <div>
+            <Label className="mb-2 block">Optimization Mode</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {MODES.map((m) => (
+                <button
+                  key={m.value}
+                  onClick={() => setMode(m.value as 'grid' | 'ai')}
+                  className={cn(
+                    'text-left p-3 rounded-sm border transition-colors',
+                    mode === m.value
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border hover:border-muted-foreground text-foreground',
+                  )}
+                >
+                  <div className="font-medium text-sm">{m.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
+                </button>
               ))}
-            </select>
-            {selectedSkillInfo && (
-              <div className="text-xs text-gray-400 mt-1">{selectedSkillInfo.description}</div>
-            )}
-          </div>
-        )}
-
-        {/* Row: strategy + exchange + symbol + leverage */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Strategy</label>
-            <select className="input text-sm" value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-              <option value="">— Select —</option>
-              {strategies.map((s) => <option key={s.name} value={s.name}>{s.display_name}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Exchange</label>
-            <select className="input text-sm" value={exchange} onChange={(e) => setExchange(e.target.value)}>
-              {exchanges.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Symbol (default: {selectedExchange?.default_symbol ?? '…'})</label>
-            <input type="text" className="input text-sm" placeholder={selectedExchange?.default_symbol ?? ''} value={symbol} onChange={(e) => setSymbol(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500">Leverage</label>
-            <input type="number" className="input text-sm" min={1} max={20} step={1} value={leverage} onChange={(e) => setLeverage(Number(e.target.value))} />
-          </div>
-        </div>
-
-        {/* Period / date range (only for grid search) */}
-        {mode === 'grid' && (
-          <div className="flex flex-wrap gap-4 items-end">
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600">
-              <input type="checkbox" checked={useDateRange} onChange={(e) => setUseDateRange(e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
-              Custom date range
-            </label>
-            {!useDateRange ? (
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-gray-500">Period</label>
-                <select className="input text-sm" value={period} onChange={(e) => setPeriod(e.target.value)}>
-                  {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col gap-1"><label className="text-xs text-gray-500">Start date</label><input type="date" className="input text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
-                <div className="flex flex-col gap-1"><label className="text-xs text-gray-500">End date</label><input type="date" className="input text-sm" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>
-              </>
-            )}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Parallel jobs</label>
-              <select className="input text-sm w-24" value={nJobs} onChange={(e) => setNJobs(Number(e.target.value))}>
-                {[1, 2, 4, 8, -1].map((n) => <option key={n} value={n}>{n === -1 ? 'All CPUs' : n}</option>)}
-              </select>
             </div>
           </div>
-        )}
 
-        <div className="flex items-center gap-4 pt-1">
-          <button
-            className="btn-primary"
-            onClick={mode === 'grid' ? handleGridRun : handleAIRun}
-            disabled={
-              (mode === 'grid' && ((status === 'pending' || status === 'running') || !strategy)) ||
-              (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running' || !strategy || !selectedSkill))
-            }
-          >
-            {mode === 'grid' ? (
-              (status === 'pending' || status === 'running') ? 'Running…' : 'Run Grid Search'
-            ) : (
-              (agentStatus === 'pending' || agentStatus === 'running') ? 'Running…' : 'Run AI Optimize'
-            )}
-          </button>
-          {((mode === 'grid' && (status === 'pending' || status === 'running')) ||
-            (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running'))) && (
-            <button
-              className="px-4 py-2 rounded text-sm font-semibold bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
-              onClick={handleCancel}
+          {/* AI skill selector (only for AI mode) */}
+          {mode === 'ai' && (
+            <div className="flex flex-col gap-1">
+              <Label>AI Skill</Label>
+              <Select value={selectedSkill} onChange={(e) => setSelectedSkill(e.target.value)}>
+                {agentSkills.map((skill) => (
+                  <option key={skill.name} value={skill.name}>{skill.name}</option>
+                ))}
+              </Select>
+              {selectedSkillInfo && (
+                <p className="text-xs text-muted-foreground mt-1">{selectedSkillInfo.description}</p>
+              )}
+            </div>
+          )}
+
+          {/* Row: strategy + exchange + symbol + leverage */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex flex-col gap-1">
+              <Label>Strategy</Label>
+              <Select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
+                <option value="">-- Select --</option>
+                {strategies.map((s) => <option key={s.name} value={s.name}>{s.display_name}</option>)}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Exchange</Label>
+              <Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                {exchanges.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Symbol (default: {selectedExchange?.default_symbol ?? '...'})</Label>
+              <Input
+                type="text"
+                placeholder={selectedExchange?.default_symbol ?? ''}
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Leverage</Label>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={leverage}
+                onChange={(e) => setLeverage(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          {/* Period / Date range (only for grid search) */}
+          {mode === 'grid' && (
+            <div className="flex flex-wrap gap-4 items-end">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={useDateRange}
+                  onCheckedChange={(checked) => setUseDateRange(checked === true)}
+                />
+                <span className="text-sm text-foreground">Custom date range</span>
+              </label>
+
+              {!useDateRange ? (
+                <div className="flex flex-col gap-1">
+                  <Label>Period</Label>
+                  <Select value={period} onChange={(e) => setPeriod(e.target.value)}>
+                    {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </Select>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <Label>Start date</Label>
+                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label>End date</Label>
+                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                </>
+              )}
+
+              <div className="flex flex-col gap-1">
+                <Label>Parallel jobs</Label>
+                <Select className="w-24" value={nJobs} onChange={(e) => setNJobs(Number(e.target.value))}>
+                  {[1, 2, 4, 8, -1].map((n) => (
+                    <option key={n} value={n}>{n === -1 ? 'All CPUs' : n}</option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* Action bar */}
+          <div className="flex items-center gap-3 pt-1">
+            <Button
+              onClick={mode === 'grid' ? handleGridRun : handleAIRun}
+              disabled={
+                isRunning || !strategy ||
+                (mode === 'ai' && !selectedSkill)
+              }
             >
-              Cancel
-            </button>
-          )}
-          {mode === 'grid' && status && <StatusBadge status={status} />}
-          {mode === 'ai' && agentStatus && <StatusBadge status={agentStatus} />}
-          {((mode === 'grid' && (status === 'pending' || status === 'running')) ||
-            (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running'))) && (
-            <span className="text-xs text-gray-400">This may take several minutes…</span>
-          )}
-        </div>
-      </div>
+              {mode === 'grid'
+                ? (isRunning ? 'Running\u2026' : 'Run Grid Search')
+                : (isRunning ? 'Running\u2026' : 'Run AI Optimize')}
+            </Button>
 
-      {/* Error */}
+            {isRunning && (
+              <Button variant="destructive" size="sm" onClick={handleCancel}>
+                Cancel
+              </Button>
+            )}
+
+            {mode === 'grid' && status && <StatusBadge status={status} />}
+            {mode === 'ai' && agentStatus && <StatusBadge status={agentStatus} />}
+
+            {isRunning && (
+              <span className="text-xs text-muted-foreground">This may take several minutes&hellip;</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Error cards ───────────────────────────────────────────────── */}
       {error && mode === 'grid' && (
-        <div className="card border border-red-200 bg-red-50">
-          <p className="text-sm font-medium text-red-700 mb-1">Grid search failed</p>
-          <pre className="text-xs text-red-600 whitespace-pre-wrap overflow-auto max-h-48">{error}</pre>
-        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="pt-4">
+            <p className="text-sm font-medium text-red-500 mb-1">Grid search failed</p>
+            <pre className="text-xs text-red-400 whitespace-pre-wrap overflow-auto max-h-48">{error}</pre>
+          </CardContent>
+        </Card>
       )}
 
       {agentError && mode === 'ai' && (
-        <div className="card border border-red-200 bg-red-50">
-          <p className="text-sm font-medium text-red-700 mb-1">AI optimization failed</p>
-          <pre className="text-xs text-red-600 whitespace-pre-wrap overflow-auto max-h-48">{agentError}</pre>
-        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="pt-4">
+            <p className="text-sm font-medium text-red-500 mb-1">AI optimization failed</p>
+            <pre className="text-xs text-red-400 whitespace-pre-wrap overflow-auto max-h-48">{agentError}</pre>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Results */}
-      {mode === 'grid' && jobResult?.status === 'completed' && (
-        <div className="card">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">
-            Results — <span className="font-normal text-gray-500">Grid Search · {strategy} · {exchange}</span>
-          </h2>
-          {jobResult.grid_result && <GridResults r={jobResult.grid_result} />}
-        </div>
+      {/* ── Grid Results ──────────────────────────────────────────────── */}
+      {mode === 'grid' && jobResult?.status === 'completed' && jobResult.grid_result && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Results{' '}
+              <span className="font-normal text-muted-foreground">
+                Grid Search &middot; {strategy} &middot; {exchange}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <GridResults r={jobResult.grid_result} />
+          </CardContent>
+        </Card>
       )}
 
-      {/* AI Trace Viewer */}
+      {/* ── AI Trace Viewer ───────────────────────────────────────────── */}
       {mode === 'ai' && agentJobId && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-          <div className="lg:col-span-2 border border-tv-border rounded-lg bg-tv-panel overflow-hidden h-full flex flex-col">
-            <AgentTraceViewer events={agentEvents} status={agentStatus} className="h-full" />
-          </div>
-          <div className="border border-tv-border rounded-lg bg-tv-panel overflow-hidden h-full">
-            <MetricsSummary
-              events={agentEvents}
-              metrics={selectedSkillInfo?.metrics || []}
-            />
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[600px]">
+          <Card className="lg:col-span-2 overflow-hidden flex flex-col">
+            <CardContent className="flex-1 overflow-auto p-0">
+              <AgentTraceViewer events={agentEvents} status={agentStatus} className="h-full" />
+            </CardContent>
+          </Card>
+          <Card className="overflow-hidden">
+            <CardContent className="p-0 h-full">
+              <MetricsSummary
+                events={agentEvents}
+                metrics={selectedSkillInfo?.metrics ?? []}
+              />
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

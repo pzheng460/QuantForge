@@ -28,7 +28,7 @@ export default function DrawdownChart({ data }: Props) {
             <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(222,24%,15%)" />
         <XAxis
           dataKey="t"
           tickFormatter={fmtDate}

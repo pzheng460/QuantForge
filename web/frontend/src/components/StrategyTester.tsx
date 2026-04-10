@@ -1,5 +1,8 @@
 import { useState, useMemo } from 'react'
-import clsx from 'clsx'
+import { cn } from '@/lib/utils'
+import { ChevronRight } from 'lucide-react'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { Button } from '@/components/ui/button'
 import type { BacktestResult, TradeRecord } from '../types'
 import { useTimezone, fmtDateTz } from '../hooks/useTimezone'
 
@@ -32,7 +35,7 @@ function fmtInt(v: number): string {
 }
 
 function cc(v: number): string {
-  return v > 0 ? 'text-tv-green' : v < 0 ? 'text-tv-red' : 'text-tv-text'
+  return v > 0 ? 'text-tv-green' : v < 0 ? 'text-tv-red' : 'text-foreground'
 }
 
 // ─── Stats computation ──────────────────────────────────────────────────────
@@ -156,18 +159,19 @@ function computeSideStats(
 function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border-b border-tv-border/30">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 w-full text-left py-2 px-1 text-[13px] font-semibold text-tv-text hover:bg-tv-border/10"
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" className={clsx('transition-transform', open && 'rotate-90')}>
-          <path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-        {title}
-      </button>
-      {open && <div className="pb-3">{children}</div>}
-    </div>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="border-b border-border/30">
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-1.5 w-full text-left py-2 px-1 text-[13px] font-semibold text-foreground hover:bg-muted/50">
+            <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
+            {title}
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="pb-3">{children}</div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   )
 }
 
@@ -181,8 +185,8 @@ function Row({ label, all, long, short, showLongShort = true }: {
   showLongShort?: boolean
 }) {
   return (
-    <tr className="border-b border-tv-border/20 hover:bg-tv-border/5">
-      <td className="py-2 px-3 text-[12px] text-tv-text">{label}</td>
+    <tr className="border-b border-border/20 hover:bg-secondary/5">
+      <td className="py-2 px-3 text-[12px] text-foreground">{label}</td>
       <td className="py-2 px-3 text-[12px] text-right">{all}</td>
       {showLongShort && <td className="py-2 px-3 text-[12px] text-right">{long ?? ''}</td>}
       {showLongShort && <td className="py-2 px-3 text-[12px] text-right">{short ?? ''}</td>}
@@ -193,11 +197,11 @@ function Row({ label, all, long, short, showLongShort = true }: {
 function TableHeader({ showLongShort = true }: { showLongShort?: boolean }) {
   return (
     <thead>
-      <tr className="border-b border-tv-border/30">
-        <th className="py-1.5 px-3 text-left text-[11px] text-tv-muted font-medium">Metric</th>
-        <th className="py-1.5 px-3 text-right text-[11px] text-tv-muted font-medium">All</th>
-        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-tv-muted font-medium">Long</th>}
-        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-tv-muted font-medium">Short</th>}
+      <tr className="border-b border-border/30">
+        <th className="py-1.5 px-3 text-left text-[11px] text-muted-foreground font-medium">Metric</th>
+        <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">All</th>
+        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">Long</th>}
+        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">Short</th>}
       </tr>
     </thead>
   )
@@ -206,7 +210,7 @@ function TableHeader({ showLongShort = true }: { showLongShort?: boolean }) {
 function SectionHeader({ title }: { title: string }) {
   return (
     <tr>
-      <td colSpan={4} className="py-2 px-3 text-[12px] font-semibold text-tv-text bg-tv-border/10">{title}</td>
+      <td colSpan={4} className="py-2 px-3 text-[12px] font-semibold text-foreground bg-secondary/10">{title}</td>
     </tr>
   )
 }
@@ -215,8 +219,8 @@ function SectionHeader({ title }: { title: string }) {
 function V({ main, sub, color }: { main: string; sub?: string; color?: string }) {
   return (
     <div>
-      <div className={clsx('tabular-nums', color)}>{main}</div>
-      {sub && <div className={clsx('text-[10px] tabular-nums', color ?? 'text-tv-muted')}>{sub}</div>}
+      <div className={cn('tabular-nums', color)}>{main}</div>
+      {sub && <div className={cn('text-[10px] tabular-nums', color ?? 'text-muted-foreground')}>{sub}</div>}
     </div>
   )
 }
@@ -264,34 +268,34 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
   return (
     <div className="space-y-0">
       {/* ── Top KPI summary bar ── */}
-      <div className="grid grid-cols-5 gap-4 py-3 px-1 border-b border-tv-border/30">
+      <div className="grid grid-cols-5 gap-4 py-3 px-1 border-b border-border/30">
         <div>
-          <div className="text-[10px] text-tv-muted uppercase">Total P&L</div>
-          <div className={clsx('text-sm font-semibold tabular-nums', cc(all.netPnl))}>
+          <div className="text-[10px] text-muted-foreground uppercase">Total P&L</div>
+          <div className={cn('text-sm font-semibold tabular-nums', cc(all.netPnl))}>
             {fmtSignUsdt(all.netPnl)}
           </div>
-          <div className={clsx('text-[10px] tabular-nums', cc(all.netPnl))}>{fmtSignPct(all.netPnlPct)}</div>
+          <div className={cn('text-[10px] tabular-nums', cc(all.netPnl))}>{fmtSignPct(all.netPnlPct)}</div>
         </div>
         <div>
-          <div className="text-[10px] text-tv-muted uppercase">Max equity drawdown</div>
-          <div className="text-sm font-semibold tabular-nums text-tv-text">
+          <div className="text-[10px] text-muted-foreground uppercase">Max equity drawdown</div>
+          <div className="text-sm font-semibold tabular-nums text-foreground">
             {fmtUsdt(maxDdUsdt)}
           </div>
-          <div className="text-[10px] tabular-nums text-tv-muted">{fmtPct(maxDdPctCalc)}</div>
+          <div className="text-[10px] tabular-nums text-muted-foreground">{fmtPct(maxDdPctCalc)}</div>
         </div>
         <div>
-          <div className="text-[10px] text-tv-muted uppercase">Total trades</div>
-          <div className="text-sm font-semibold tabular-nums text-tv-text">{all.totalTrades}</div>
+          <div className="text-[10px] text-muted-foreground uppercase">Total trades</div>
+          <div className="text-sm font-semibold tabular-nums text-foreground">{all.totalTrades}</div>
         </div>
         <div>
-          <div className="text-[10px] text-tv-muted uppercase">Profitable trades</div>
-          <div className="text-sm font-semibold tabular-nums text-tv-text">
+          <div className="text-[10px] text-muted-foreground uppercase">Profitable trades</div>
+          <div className="text-sm font-semibold tabular-nums text-foreground">
             {fmtPct(all.percentProfitable)} {all.winningTrades}/{all.totalTrades}
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-tv-muted uppercase">Profit factor</div>
-          <div className="text-sm font-semibold tabular-nums text-tv-text">{all.profitFactor.toFixed(3)}</div>
+          <div className="text-[10px] text-muted-foreground uppercase">Profit factor</div>
+          <div className="text-sm font-semibold tabular-nums text-foreground">{all.profitFactor.toFixed(3)}</div>
         </div>
       </div>
 
@@ -300,7 +304,7 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
         <div className="grid grid-cols-2 gap-6 px-3">
           {/* Profit structure bar chart */}
           <div>
-            <div className="text-[11px] font-medium text-tv-muted mb-2">Profit structure</div>
+            <div className="text-[11px] font-medium text-muted-foreground mb-2">Profit structure</div>
             <ProfitStructureChart
               grossProfit={all.grossProfit}
               grossLoss={all.grossLoss}
@@ -311,7 +315,7 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
           </div>
           {/* Benchmarking */}
           <div>
-            <div className="text-[11px] font-medium text-tv-muted mb-2">Benchmarking</div>
+            <div className="text-[11px] font-medium text-muted-foreground mb-2">Benchmarking</div>
             <BenchmarkChart
               bhReturn={bhReturnUsdt}
               stratReturn={all.netPnl}
@@ -408,7 +412,7 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
         {/* Details table */}
         <table className="w-full">
           <thead>
-            <tr><td colSpan={4} className="py-2 px-3 text-[12px] font-semibold text-tv-text bg-tv-border/10">Details</td></tr>
+            <tr><td colSpan={4} className="py-2 px-3 text-[12px] font-semibold text-foreground bg-secondary/10">Details</td></tr>
           </thead>
           <TableHeader />
           <tbody>
@@ -687,14 +691,14 @@ function ProfitStructureChart({ grossProfit, grossLoss, openPnl, commission, net
   const max = Math.max(grossProfit, grossLoss, Math.abs(netPnl), 1)
   const bar = (val: number, color: string, label: string) => (
     <div className="flex items-center gap-2 mb-1">
-      <div className="w-24 text-[10px] text-tv-muted text-right truncate">{label}</div>
-      <div className="flex-1 h-4 bg-tv-border/20 rounded-sm relative">
+      <div className="w-24 text-[10px] text-muted-foreground text-right truncate">{label}</div>
+      <div className="flex-1 h-4 bg-secondary/20 rounded-sm relative">
         <div
           className={`h-full rounded-sm ${color}`}
           style={{ width: `${Math.min(Math.abs(val) / max * 100, 100)}%` }}
         />
       </div>
-      <div className="w-20 text-[10px] tabular-nums text-right text-tv-muted">
+      <div className="w-20 text-[10px] tabular-nums text-right text-muted-foreground">
         {fmtPrice(val)}
       </div>
     </div>
@@ -720,9 +724,9 @@ function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct, ic }: {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <div className="w-20 text-[10px] text-tv-muted text-right">Buy & Hold</div>
-        <div className="flex-1 h-6 bg-tv-border/10 rounded relative">
-          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-tv-border/40" />
+        <div className="w-20 text-[10px] text-muted-foreground text-right">Buy & Hold</div>
+        <div className="flex-1 h-6 bg-secondary/10 rounded relative">
+          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-secondary/40" />
           <div
             className={`absolute top-0.5 bottom-0.5 rounded ${bhReturn >= 0 ? 'bg-amber-500/70' : 'bg-amber-500/70'}`}
             style={{
@@ -736,9 +740,9 @@ function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct, ic }: {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="w-20 text-[10px] text-tv-muted text-right">Strategy</div>
-        <div className="flex-1 h-6 bg-tv-border/10 rounded relative">
-          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-tv-border/40" />
+        <div className="w-20 text-[10px] text-muted-foreground text-right">Strategy</div>
+        <div className="flex-1 h-6 bg-secondary/10 rounded relative">
+          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-secondary/40" />
           <div
             className={`absolute top-0.5 bottom-0.5 rounded ${stratReturn >= 0 ? 'bg-emerald-500/70' : 'bg-red-500/70'}`}
             style={{
@@ -751,7 +755,7 @@ function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct, ic }: {
           <span className={cc(stratReturn)}>{fmtSignPct(stratPct)}</span>
         </div>
       </div>
-      <div className="flex gap-4 text-[10px] text-tv-muted px-1">
+      <div className="flex gap-4 text-[10px] text-muted-foreground px-1">
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> P&L for buy & hold</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> P&L for strategy</span>
       </div>
@@ -760,7 +764,7 @@ function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct, ic }: {
 }
 
 function PnlDistribution({ trades }: { trades: TradeRecord[] }) {
-  if (trades.length === 0) return <div className="text-tv-muted text-xs">No trades</div>
+  if (trades.length === 0) return <div className="text-muted-foreground text-xs">No trades</div>
 
   // Bucket P&L percentages
   const pcts = trades.map(t => t.pnl_pct)
@@ -783,7 +787,7 @@ function PnlDistribution({ trades }: { trades: TradeRecord[] }) {
 
   return (
     <div>
-      <div className="text-[11px] font-medium text-tv-muted mb-2">P&L Distribution</div>
+      <div className="text-[11px] font-medium text-muted-foreground mb-2">P&L Distribution</div>
       <div className="flex items-end gap-px h-20">
         {buckets.map((b, i) => (
           <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
@@ -794,11 +798,11 @@ function PnlDistribution({ trades }: { trades: TradeRecord[] }) {
           </div>
         ))}
       </div>
-      <div className="flex justify-between text-[9px] text-tv-muted mt-1">
+      <div className="flex justify-between text-[9px] text-muted-foreground mt-1">
         <span>{buckets[0]?.label}</span>
         <span>{buckets[buckets.length - 1]?.label}</span>
       </div>
-      <div className="flex gap-3 text-[10px] text-tv-muted mt-1">
+      <div className="flex gap-3 text-[10px] text-muted-foreground mt-1">
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Loss</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Profit</span>
         <span className="ml-auto">Average loss <strong className="text-tv-red">{avgLoss.toFixed(2)}%</strong></span>
@@ -818,7 +822,7 @@ function WinLossDonut({ total, wins, losses }: { total: number; wins: number; lo
 
   return (
     <div>
-      <div className="text-[11px] font-medium text-tv-muted mb-2">Win/loss ratio</div>
+      <div className="text-[11px] font-medium text-muted-foreground mb-2">Win/loss ratio</div>
       <div className="flex items-center gap-4">
         <div className="relative" style={{ width: 100, height: 100 }}>
           <svg viewBox="0 0 100 100" width="100" height="100">
@@ -828,28 +832,28 @@ function WinLossDonut({ total, wins, losses }: { total: number; wins: number; lo
             <circle cx="50" cy="50" r={r} fill="none" stroke="#26a69a" strokeWidth="8" strokeDasharray={`${winArc} ${circumference}`} transform="rotate(-90 50 50)" />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="text-lg font-bold text-tv-text tabular-nums">{total}</div>
-            <div className="text-[9px] text-tv-muted">Total trades</div>
+            <div className="text-lg font-bold text-foreground tabular-nums">{total}</div>
+            <div className="text-[9px] text-muted-foreground">Total trades</div>
           </div>
         </div>
         <div className="space-y-1 text-[11px]">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span className="text-tv-muted">Wins</span>
-            <span className="ml-2 tabular-nums text-tv-text">{wins} trades</span>
-            <span className="ml-1 tabular-nums text-tv-muted">{(winPct * 100).toFixed(2)}%</span>
+            <span className="text-muted-foreground">Wins</span>
+            <span className="ml-2 tabular-nums text-foreground">{wins} trades</span>
+            <span className="ml-1 tabular-nums text-muted-foreground">{(winPct * 100).toFixed(2)}%</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-            <span className="text-tv-muted">Losses</span>
-            <span className="ml-2 tabular-nums text-tv-text">{losses} trades</span>
-            <span className="ml-1 tabular-nums text-tv-muted">{(lossPct * 100).toFixed(2)}%</span>
+            <span className="text-muted-foreground">Losses</span>
+            <span className="ml-2 tabular-nums text-foreground">{losses} trades</span>
+            <span className="ml-1 tabular-nums text-muted-foreground">{(lossPct * 100).toFixed(2)}%</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            <span className="text-tv-muted">Break even</span>
-            <span className="ml-2 tabular-nums text-tv-text">0 trades</span>
-            <span className="ml-1 tabular-nums text-tv-muted">0.00%</span>
+            <span className="text-muted-foreground">Break even</span>
+            <span className="ml-2 tabular-nums text-foreground">0 trades</span>
+            <span className="ml-1 tabular-nums text-muted-foreground">0.00%</span>
           </div>
         </div>
       </div>
@@ -866,7 +870,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
   const paged = trades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   if (trades.length === 0) {
-    return <div className="text-center py-8 text-tv-muted text-sm">No trades recorded</div>
+    return <div className="text-center py-8 text-muted-foreground text-sm">No trades recorded</div>
   }
 
   // Compute cumulative P&L
@@ -877,24 +881,24 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
     cumPnl.push(running)
   }
 
-  const thClass = 'py-1.5 px-2 text-left text-tv-muted font-medium whitespace-nowrap'
+  const thClass = 'py-1.5 px-2 text-left text-muted-foreground font-medium whitespace-nowrap'
 
   return (
     <div className="space-y-2">
       <div className="overflow-x-auto">
         <table className="w-full text-[11px]">
           <thead>
-            <tr className="border-b border-tv-border">
+            <tr className="border-b border-border">
               <th className={thClass}>Trade #</th>
               <th className={thClass}>Type</th>
               <th className={thClass}>Date and time</th>
               <th className={thClass}>Signal</th>
-              <th className={clsx(thClass, 'text-right')}>Price</th>
-              <th className={clsx(thClass, 'text-right')}>Position size</th>
-              <th className={clsx(thClass, 'text-right')}>Net P&L</th>
-              <th className={clsx(thClass, 'text-right')}>Favorable excursion</th>
-              <th className={clsx(thClass, 'text-right')}>Adverse excursion</th>
-              <th className={clsx(thClass, 'text-right')}>Cumulative P&L</th>
+              <th className={cn(thClass, 'text-right')}>Price</th>
+              <th className={cn(thClass, 'text-right')}>Position size</th>
+              <th className={cn(thClass, 'text-right')}>Net P&L</th>
+              <th className={cn(thClass, 'text-right')}>Favorable excursion</th>
+              <th className={cn(thClass, 'text-right')}>Adverse excursion</th>
+              <th className={cn(thClass, 'text-right')}>Cumulative P&L</th>
             </tr>
           </thead>
           {paged.map((t, i) => {
@@ -907,13 +911,13 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
             const cumPct = cumVal / initialCapital * 100
 
             return (
-              <tbody key={i} className="border-b border-tv-border/40">
+              <tbody key={i} className="border-b border-border/40">
                 {/* Exit row */}
-                <tr className="hover:bg-tv-border/20">
+                <tr className="hover:bg-secondary/20">
                   <td rowSpan={2} className="py-1 px-2 align-top">
                     <div className="flex items-start gap-1.5 pt-0.5">
-                      <span className="text-tv-muted tabular-nums">{idx}</span>
-                      <span className={clsx(
+                      <span className="text-muted-foreground tabular-nums">{idx}</span>
+                      <span className={cn(
                         'text-[10px] font-medium px-1.5 py-0.5 rounded-sm',
                         isLong ? 'bg-emerald-500/15 text-tv-green' : 'bg-red-500/15 text-tv-red'
                       )}>
@@ -921,23 +925,23 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
                       </span>
                     </div>
                   </td>
-                  <td className="py-1 px-2 text-tv-muted">Exit</td>
-                  <td className="py-1 px-2 text-tv-muted whitespace-nowrap">{fmtDateTz(t.exit_time, timezone)}</td>
-                  <td className={clsx('py-1 px-2 font-medium', !isLong ? 'text-tv-green' : 'text-tv-red')}>
+                  <td className="py-1 px-2 text-muted-foreground">Exit</td>
+                  <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">{fmtDateTz(t.exit_time, timezone)}</td>
+                  <td className={cn('py-1 px-2 font-medium', !isLong ? 'text-tv-green' : 'text-tv-red')}>
                     {exitSignal}
                   </td>
-                  <td className="py-1 px-2 text-right tabular-nums text-tv-text whitespace-nowrap">
+                  <td className="py-1 px-2 text-right tabular-nums text-foreground whitespace-nowrap">
                     {fmtPrice(t.exit_price)} USDT
                   </td>
-                  <td rowSpan={2} className="py-1 px-2 text-right align-middle tabular-nums text-tv-text">
+                  <td rowSpan={2} className="py-1 px-2 text-right align-middle tabular-nums text-foreground">
                     <div>{t.amount.toFixed(2)}</div>
-                    <div className="text-[10px] text-tv-muted">{fmtPrice(t.amount * t.price)} USDT</div>
+                    <div className="text-[10px] text-muted-foreground">{fmtPrice(t.amount * t.price)} USDT</div>
                   </td>
                   <td rowSpan={2} className="py-1 px-2 text-right align-middle">
-                    <div className={clsx('tabular-nums font-medium', t.pnl >= 0 ? 'text-tv-green' : 'text-tv-red')}>
+                    <div className={cn('tabular-nums font-medium', t.pnl >= 0 ? 'text-tv-green' : 'text-tv-red')}>
                       {fmtSignUsdt(t.pnl)}
                     </div>
-                    <div className={clsx('text-[10px] tabular-nums', t.pnl_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
+                    <div className={cn('text-[10px] tabular-nums', t.pnl_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
                       {fmtSignPct(t.pnl_pct)}
                     </div>
                   </td>
@@ -958,22 +962,22 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
                     </div>
                   </td>
                   <td rowSpan={2} className="py-1 px-2 text-right align-middle">
-                    <div className={clsx('tabular-nums font-medium', cumVal >= 0 ? 'text-tv-green' : 'text-tv-red')}>
+                    <div className={cn('tabular-nums font-medium', cumVal >= 0 ? 'text-tv-green' : 'text-tv-red')}>
                       {fmtSignUsdt(cumVal)}
                     </div>
-                    <div className={clsx('text-[10px] tabular-nums', cumPct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
+                    <div className={cn('text-[10px] tabular-nums', cumPct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
                       {fmtSignPct(cumPct)}
                     </div>
                   </td>
                 </tr>
                 {/* Entry row */}
-                <tr className="hover:bg-tv-border/20">
-                  <td className="py-1 px-2 text-tv-muted">Entry</td>
-                  <td className="py-1 px-2 text-tv-muted whitespace-nowrap">{fmtDateTz(t.entry_time ?? t.timestamp, timezone)}</td>
-                  <td className={clsx('py-1 px-2 font-medium', isLong ? 'text-tv-green' : 'text-tv-red')}>
+                <tr className="hover:bg-secondary/20">
+                  <td className="py-1 px-2 text-muted-foreground">Entry</td>
+                  <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">{fmtDateTz(t.entry_time ?? t.timestamp, timezone)}</td>
+                  <td className={cn('py-1 px-2 font-medium', isLong ? 'text-tv-green' : 'text-tv-red')}>
                     {entrySignal}
                   </td>
-                  <td className="py-1 px-2 text-right tabular-nums text-tv-text whitespace-nowrap">
+                  <td className="py-1 px-2 text-right tabular-nums text-foreground whitespace-nowrap">
                     {fmtPrice(t.price)} USDT
                   </td>
                 </tr>
@@ -983,24 +987,28 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         </table>
       </div>
       {pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-tv-muted pt-1">
+        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
           <span>{trades.length} trades total</span>
           <div className="flex items-center gap-1">
-            <button
-              className="px-2 py-0.5 rounded-sm border border-tv-border hover:bg-tv-border disabled:opacity-40"
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 w-6 p-0 text-xs"
               disabled={page === 0}
               onClick={() => setPage((p) => p - 1)}
             >
               &lsaquo;
-            </button>
-            <span className="px-2">{page + 1} / {pages}</span>
-            <button
-              className="px-2 py-0.5 rounded-sm border border-tv-border hover:bg-tv-border disabled:opacity-40"
+            </Button>
+            <span className="px-2 tabular-nums">{page + 1}/{pages}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 w-6 p-0 text-xs"
               disabled={page >= pages - 1}
               onClick={() => setPage((p) => p + 1)}
             >
               &rsaquo;
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -1028,25 +1036,30 @@ export default function StrategyTester({ result }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Tab bar */}
-      <div className="flex items-center border-b border-tv-border shrink-0">
-        <span className="text-[11px] font-semibold text-tv-muted px-3 py-2 border-r border-tv-border mr-1">
+      <div className="flex items-center border-b border-border shrink-0">
+        <span className="text-[11px] font-semibold text-muted-foreground px-3 py-2 border-r border-border mr-1">
           Strategy Tester
         </span>
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={clsx('tv-tab', tab === t.id && 'tv-tab-active')}
+            className={cn(
+              'px-4 py-2 text-xs font-medium transition-colors border-b-2 border-transparent',
+              tab === t.id
+                ? 'text-primary border-primary'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
           >
             {t.label}
           </button>
         ))}
         {/* Summary info */}
-        <div className="ml-auto flex items-center gap-4 pr-3 text-xs text-tv-muted">
+        <div className="ml-auto flex items-center gap-4 pr-3 text-xs text-muted-foreground">
           <span>
             {result.strategy} &middot; {result.exchange}
           </span>
-          <span className={clsx('font-medium', result.total_return_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
+          <span className={cn('font-medium', result.total_return_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
             {result.total_return_pct >= 0 ? '+' : ''}{result.total_return_pct.toFixed(2)}%
           </span>
         </div>

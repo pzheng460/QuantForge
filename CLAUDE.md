@@ -259,6 +259,13 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 
 ### Web UI Architecture
 
+**Frontend stack**: React 18 + TypeScript + Vite + Tailwind CSS + **shadcn/ui** component library
+- UI primitives (`Button`, `Input`, `Select`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible`, `Table`, `Separator`, `Popover`, `ScrollArea`) live in `web/frontend/src/components/ui/`
+- Theming via CSS variables in `index.css` (dark TradingView-style theme); color tokens: `--background`, `--foreground`, `--primary`, `--card`, `--border`, `--muted`, `--destructive`
+- Utility: `cn()` from `@/lib/utils` (wraps `clsx` + `tailwind-merge`)
+- Path alias `@/` → `./src/` (configured in `tsconfig.json` + `vite.config.ts`)
+- Domain-specific colors (trading green/red) remain as `tv-green`, `tv-red` in Tailwind config
+
 All backtest and optimization logic is unified in the main backtest module:
 - `web/backend/jobs.py` — Shared helpers (`_fetch_ohlcv`, `_resolve_pine_source`, `_resolve_date_range`) and job runners for both backtest and optimization
 - `web/backend/routers/backtest.py` — `/backtest/run` (POST, accepts `strategy` file name OR `pine_source` raw code), `/backtest/{id}` (GET, poll status)
