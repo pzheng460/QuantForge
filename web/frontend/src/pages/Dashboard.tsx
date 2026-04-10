@@ -127,12 +127,108 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+// ─── Right panel: isolates perf subscription so left panel never re-renders ─
+
+function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
+  // Only this component subscribes to perf / wsConnected
+  const perf = useDashboardStore((s) => s.perf)
+  const setPerf = useDashboardStore((s) => s.setPerf)
+  const wsConnected = useDashboardStore((s) => s.wsConnected)
+  const setWsConnected = useDashboardStore((s) => s.setWsConnected)
+
+  // WebSocket subscription — perf flows freely for live stats display
+  useEffect(() => {
+    const cleanup = subscribeLivePerformance(
+      (msg) => { setPerf(msg); setWsConnected(true) },
+      () => setWsConnected(false),
+    )
+    return () => cleanup()
+  }, [setPerf, setWsConnected])
+
+  // Build report only when trade count changes
+  const tradeCount = perf?.total_trades ?? 0
+  const adaptedResult = useMemo<BacktestResult | null>(() => {
+    if (!perf) return null
+    return livePerformanceToBacktestResult(perf, {
+      exchange: activeEngine?.exchange,
+      strategy: activeEngine?.strategy,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradeCount, activeEngine?.exchange, activeEngine?.strategy])
+
+  if (!activeEngine) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-md">
+          <div className="text-muted-foreground text-lg mb-2">No Live Engine Running</div>
+          <div className="text-muted-foreground/60 text-xs leading-relaxed">
+            Select a strategy, configure settings, and click "Start Live Trading" to begin.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {/* Engine info bar — updates every WS push (lightweight) */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
+        <StatusBadge status={activeEngine.status} />
+        <span className="text-xs text-foreground font-medium">{activeEngine.strategy}</span>
+        <span className="text-[10px] text-muted-foreground">{activeEngine.symbol}</span>
+        <span className="text-[10px] text-muted-foreground">{activeEngine.timeframe}</span>
+        <span className="text-[10px] text-muted-foreground">{activeEngine.exchange}</span>
+        {activeEngine.demo && <Badge variant="warning" className="text-[9px]">DEMO</Badge>}
+        {activeEngine.leverage > 1 && <Badge variant="outline" className="text-[9px]">{activeEngine.leverage}x</Badge>}
+        <div className="flex-1" />
+        {perf && (
+          <div className="flex items-center gap-3 text-[10px] tabular-nums">
+            <span className="text-muted-foreground">
+              Balance: <span className="text-foreground font-medium">{perf.current_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            </span>
+            <span className={perf.total_pnl >= 0 ? 'text-tv-green' : 'text-tv-red'}>
+              P&L: {perf.total_pnl >= 0 ? '+' : ''}{perf.total_pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              ({perf.total_return_pct >= 0 ? '+' : ''}{perf.total_return_pct.toFixed(2)}%)
+            </span>
+            <span className="text-muted-foreground">Trades: {perf.total_trades}</span>
+          </div>
+        )}
+        <span className={cn('w-2 h-2 rounded-full', wsConnected ? 'bg-tv-green animate-pulse' : 'bg-muted-foreground')} />
+        <span className="text-[9px] text-muted-foreground">{wsConnected ? 'Live' : 'Offline'}</span>
+      </div>
+
+      {/* Strategy Tester — memoized, only re-renders on new trade */}
+      <div className="flex-1 overflow-auto">
+        {adaptedResult && adaptedResult.total_trades > 0 ? (
+          <StrategyTester result={adaptedResult} />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="text-muted-foreground text-sm">
+                {activeEngine.status === 'warmup' ? 'Warming up...' : 'Waiting for trades...'}
+              </div>
+              <div className="text-muted-foreground/60 text-xs mt-1">
+                The strategy report will appear once trades are executed.
+              </div>
+              {perf && (
+                <div className="mt-4 text-[10px] text-muted-foreground/80">
+                  Balance: {perf.current_balance.toLocaleString()} USDT
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
 // ─── Main Live Trading page ─────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { strategies, exchanges } = useCatalog()
 
-  // Zustand store (persists across route changes)
+  // Zustand store — NO perf/wsConnected here, so WS updates won't re-render this
   const {
     selectedStrategy, setSelectedStrategy,
     source, setSource,
@@ -147,12 +243,9 @@ export default function DashboardPage() {
     engines, setEngines,
     starting, setStarting,
     startError, setStartError,
-    perf, setPerf,
-    wsConnected, setWsConnected,
     initialized, setInitialized,
   } = useDashboardStore()
 
-  const cleanupRef = useRef<(() => void) | null>(null)
   const paramUpdateRef = useRef(false)
 
   // Active engine (first running / warmup)
@@ -162,28 +255,12 @@ export default function DashboardPage() {
 
   // Set default strategy + load engines on first-ever load
   useEffect(() => {
-    if (!initialized && strategies.length > 0) {
-      // Don't auto-select — let the user choose
-      setInitialized(true)
-    }
+    if (!initialized && strategies.length > 0) setInitialized(true)
   }, [strategies, initialized])
 
   // Load live engines on mount
   useEffect(() => {
     api.liveEngines().then(setEngines).catch(() => {})
-  }, [])
-
-  // WebSocket subscription — perf flows freely for live stats display
-  useEffect(() => {
-    const cleanup = subscribeLivePerformance(
-      (msg) => {
-        setPerf(msg)
-        setWsConnected(true)
-      },
-      () => setWsConnected(false),
-    )
-    cleanupRef.current = cleanup
-    return () => cleanup()
   }, [])
 
   // Poll engines list periodically
@@ -265,18 +342,6 @@ export default function DashboardPage() {
       setStartError(String(e))
     }
   }, [])
-
-  // Only rebuild the full report when a NEW TRADE arrives (total_trades changes).
-  // Live balance / PnL is shown separately in the info bar from `perf` directly.
-  const tradeCount = perf?.total_trades ?? 0
-  const adaptedResult = useMemo<BacktestResult | null>(() => {
-    if (!perf) return null
-    return livePerformanceToBacktestResult(perf, {
-      exchange: activeEngine?.exchange,
-      strategy: activeEngine?.strategy,
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tradeCount, activeEngine?.exchange, activeEngine?.strategy])
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
@@ -511,114 +576,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Right panel: strategy tester / performance ─────────── */}
+        {/* ── Right panel — isolated component, WS updates don't re-render left panel */}
         <div className="flex-1 flex flex-col min-w-0 bg-background">
-          {activeEngine ? (
-            <>
-              {/* Engine info bar */}
-              <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
-                <StatusBadge status={activeEngine.status} />
-                <span className="text-xs text-foreground font-medium">
-                  {activeEngine.strategy}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {activeEngine.symbol}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {activeEngine.timeframe}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {activeEngine.exchange}
-                </span>
-                {activeEngine.demo && (
-                  <Badge variant="warning" className="text-[9px]">
-                    DEMO
-                  </Badge>
-                )}
-                {activeEngine.leverage > 1 && (
-                  <Badge variant="outline" className="text-[9px]">
-                    {activeEngine.leverage}x
-                  </Badge>
-                )}
-                <div className="flex-1" />
-                {/* Live stats — updates every WS push without re-rendering the report */}
-                {perf && (
-                  <div className="flex items-center gap-3 text-[10px] tabular-nums">
-                    <span className="text-muted-foreground">
-                      Balance: <span className="text-foreground font-medium">{perf.current_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                    </span>
-                    <span className={perf.total_pnl >= 0 ? 'text-tv-green' : 'text-tv-red'}>
-                      P&L: {perf.total_pnl >= 0 ? '+' : ''}{perf.total_pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      ({perf.total_return_pct >= 0 ? '+' : ''}{perf.total_return_pct.toFixed(2)}%)
-                    </span>
-                    <span className="text-muted-foreground">
-                      Trades: {perf.total_trades}
-                    </span>
-                  </div>
-                )}
-                <span
-                  className={cn(
-                    'w-2 h-2 rounded-full',
-                    wsConnected ? 'bg-tv-green animate-pulse' : 'bg-muted-foreground',
-                  )}
-                />
-                <span className="text-[9px] text-muted-foreground">
-                  {wsConnected ? 'Live' : 'Offline'}
-                </span>
-              </div>
-
-              {/* Strategy Tester content */}
-              <div className="flex-1 overflow-auto">
-                {adaptedResult && adaptedResult.total_trades > 0 ? (
-                  <StrategyTester result={adaptedResult} />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-sm">
-                        {activeEngine.status === 'warmup'
-                          ? 'Warming up...'
-                          : 'Waiting for trades...'}
-                      </div>
-                      <div className="text-muted-foreground/60 text-xs mt-1">
-                        The strategy report will appear once trades are executed.
-                      </div>
-                      {perf && (
-                        <div className="mt-4 text-[10px] text-muted-foreground/80 space-y-0.5">
-                          <div>
-                            Balance: {perf.current_balance.toLocaleString()} USDT
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            /* No active engine */
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center max-w-md">
-                <div className="text-muted-foreground text-lg mb-2">
-                  No Live Engine Running
-                </div>
-                <div className="text-muted-foreground/60 text-xs leading-relaxed">
-                  Select a strategy, configure settings, and click "Start Live
-                  Trading" to begin. The strategy report will update in
-                  real-time as trades are executed.
-                </div>
-                {engines.filter(
-                  (e) => e.status === 'stopped' || e.status === 'failed',
-                ).length > 0 && (
-                  <div className="mt-4 text-[10px] text-muted-foreground/50">
-                    {
-                      engines.filter((e) => e.status === 'stopped').length
-                    }{' '}
-                    stopped engine(s)
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <LiveReportPanel activeEngine={activeEngine} />
         </div>
       </div>
     </div>
