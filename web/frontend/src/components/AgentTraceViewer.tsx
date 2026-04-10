@@ -3,11 +3,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { AgentEvent } from '../types'
 
-interface AgentTraceViewerProps {
-  events: AgentEvent[]
-  status: string
-  className?: string
-}
 
 function EventIcon({ type, toolName }: { type: string; toolName?: string }) {
   if (type === 'thinking') return <span className="text-blue-400">💭</span>

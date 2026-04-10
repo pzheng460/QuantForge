@@ -15,21 +15,42 @@ import type {
   AgentEvent,
 } from '../types'
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 const BASE = '/api'
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
-  if (!res.ok) throw new Error(await res.text())
+async function parseErrorMessage(res: Response): Promise<string> {
+  try {
+    const json = await res.json()
+    return json.detail ?? json.message ?? JSON.stringify(json)
+  } catch {
+    try {
+      return await res.text()
+    } catch {
+      return res.statusText
+    }
+  }
+}
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { signal })
+  if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res))
   return res.json()
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res))
   return res.json()
 }
 
@@ -86,12 +107,17 @@ export function subscribeOptimize(
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
-    } catch {
-      /* ignore malformed frames */
+    } catch (err) {
+      console.warn('[ws:optimize] failed to parse message:', err)
     }
   }
+  ws.onclose = (e) => {
+    console.log(`[ws:optimize] closed (code=${e.code}, reason=${e.reason})`)
+  }
   if (onError) ws.onerror = onError
-  return () => ws.close()
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) ws.close()
+  }
 }
 
 
@@ -105,12 +131,17 @@ export function subscribeLivePerformance(
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
-    } catch {
-      /* ignore malformed frames */
+    } catch (err) {
+      console.warn('[ws:live] failed to parse message:', err)
     }
   }
+  ws.onclose = (e) => {
+    console.log(`[ws:live] closed (code=${e.code}, reason=${e.reason})`)
+  }
   if (onError) ws.onerror = onError
-  return () => ws.close()
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) ws.close()
+  }
 }
 
 /** Subscribe to agent events via WebSocket. Returns a cleanup function. */
@@ -124,10 +155,15 @@ export function subscribeAgent(
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
-    } catch {
-      /* ignore malformed frames */
+    } catch (err) {
+      console.warn('[ws:agent] failed to parse message:', err)
     }
   }
+  ws.onclose = (e) => {
+    console.log(`[ws:agent] closed (code=${e.code}, reason=${e.reason})`)
+  }
   if (onError) ws.onerror = onError
-  return () => ws.close()
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) ws.close()
+  }
 }

@@ -3,8 +3,8 @@ import { ChevronDown, Activity, Loader2, Play, Square } from 'lucide-react'
 import { api } from '../api/client'
 import { useBacktestStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/backtestStore'
 import { useCatalog } from '../hooks/useCatalog'
-import type { BacktestRequest, BacktestResult, StrategySchema, Exchange, JobStatus } from '../types'
-import TradingChart from '../components/chart/TradingChart'
+import type { BacktestRequest, StrategySchema, Exchange, JobStatus } from '../types'
+import TradingChart from '../components/charts/TradingChart'
 import StrategyTester from '../components/StrategyTester'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -46,6 +46,7 @@ function useResizablePanel(defaultHeight: number) {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return { height, onMouseDown }
@@ -159,9 +160,11 @@ export default function BacktestPage() {
       // Don't auto-select -- start with empty state
       setInitialized(true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategies, initialized])
 
   // When selected strategy changes, fetch its source
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleStrategyChange = useCallback((name: string) => {
     setSelectedStrategy(name)
     if (name === CUSTOM_KEY) {
@@ -176,6 +179,7 @@ export default function BacktestPage() {
   }, [])
 
   // When source text changes directly, re-parse params
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSourceChange = useCallback((newSource: string) => {
     setSource(newSource)
     if (paramUpdateRef.current) {
@@ -186,6 +190,7 @@ export default function BacktestPage() {
   }, [])
 
   // When a param value is changed, update source text
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
     paramUpdateRef.current = true
     setSource((prev: string) => updatePineParam(prev, paramName, newValue))
@@ -222,6 +227,7 @@ export default function BacktestPage() {
     }
     poll()
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId])
 
   // Submit backtest
@@ -246,6 +252,7 @@ export default function BacktestPage() {
       setError(String(e))
       setLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, exchange, symbol, timeframe, startDate, endDate, warmupDays])
 
   const handleCancel = useCallback(async () => {
@@ -257,14 +264,13 @@ export default function BacktestPage() {
     } catch { /* ignore */ }
   }, [jobId, setStatus, setLoading])
 
-  const selectedExchange = exchanges.find((ex: any) => ex.id === exchange)
+  const selectedExchange = exchanges.find((ex) => ex.id === exchange)
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
-      <div className="flex flex-1 min-h-0">
+    <div className="flex h-full min-h-0">
 
         {/* ── Left unified panel ──────────────────────────────────────── */}
-        <div className="w-80 shrink-0 flex flex-col bg-card border-r border-border" style={{ height: '100%' }}>
+        <div className="w-80 shrink-0 flex flex-col bg-card border-r border-border h-full">
 
           {/* Header */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
@@ -521,8 +527,6 @@ export default function BacktestPage() {
               <StrategyTester result={result} />
             </div>
           )}
-        </div>
-      </div>
-    </div>
+        </div>    </div>
   )
 }

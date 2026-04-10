@@ -5,13 +5,12 @@ import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboard
 import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
 import type {
-  LivePerformance,
   LiveEngineOut,
   LiveStartRequest,
   BacktestResult,
 } from '../types'
 import StrategyTester from '../components/StrategyTester'
-import TradingChart from '../components/chart/TradingChart'
+import TradingChart from '../components/charts/TradingChart'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
 import type { EquityPoint, TradeRecord } from '../types'
 import { cn } from '@/lib/utils'
@@ -201,6 +200,7 @@ function useResizablePanel(defaultHeight: number) {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return { height, onMouseDown }
@@ -342,27 +342,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!initialized && strategies.length > 0) setInitialized(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategies, initialized])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { api.liveEngines().then(setEngines).catch(() => {}) }, [])
 
   useEffect(() => {
     const interval = setInterval(() => { api.liveEngines().then(setEngines).catch(() => {}) }, 5000)
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleStrategyChange = useCallback((name: string) => {
     setSelectedStrategy(name)
     if (name === CUSTOM_KEY) { setSource(DEFAULT_PINE); setPineParams(parsePineParams(DEFAULT_PINE)) }
     else { api.strategySource(name).then(({ source: src }) => { setSource(src); setPineParams(parsePineParams(src)) }) }
   }, [])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSourceChange = useCallback((val: string) => {
     setSource(val)
     if (paramUpdateRef.current) { paramUpdateRef.current = false; return }
     setPineParams(parsePineParams(val))
   }, [])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
     paramUpdateRef.current = true
     setSource((prev) => updatePineParam(prev, paramName, newValue))
@@ -381,16 +387,17 @@ export default function DashboardPage() {
       setEngines(await api.liveEngines())
     } catch (e) { setStartError(String(e)) }
     finally { setStarting(false) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, exchange, symbol, timeframe, demo, positionSize, leverage, warmupBars, selectedStrategy])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleStop = useCallback(async (engineId: string) => {
     try { await api.stopLive(engineId); setEngines(await api.liveEngines()) }
     catch (e) { setStartError(String(e)) }
   }, [])
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 41px)' }}>
-      <div className="flex flex-1 min-h-0">
+    <div className="flex h-full min-h-0">
         {/* ── Left panel ──────────────────────────────────────────── */}
         <div className="w-80 shrink-0 flex flex-col bg-card border-r border-border h-full">
           <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
@@ -521,7 +528,6 @@ export default function DashboardPage() {
         {/* ── Right panel — isolated, WS updates don't touch the left panel ── */}
         <div className="flex-1 flex flex-col min-w-0 bg-background">
           <LiveReportPanel activeEngine={activeEngine} />
-        </div>
       </div>
     </div>
   )

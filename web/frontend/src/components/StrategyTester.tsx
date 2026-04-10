@@ -661,7 +661,6 @@ function computeRunupsDrawdowns(equity: number[], ic: number): { runups: RunupDr
   const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
 
   // Approximate days from bar count (assume hourly bars in equity curve)
-  const barsPerDay = equity.length / Math.max((new Date(0).getTime() ? 1 : 1), 1) // we'll just use raw bar count
   // Actually, without knowing the timeframe we'll assume the equity curve resolution
   // Just use bar counts as approximate day durations (since equity is sampled)
 
@@ -714,11 +713,10 @@ function ProfitStructureChart({ grossProfit, grossLoss, openPnl, commission, net
   )
 }
 
-function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct, ic }: {
+function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct }: {
   bhReturn: number; stratReturn: number; bhPct: number; stratPct: number; ic: number
 }) {
   const maxVal = Math.max(Math.abs(bhReturn), Math.abs(stratReturn), 1)
-  const zero = maxVal > 0 ? 50 : 50 // center line at 50%
   const scale = (v: number) => (v / maxVal) * 45
 
   return (

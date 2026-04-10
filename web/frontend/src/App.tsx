@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, Suspense, lazy } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { NavLink } from 'react-router-dom'
-import { Clock } from 'lucide-react'
-import BacktestPage from './pages/Backtest'
-import DashboardPage from './pages/Dashboard'
-import OptimizerPage from './pages/Optimizer'
+import { Clock, Loader2 } from 'lucide-react'
+import { ErrorBoundary } from './components/ErrorBoundary'
+
+const DashboardPage = lazy(() => import('./pages/Dashboard'))
+const BacktestPage = lazy(() => import('./pages/Backtest'))
+const OptimizerPage = lazy(() => import('./pages/Optimizer'))
 import { TimezoneProvider, useTimezone } from './hooks/useTimezone'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -168,19 +170,19 @@ function AppContent() {
         </div>
       </header>
       <main className="flex-1 overflow-hidden">
-        <Routes>
-          <Route path="/" element={
-            <div className="px-4 py-6 max-w-screen-2xl mx-auto w-full">
-              <DashboardPage />
+        <ErrorBoundary>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          } />
-          <Route path="/backtest" element={<BacktestPage />} />
-          <Route path="/optimizer" element={
-            <div className="px-4 py-6 max-w-screen-2xl mx-auto w-full">
-              <OptimizerPage />
-            </div>
-          } />
-        </Routes>
+          }>
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/backtest" element={<BacktestPage />} />
+              <Route path="/optimizer" element={<OptimizerPage />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </main>
     </div>
   )

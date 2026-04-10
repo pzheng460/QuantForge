@@ -259,9 +259,13 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 
 ### Web UI Architecture
 
-**Frontend stack**: React 18 + TypeScript + Vite + Tailwind CSS + **shadcn/ui** component library
-- UI primitives (`Button`, `Input`, `Select`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible`, `Table`, `Separator`, `Popover`, `ScrollArea`) live in `web/frontend/src/components/ui/`
+**Frontend stack**: React 18 + TypeScript (strict) + Vite + Tailwind CSS + **shadcn/ui** component library
+- UI primitives (`Button`, `Input`, `Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible`, `Table`, `Separator`, `Popover`, `ScrollArea`) live in `web/frontend/src/components/ui/`
+- Select uses Radix `@radix-ui/react-select` (not native `<select>`); all form inputs use shadcn components
+- `ErrorBoundary` component wraps the app; pages are lazy-loaded with `React.lazy` + `Suspense`
+- Vite chunk splitting: `vendor` (react/zustand), `charts` (recharts/lightweight-charts), `ui` (@radix-ui/lucide)
 - Theming via CSS variables in `index.css` (dark TradingView-style theme); color tokens: `--background`, `--foreground`, `--primary`, `--card`, `--border`, `--muted`, `--destructive`
+- All chart components consolidated in `src/components/charts/` (TradingChart, EquityChart, DrawdownChart, etc.)
 - Utility: `cn()` from `@/lib/utils` (wraps `clsx` + `tailwind-merge`)
 - Path alias `@/` → `./src/` (configured in `tsconfig.json` + `vite.config.ts`)
 - Domain-specific colors (trading green/red) remain as `tv-green`, `tv-red` in Tailwind config

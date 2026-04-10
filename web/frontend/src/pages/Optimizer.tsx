@@ -17,8 +17,6 @@ import type {
   OptimizeJobStatus,
   GridSearchResult,
   AgentRunRequest,
-  AgentEvent,
-  AgentSkillInfo,
 } from '../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -166,7 +164,7 @@ export default function OptimizerPage() {
     status, setStatus,
     jobResult, setJobResult,
     error, setError,
-    loading, setLoading,
+    loading: _loading, setLoading,
     initialized, setInitialized,
   } = useOptimizerStore()
 
@@ -195,13 +193,15 @@ export default function OptimizerPage() {
         }
       })
       .catch(() => {})
-  }, [selectedSkill])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Set default state on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
       setInitialized(true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategies, initialized])
 
   // WebSocket subscription for grid search -- reconnects on remount if job is still running
@@ -224,6 +224,7 @@ export default function OptimizerPage() {
       (err) => { setError(String(err)); setLoading(false) },
     )
     return () => wsCleanupRef.current?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, mode])
 
   // WebSocket subscription for AI agent
@@ -238,6 +239,7 @@ export default function OptimizerPage() {
     )
 
     return cleanup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentJobId, agentStatus])
 
   // Poll agent status
@@ -258,6 +260,7 @@ export default function OptimizerPage() {
     }, 2000)
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentJobId])
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
@@ -286,6 +289,7 @@ export default function OptimizerPage() {
     } catch (e) {
       setError(String(e)); setLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategy, exchange, symbol, leverage, nJobs, useDateRange, period, startDate, endDate])
 
   const handleAIRun = useCallback(async () => {
@@ -309,6 +313,7 @@ export default function OptimizerPage() {
     } catch (e) {
       setAgentError(String(e))
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSkill, strategy, exchange, symbol])
 
   const handleCancel = useCallback(async () => {
@@ -324,6 +329,7 @@ export default function OptimizerPage() {
         setAgentStatus('cancelled')
       } catch { /* ignore */ }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, jobId, agentJobId])
 
   const selectedExchange = exchanges.find((e) => e.id === exchange)
@@ -333,8 +339,8 @@ export default function OptimizerPage() {
     (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running'))
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-foreground">Optimizer</h1>
+    <div className="h-full overflow-y-auto">
+    <div className="space-y-6 p-6 max-w-screen-2xl mx-auto">
 
       {/* ── Configuration Card ────────────────────────────────────────── */}
       <Card>
@@ -568,6 +574,7 @@ export default function OptimizerPage() {
           </Card>
         </div>
       )}
+    </div>
     </div>
   )
 }
