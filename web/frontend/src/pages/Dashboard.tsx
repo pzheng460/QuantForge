@@ -173,19 +173,11 @@ export default function DashboardPage() {
     api.liveEngines().then(setEngines).catch(() => {})
   }, [])
 
-  // Track last perf fingerprint to skip no-op updates
-  const lastPerfKeyRef = useRef('')
-
-  // WebSocket subscription for real-time performance
+  // WebSocket subscription — perf flows freely for live stats display
   useEffect(() => {
     const cleanup = subscribeLivePerformance(
       (msg) => {
-        // Only update store when data actually changed (trade count, balance, drawdown)
-        const key = `${msg.total_trades}|${msg.current_balance}|${msg.max_drawdown_pct}|${msg.total_pnl}`
-        if (key !== lastPerfKeyRef.current) {
-          lastPerfKeyRef.current = key
-          setPerf(msg)
-        }
+        setPerf(msg)
         setWsConnected(true)
       },
       () => setWsConnected(false),
@@ -274,15 +266,17 @@ export default function DashboardPage() {
     }
   }, [])
 
-  // Convert live performance to BacktestResult for StrategyTester — memoized
-  // to avoid recreating the object on every render (WS pushes every ~3s).
+  // Only rebuild the full report when a NEW TRADE arrives (total_trades changes).
+  // Live balance / PnL is shown separately in the info bar from `perf` directly.
+  const tradeCount = perf?.total_trades ?? 0
   const adaptedResult = useMemo<BacktestResult | null>(() => {
     if (!perf) return null
     return livePerformanceToBacktestResult(perf, {
       exchange: activeEngine?.exchange,
       strategy: activeEngine?.strategy,
     })
-  }, [perf, activeEngine?.exchange, activeEngine?.strategy])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradeCount, activeEngine?.exchange, activeEngine?.strategy])
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
@@ -547,6 +541,21 @@ export default function DashboardPage() {
                   </Badge>
                 )}
                 <div className="flex-1" />
+                {/* Live stats — updates every WS push without re-rendering the report */}
+                {perf && (
+                  <div className="flex items-center gap-3 text-[10px] tabular-nums">
+                    <span className="text-muted-foreground">
+                      Balance: <span className="text-foreground font-medium">{perf.current_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    </span>
+                    <span className={perf.total_pnl >= 0 ? 'text-tv-green' : 'text-tv-red'}>
+                      P&L: {perf.total_pnl >= 0 ? '+' : ''}{perf.total_pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      ({perf.total_return_pct >= 0 ? '+' : ''}{perf.total_return_pct.toFixed(2)}%)
+                    </span>
+                    <span className="text-muted-foreground">
+                      Trades: {perf.total_trades}
+                    </span>
+                  </div>
+                )}
                 <span
                   className={cn(
                     'w-2 h-2 rounded-full',
@@ -554,7 +563,7 @@ export default function DashboardPage() {
                   )}
                 />
                 <span className="text-[9px] text-muted-foreground">
-                  {wsConnected ? 'Connected' : 'Offline'}
+                  {wsConnected ? 'Live' : 'Offline'}
                 </span>
               </div>
 
