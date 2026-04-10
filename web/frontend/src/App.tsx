@@ -110,29 +110,33 @@ function TimezoneSelector() {
           </div>
           <div className="overflow-y-auto max-h-60">
             {!search && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => { setTimezone(localTz); setOpen(false); setSearch('') }}
                 className={cn(
-                  'w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-accent flex items-center justify-between',
+                  'w-full justify-between rounded-none h-auto px-3 py-1.5 text-xs transition-colors',
                   timezone === localTz && 'text-primary font-medium',
                 )}
               >
                 <span>Local ({tzLabel(localTz)})</span>
                 <span className="text-muted-foreground tabular-nums">{tzOffset(localTz)}</span>
-              </button>
+              </Button>
             )}
             {filtered.map((tz) => (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 key={tz}
                 onClick={() => { setTimezone(tz); setOpen(false); setSearch('') }}
                 className={cn(
-                  'w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-accent flex items-center justify-between',
+                  'w-full justify-between rounded-none h-auto px-3 py-1.5 text-xs transition-colors',
                   timezone === tz ? 'text-primary font-medium' : 'text-foreground',
                 )}
               >
                 <span className="truncate mr-2">{tz}</span>
                 <span className="text-muted-foreground tabular-nums shrink-0">{tzOffset(tz)}</span>
-              </button>
+              </Button>
             ))}
             {filtered.length === 0 && (
               <div className="px-3 py-4 text-center text-xs text-muted-foreground">No matching timezone</div>

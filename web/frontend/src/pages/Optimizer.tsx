@@ -348,11 +348,12 @@ export default function OptimizerPage() {
             <Label className="mb-2 block">Optimization Mode</Label>
             <div className="grid grid-cols-2 gap-2">
               {MODES.map((m) => (
-                <button
+                <Button
+                  variant="outline"
                   key={m.value}
                   onClick={() => setMode(m.value as 'grid' | 'ai')}
                   className={cn(
-                    'text-left p-3 rounded-sm border transition-colors',
+                    'h-auto text-left p-3 rounded-sm justify-start flex-col items-start whitespace-normal',
                     mode === m.value
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border hover:border-muted-foreground text-foreground',
@@ -360,7 +361,7 @@ export default function OptimizerPage() {
                 >
                   <div className="font-medium text-sm">{m.label}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-                </button>
+                </Button>
               ))}
             </div>
           </div>

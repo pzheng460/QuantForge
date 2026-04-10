@@ -51,23 +51,27 @@ function ThinkingEvent({
                   <div key={i}>{line}</div>
                 ))}
                 {lines.length > 3 && (
-                  <button
+                  <Button
+                    variant="link"
+                    size="sm"
                     onClick={onToggle}
-                    className="text-primary hover:text-primary/80 text-xs mt-1 font-medium"
+                    className="text-primary hover:text-primary/80 text-xs mt-1 font-medium h-auto p-0"
                   >
                     Show more...
-                  </button>
+                  </Button>
                 )}
               </>
             )}
           </div>
           {expanded && hasMore && (
-            <button
+            <Button
+              variant="link"
+              size="sm"
               onClick={onToggle}
-              className="text-primary hover:text-primary/80 text-xs mt-2 font-medium"
+              className="text-primary hover:text-primary/80 text-xs mt-2 font-medium h-auto p-0"
             >
               Show less
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -141,12 +145,14 @@ function ToolCallEvent({
                 <pre className="text-xs text-foreground whitespace-pre-wrap">{content}</pre>
               </div>
             )}
-            <button
+            <Button
+              variant="link"
+              size="sm"
               onClick={onToggle}
-              className="text-primary hover:text-primary/80 text-xs mt-1 font-medium"
+              className="text-primary hover:text-primary/80 text-xs mt-1 font-medium h-auto p-0"
             >
               {expanded ? 'Hide content' : 'Show content'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -195,12 +201,14 @@ function ToolResultEvent({
           <pre className="whitespace-pre-wrap">{event.content}</pre>
         </div>
         {isLong && (
-          <button
+          <Button
+            variant="link"
+            size="sm"
             onClick={onToggle}
-            className="text-primary hover:text-primary/80 text-xs mt-2 font-medium"
+            className="text-primary hover:text-primary/80 text-xs mt-2 font-medium h-auto p-0"
           >
             {expanded ? 'Show less' : 'Expand'}
-          </button>
+          </Button>
         )}
       </div>
     </div>

@@ -1041,18 +1041,19 @@ export default function StrategyTester({ result }: Props) {
           Strategy Tester
         </span>
         {tabs.map((t) => (
-          <button
+          <Button
+            variant="ghost"
             key={t.id}
             onClick={() => setTab(t.id)}
             className={cn(
-              'px-4 py-2 text-xs font-medium transition-colors border-b-2 border-transparent',
+              'px-4 py-2 text-xs font-medium rounded-none border-b-2 border-transparent h-auto',
               tab === t.id
                 ? 'text-primary border-primary'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
             {t.label}
-          </button>
+          </Button>
         ))}
         {/* Summary info */}
         <div className="ml-auto flex items-center gap-4 pr-3 text-xs text-muted-foreground">
