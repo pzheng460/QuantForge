@@ -1,8 +1,10 @@
 import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, ArrowUpDown } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
+import { DataTable } from '@/components/ui/data-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import type { BacktestResult, TradeRecord } from '../types'
 import { useTimezone, fmtDateTz } from '../hooks/useTimezone'
 
@@ -859,159 +861,155 @@ function WinLossDonut({ total, wins, losses }: { total: number; wins: number; lo
   )
 }
 
-// ─── Tab: Trades List (TradingView style — 2 rows per trade) ────────────────
+// ─── Tab: Trades List (DataTable) ─────────────────────────────────────────
+
+/** Extended trade row with pre-computed cumulative P&L for column rendering. */
+interface TradeRow extends TradeRecord {
+  _index: number
+  _cumPnl: number
+  _cumPnlPct: number
+}
 
 function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeRecord[]; initialCapital: number; timezone: string }) {
-  const [page, setPage] = useState(0)
-  const PAGE_SIZE = 15
-  const pages = Math.ceil(trades.length / PAGE_SIZE)
-  const paged = trades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const rows: TradeRow[] = useMemo(() => {
+    let cum = 0
+    return trades.map((t, i) => {
+      cum += t.pnl
+      return { ...t, _index: i + 1, _cumPnl: cum, _cumPnlPct: (cum / initialCapital) * 100 }
+    })
+  }, [trades, initialCapital])
 
-  if (trades.length === 0) {
-    return <div className="text-center py-8 text-muted-foreground text-sm">No trades recorded</div>
-  }
-
-  // Compute cumulative P&L
-  const cumPnl: number[] = []
-  let running = 0
-  for (const t of trades) {
-    running += t.pnl
-    cumPnl.push(running)
-  }
-
-  const thClass = 'py-1.5 px-2 text-left text-muted-foreground font-medium whitespace-nowrap'
-
-  return (
-    <div className="space-y-2">
-      <div className="overflow-x-auto">
-        <table className="w-full text-[11px]">
-          <thead>
-            <tr className="border-b border-border">
-              <th className={thClass}>Trade #</th>
-              <th className={thClass}>Type</th>
-              <th className={thClass}>Date and time</th>
-              <th className={thClass}>Signal</th>
-              <th className={cn(thClass, 'text-right')}>Price</th>
-              <th className={cn(thClass, 'text-right')}>Position size</th>
-              <th className={cn(thClass, 'text-right')}>Net P&L</th>
-              <th className={cn(thClass, 'text-right')}>Favorable excursion</th>
-              <th className={cn(thClass, 'text-right')}>Adverse excursion</th>
-              <th className={cn(thClass, 'text-right')}>Cumulative P&L</th>
-            </tr>
-          </thead>
-          {paged.map((t, i) => {
-            const idx = page * PAGE_SIZE + i + 1
-            const isLong = t.side === 'buy'
-            const exitSignal = isLong ? 'Short' : 'Long'
-            const entrySignal = isLong ? 'Long' : 'Short'
-            const cumIdx = page * PAGE_SIZE + i
-            const cumVal = cumPnl[cumIdx] ?? 0
-            const cumPct = cumVal / initialCapital * 100
-
-            return (
-              <tbody key={i} className="border-b border-border/40">
-                {/* Exit row */}
-                <tr className="hover:bg-secondary/20">
-                  <td rowSpan={2} className="py-1 px-2 align-top">
-                    <div className="flex items-start gap-1.5 pt-0.5">
-                      <span className="text-muted-foreground tabular-nums">{idx}</span>
-                      <span className={cn(
-                        'text-[10px] font-medium px-1.5 py-0.5 rounded-sm',
-                        isLong ? 'bg-emerald-500/15 text-tv-green' : 'bg-red-500/15 text-tv-red'
-                      )}>
-                        {isLong ? 'Long' : 'Short'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-1 px-2 text-muted-foreground">Exit</td>
-                  <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">{fmtDateTz(t.exit_time, timezone)}</td>
-                  <td className={cn('py-1 px-2 font-medium', !isLong ? 'text-tv-green' : 'text-tv-red')}>
-                    {exitSignal}
-                  </td>
-                  <td className="py-1 px-2 text-right tabular-nums text-foreground whitespace-nowrap">
-                    {fmtPrice(t.exit_price)} USDT
-                  </td>
-                  <td rowSpan={2} className="py-1 px-2 text-right align-middle tabular-nums text-foreground">
-                    <div>{t.amount.toFixed(2)}</div>
-                    <div className="text-[10px] text-muted-foreground">{fmtPrice(t.amount * t.price)} USDT</div>
-                  </td>
-                  <td rowSpan={2} className="py-1 px-2 text-right align-middle">
-                    <div className={cn('tabular-nums font-medium', t.pnl >= 0 ? 'text-tv-green' : 'text-tv-red')}>
-                      {fmtSignUsdt(t.pnl)}
-                    </div>
-                    <div className={cn('text-[10px] tabular-nums', t.pnl_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
-                      {fmtSignPct(t.pnl_pct)}
-                    </div>
-                  </td>
-                  <td rowSpan={2} className="py-1 px-2 text-right align-middle">
-                    <div className="tabular-nums text-tv-green">
-                      {t.mfe != null ? fmtSignUsdt(t.mfe) : '—'}
-                    </div>
-                    <div className="text-[10px] tabular-nums text-tv-green">
-                      {t.mfe_pct != null ? fmtSignPct(t.mfe_pct) : ''}
-                    </div>
-                  </td>
-                  <td rowSpan={2} className="py-1 px-2 text-right align-middle">
-                    <div className="tabular-nums text-tv-red">
-                      {t.mae != null ? fmtSignUsdt(t.mae) : '—'}
-                    </div>
-                    <div className="text-[10px] tabular-nums text-tv-red">
-                      {t.mae_pct != null ? fmtSignPct(t.mae_pct) : ''}
-                    </div>
-                  </td>
-                  <td rowSpan={2} className="py-1 px-2 text-right align-middle">
-                    <div className={cn('tabular-nums font-medium', cumVal >= 0 ? 'text-tv-green' : 'text-tv-red')}>
-                      {fmtSignUsdt(cumVal)}
-                    </div>
-                    <div className={cn('text-[10px] tabular-nums', cumPct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
-                      {fmtSignPct(cumPct)}
-                    </div>
-                  </td>
-                </tr>
-                {/* Entry row */}
-                <tr className="hover:bg-secondary/20">
-                  <td className="py-1 px-2 text-muted-foreground">Entry</td>
-                  <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">{fmtDateTz(t.entry_time ?? t.timestamp, timezone)}</td>
-                  <td className={cn('py-1 px-2 font-medium', isLong ? 'text-tv-green' : 'text-tv-red')}>
-                    {entrySignal}
-                  </td>
-                  <td className="py-1 px-2 text-right tabular-nums text-foreground whitespace-nowrap">
-                    {fmtPrice(t.price)} USDT
-                  </td>
-                </tr>
-              </tbody>
-            )
-          })}
-        </table>
-      </div>
-      {pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
-          <span>{trades.length} trades total</span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 w-6 p-0 text-xs"
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              &lsaquo;
-            </Button>
-            <span className="px-2 tabular-nums">{page + 1}/{pages}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 w-6 p-0 text-xs"
-              disabled={page >= pages - 1}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              &rsaquo;
-            </Button>
+  const columns: ColumnDef<TradeRow, unknown>[] = useMemo(
+    () => [
+      {
+        accessorKey: '_index',
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+            Trade # <ArrowUpDown className="ml-1 h-3 w-3" />
+          </Button>
+        ),
+        cell: ({ row }) => {
+          const isLong = row.original.side === 'buy'
+          return (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground tabular-nums">{row.original._index}</span>
+              <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-sm', isLong ? 'bg-emerald-500/15 text-tv-green' : 'bg-red-500/15 text-tv-red')}>
+                {isLong ? 'Long' : 'Short'}
+              </span>
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: 'entry_time',
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+            Entry time <ArrowUpDown className="ml-1 h-3 w-3" />
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <span className="text-muted-foreground whitespace-nowrap text-[11px]">{fmtDateTz(row.original.entry_time ?? row.original.timestamp, timezone)}</span>
+        ),
+      },
+      {
+        accessorKey: 'price',
+        header: () => <span className="flex justify-end text-[11px]">Entry price</span>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums whitespace-nowrap text-[11px]">{fmtPrice(row.original.price)} USDT</div>
+        ),
+      },
+      {
+        accessorKey: 'exit_time',
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+            Exit time <ArrowUpDown className="ml-1 h-3 w-3" />
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-muted-foreground text-[11px]">{fmtDateTz(row.original.exit_time, timezone)}</span>
+        ),
+      },
+      {
+        accessorKey: 'exit_price',
+        header: () => <span className="flex justify-end text-[11px]">Exit price</span>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums whitespace-nowrap text-[11px]">{fmtPrice(row.original.exit_price)} USDT</div>
+        ),
+      },
+      {
+        accessorKey: 'amount',
+        header: () => <div className="text-right text-[11px]">Position size</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums text-[11px]">
+            <div>{row.original.amount.toFixed(2)}</div>
+            <div className="text-[10px] text-muted-foreground">{fmtPrice(row.original.amount * row.original.price)} USDT</div>
           </div>
-        </div>
-      )}
-    </div>
+        ),
+      },
+      {
+        accessorKey: 'pnl',
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium ml-auto flex" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+            Net P&L <ArrowUpDown className="ml-1 h-3 w-3" />
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="text-right text-[11px]">
+            <div className={cn('tabular-nums font-medium', cc(row.original.pnl))}>{fmtSignUsdt(row.original.pnl)}</div>
+            <div className={cn('text-[10px] tabular-nums', cc(row.original.pnl_pct))}>{fmtSignPct(row.original.pnl_pct)}</div>
+          </div>
+        ),
+      },
+      {
+        id: 'mfe',
+        header: () => <span className="flex justify-end text-[11px]">Favorable excursion</span>,
+        cell: ({ row }) => (
+          <div className="text-right text-[11px]">
+            <div className="tabular-nums text-tv-green">{row.original.mfe != null ? fmtSignUsdt(row.original.mfe) : '\u2014'}</div>
+            <div className="text-[10px] tabular-nums text-tv-green">{row.original.mfe_pct != null ? fmtSignPct(row.original.mfe_pct) : ''}</div>
+          </div>
+        ),
+      },
+      {
+        id: 'mae',
+        header: () => <span className="flex justify-end text-[11px]">Adverse excursion</span>,
+        cell: ({ row }) => (
+          <div className="text-right text-[11px]">
+            <div className="tabular-nums text-tv-red">{row.original.mae != null ? fmtSignUsdt(row.original.mae) : '\u2014'}</div>
+            <div className="text-[10px] tabular-nums text-tv-red">{row.original.mae_pct != null ? fmtSignPct(row.original.mae_pct) : ''}</div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: '_cumPnl',
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium ml-auto flex" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+            Cumulative P&L <ArrowUpDown className="ml-1 h-3 w-3" />
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="text-right text-[11px]">
+            <div className={cn('tabular-nums font-medium', cc(row.original._cumPnl))}>{fmtSignUsdt(row.original._cumPnl)}</div>
+            <div className={cn('text-[10px] tabular-nums', cc(row.original._cumPnlPct))}>{fmtSignPct(row.original._cumPnlPct)}</div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'bars_held',
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium ml-auto flex" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+            Bars <ArrowUpDown className="ml-1 h-3 w-3" />
+          </Button>
+        ),
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums text-[11px]">{row.original.bars_held ?? '\u2014'}</div>
+        ),
+      },
+    ],
+    [timezone],
   )
+
+  return <DataTable columns={columns} data={rows} pageSize={15} />
 }
 
 // ─── Main StrategyTester component ──────────────────────────────────────────
