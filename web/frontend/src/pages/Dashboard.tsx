@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
+import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
 import type {
   LivePerformance,
@@ -139,12 +140,10 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
 
   // Ref to latest perf — avoids subscribing to the full object
-  const perfRef = useRef<LivePerformance | null>(null)
+  const perfRef = useRef(useDashboardStore.getState().perf)
 
   // WebSocket subscription
   useEffect(() => {
-    // Sync ref from store on mount (in case perf already exists)
-    perfRef.current = useDashboardStore.getState().perf
     const cleanup = subscribeLivePerformance(
       (msg) => {
         perfRef.current = msg
@@ -227,7 +226,22 @@ export default function DashboardPage() {
     starting, setStarting,
     startError, setStartError,
     initialized, setInitialized,
-  } = useDashboardStore()
+  } = useDashboardStore(useShallow((s) => ({
+    selectedStrategy: s.selectedStrategy, setSelectedStrategy: s.setSelectedStrategy,
+    source: s.source, setSource: s.setSource,
+    pineParams: s.pineParams, setPineParams: s.setPineParams,
+    exchange: s.exchange, setExchange: s.setExchange,
+    symbol: s.symbol, setSymbol: s.setSymbol,
+    timeframe: s.timeframe, setTimeframe: s.setTimeframe,
+    positionSize: s.positionSize, setPositionSize: s.setPositionSize,
+    leverage: s.leverage, setLeverage: s.setLeverage,
+    warmupBars: s.warmupBars, setWarmupBars: s.setWarmupBars,
+    demo: s.demo, setDemo: s.setDemo,
+    engines: s.engines, setEngines: s.setEngines,
+    starting: s.starting, setStarting: s.setStarting,
+    startError: s.startError, setStartError: s.setStartError,
+    initialized: s.initialized, setInitialized: s.setInitialized,
+  })))
 
   const paramUpdateRef = useRef(false)
 
