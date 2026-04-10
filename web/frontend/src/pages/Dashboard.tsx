@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
@@ -134,36 +134,36 @@ function LiveInfoBar({ activeEngine }: { activeEngine: LiveEngineOut }) {
 // ─── Report area: only re-renders when total_trades changes ─────────────────
 
 function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
-  // Subscribe ONLY to the scalar trade count — not the full perf object
   const tradeCount = useDashboardStore((s) => s.perf?.total_trades ?? 0)
   const setPerf = useDashboardStore((s) => s.setPerf)
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
 
-  // Ref to latest perf — avoids subscribing to the full object
-  const perfRef = useRef(useDashboardStore.getState().perf)
-
   // WebSocket subscription
   useEffect(() => {
     const cleanup = subscribeLivePerformance(
-      (msg) => {
-        perfRef.current = msg
-        setPerf(msg)
-        setWsConnected(true)
-      },
+      (msg) => { setPerf(msg); setWsConnected(true) },
       () => setWsConnected(false),
     )
     return () => cleanup()
   }, [setPerf, setWsConnected])
 
-  // Build report snapshot — only when tradeCount changes
-  const adaptedResult = useMemo<BacktestResult | null>(() => {
-    const perf = perfRef.current
-    if (!perf || tradeCount === 0) return null
-    return livePerformanceToBacktestResult(perf, {
-      exchange: activeEngine?.exchange,
-      strategy: activeEngine?.strategy,
-    })
-  }, [tradeCount, activeEngine?.exchange, activeEngine?.strategy])
+  // Cached report — once built, NEVER resets to null.
+  // Only rebuilds when a new trade closes (tradeCount increases).
+  const cachedResult = useRef<BacktestResult | null>(null)
+  const lastBuiltCount = useRef(0)
+
+  if (tradeCount > 0 && tradeCount !== lastBuiltCount.current) {
+    const perf = useDashboardStore.getState().perf
+    if (perf) {
+      lastBuiltCount.current = tradeCount
+      cachedResult.current = livePerformanceToBacktestResult(perf, {
+        exchange: activeEngine?.exchange,
+        strategy: activeEngine?.strategy,
+      })
+    }
+  }
+
+  const adaptedResult = cachedResult.current
 
   if (!activeEngine) {
     return (
