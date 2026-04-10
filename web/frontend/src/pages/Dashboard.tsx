@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
@@ -11,7 +11,9 @@ import type {
   BacktestResult,
 } from '../types'
 import StrategyTester from '../components/StrategyTester'
+import TradingChart from '../components/chart/TradingChart'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
+import type { EquityPoint, TradeRecord } from '../types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -97,7 +99,55 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-// ─── Info bar: subscribes to full perf — re-renders on every WS push ────────
+// ─── Live equity chart: subscribes to perf, updates on every WS push ────────
+
+function LiveEquityChart() {
+  const perf = useDashboardStore((s) => s.perf)
+
+  // Build equity curve + trades from live perf
+  const { equityCurve, trades } = useMemo(() => {
+    if (!perf || perf.total_trades === 0) {
+      return { equityCurve: [] as EquityPoint[], trades: [] as TradeRecord[] }
+    }
+
+    const initial = perf.initial_balance || 10000
+    const curve: EquityPoint[] = [
+      { t: perf.start_time || perf.last_update, strategy: initial, bh: initial },
+    ]
+    let running = initial
+    for (const t of perf.trades) {
+      running += t.pnl
+      curve.push({ t: t.exit_time, strategy: running, bh: initial })
+    }
+    // Add a live point at current time with current balance
+    curve.push({ t: perf.last_update, strategy: perf.current_balance, bh: initial })
+
+    const tradeRecords: TradeRecord[] = perf.trades.map((t) => ({
+      timestamp: t.entry_time,
+      side: (t.side === 'long' ? 'buy' : 'sell') as 'buy' | 'sell',
+      price: t.entry_price,
+      exit_price: t.exit_price,
+      amount: t.amount || 0,
+      fee: 0,
+      pnl: t.pnl,
+      pnl_pct: t.pnl_pct,
+      entry_time: t.entry_time,
+      exit_time: t.exit_time,
+    }))
+
+    return { equityCurve: curve, trades: tradeRecords }
+  }, [perf])
+
+  if (equityCurve.length === 0) return null
+
+  return (
+    <div className="h-[200px] border-b border-border shrink-0">
+      <TradingChart equityCurve={equityCurve} trades={trades} height={200} />
+    </div>
+  )
+}
+
+// ─── Info bar: subscribes to perf for live stats ────────────────────────────
 
 function LiveInfoBar({ activeEngine }: { activeEngine: LiveEngineOut }) {
   const perf = useDashboardStore((s) => s.perf)
@@ -186,8 +236,11 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
 
   return (
     <>
-      {/* Info bar — own component, re-renders freely on every WS push */}
+      {/* Info bar — updates every WS push */}
       <LiveInfoBar activeEngine={activeEngine} />
+
+      {/* Equity chart — updates every WS push via lightweight-charts setData */}
+      <LiveEquityChart />
 
       {/* Report — only re-renders when tradeCount changes */}
       <div className="flex-1 overflow-auto">
