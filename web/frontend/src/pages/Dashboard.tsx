@@ -8,8 +8,6 @@ import type {
   LiveEngineOut,
   LiveStartRequest,
   BacktestResult,
-  StrategySchema,
-  Exchange,
 } from '../types'
 import StrategyTester from '../components/StrategyTester'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
@@ -21,22 +19,13 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from '@/components/ui/collapsible'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 
-// ─── Pine parameter parsing (shared with Backtest) ──────────────────────────
+// ─── Pine parameter parsing ─────────────────────────────────────────────────
 
 interface PineParam {
-  name: string
-  type: 'int' | 'float'
-  value: number
-  title: string
-  min?: number
-  max?: number
-  step?: number
+  name: string; type: 'int' | 'float'; value: number; title: string
+  min?: number; max?: number; step?: number
 }
 
 function parsePineParams(source: string): PineParam[] {
@@ -52,52 +41,41 @@ function parsePineParams(source: string): PineParam[] {
     const titleMatch = argsStr.match(/title\s*=\s*"([^"]*)"/)
     const title = titleMatch ? titleMatch[1] : name
     const minMatch = argsStr.match(/minval\s*=\s*(-?\d+(?:\.\d+)?)/)
-    const min = minMatch ? parseFloat(minMatch[1]) : undefined
     const maxMatch = argsStr.match(/maxval\s*=\s*(-?\d+(?:\.\d+)?)/)
-    const max = maxMatch ? parseFloat(maxMatch[1]) : undefined
     const stepMatch = argsStr.match(/step\s*=\s*(\d+(?:\.\d+)?)/)
-    const step = stepMatch ? parseFloat(stepMatch[1]) : undefined
-    params.push({ name, type: ptype, value, title, min, max, step })
+    params.push({
+      name, type: ptype, value, title,
+      min: minMatch ? parseFloat(minMatch[1]) : undefined,
+      max: maxMatch ? parseFloat(maxMatch[1]) : undefined,
+      step: stepMatch ? parseFloat(stepMatch[1]) : undefined,
+    })
   }
   return params
 }
 
 function updatePineParam(source: string, paramName: string, newValue: number): string {
-  const re = new RegExp(
-    `(${paramName}\\s*=\\s*input\\.(?:int|float)\\()(-?\\d+(?:\\.\\d+)?)`,
+  return source.replace(
+    new RegExp(`(${paramName}\\s*=\\s*input\\.(?:int|float)\\()(-?\\d+(?:\\.\\d+)?)`),
+    `$1${newValue}`,
   )
-  return source.replace(re, `$1${newValue}`)
 }
 
 // ─── Collapsible section ────────────────────────────────────────────────────
 
-function Section({
-  title,
-  defaultOpen = true,
-  children,
-}: {
-  title: string
-  children: React.ReactNode
-  defaultOpen?: boolean
+function Section({ title, defaultOpen = true, children }: {
+  title: string; children: React.ReactNode; defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="border-b border-border">
         <CollapsibleTrigger asChild>
-          <button className="flex w-full items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+          <button className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
             {title}
-            <ChevronDown
-              className={cn(
-                'h-3 w-3 transition-transform',
-                open && 'rotate-180',
-              )}
-            />
+            <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent className="px-3 pb-3">
-          {children}
-        </CollapsibleContent>
+        <CollapsibleContent className="px-3 pb-3">{children}</CollapsibleContent>
       </div>
     </Collapsible>
   )
@@ -106,54 +84,86 @@ function Section({
 // ─── Status badge ───────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const variantMap: Record<string, 'success' | 'warning' | 'secondary' | 'destructive'> = {
-    running: 'success',
-    warmup: 'warning',
-    stopped: 'secondary',
-    failed: 'destructive',
+  const v: Record<string, 'success' | 'warning' | 'secondary' | 'destructive'> = {
+    running: 'success', warmup: 'warning', stopped: 'secondary', failed: 'destructive',
   }
-  const variant = variantMap[status] || 'secondary'
-
   return (
-    <Badge variant={variant} className="gap-1.5 text-[10px]">
-      {status === 'running' && (
-        <span className="w-1.5 h-1.5 rounded-full bg-tv-green animate-pulse" />
-      )}
-      {status === 'warmup' && (
-        <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-      )}
+    <Badge variant={v[status] || 'secondary'} className="gap-1 text-[10px]">
+      {status === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-tv-green animate-pulse" />}
+      {status === 'warmup' && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
       {status.toUpperCase()}
     </Badge>
   )
 }
 
-// ─── Right panel: isolates perf subscription so left panel never re-renders ─
+// ─── Info bar: subscribes to full perf — re-renders on every WS push ────────
+
+function LiveInfoBar({ activeEngine }: { activeEngine: LiveEngineOut }) {
+  const perf = useDashboardStore((s) => s.perf)
+  const wsConnected = useDashboardStore((s) => s.wsConnected)
+
+  return (
+    <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
+      <StatusBadge status={activeEngine.status} />
+      <span className="text-xs text-foreground font-medium">{activeEngine.strategy}</span>
+      <span className="text-[10px] text-muted-foreground">{activeEngine.symbol}</span>
+      <span className="text-[10px] text-muted-foreground">{activeEngine.timeframe}</span>
+      <span className="text-[10px] text-muted-foreground">{activeEngine.exchange}</span>
+      {activeEngine.demo && <Badge variant="warning" className="text-[9px]">DEMO</Badge>}
+      {activeEngine.leverage > 1 && <Badge variant="outline" className="text-[9px]">{activeEngine.leverage}x</Badge>}
+      <div className="flex-1" />
+      {perf && (
+        <div className="flex items-center gap-3 text-[10px] tabular-nums">
+          <span className="text-muted-foreground">
+            Balance: <span className="text-foreground font-medium">{perf.current_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+          </span>
+          <span className={perf.total_pnl >= 0 ? 'text-tv-green' : 'text-tv-red'}>
+            P&L: {perf.total_pnl >= 0 ? '+' : ''}{perf.total_pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            ({perf.total_return_pct >= 0 ? '+' : ''}{perf.total_return_pct.toFixed(2)}%)
+          </span>
+          <span className="text-muted-foreground">Trades: {perf.total_trades}</span>
+        </div>
+      )}
+      <span className={cn('w-2 h-2 rounded-full', wsConnected ? 'bg-tv-green animate-pulse' : 'bg-muted-foreground')} />
+      <span className="text-[9px] text-muted-foreground">{wsConnected ? 'Live' : 'Offline'}</span>
+    </div>
+  )
+}
+
+// ─── Report area: only re-renders when total_trades changes ─────────────────
 
 function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
-  // Only this component subscribes to perf / wsConnected
-  const perf = useDashboardStore((s) => s.perf)
+  // Subscribe ONLY to the scalar trade count — not the full perf object
+  const tradeCount = useDashboardStore((s) => s.perf?.total_trades ?? 0)
   const setPerf = useDashboardStore((s) => s.setPerf)
-  const wsConnected = useDashboardStore((s) => s.wsConnected)
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
 
-  // WebSocket subscription — perf flows freely for live stats display
+  // Ref to latest perf — avoids subscribing to the full object
+  const perfRef = useRef<LivePerformance | null>(null)
+
+  // WebSocket subscription
   useEffect(() => {
+    // Sync ref from store on mount (in case perf already exists)
+    perfRef.current = useDashboardStore.getState().perf
     const cleanup = subscribeLivePerformance(
-      (msg) => { setPerf(msg); setWsConnected(true) },
+      (msg) => {
+        perfRef.current = msg
+        setPerf(msg)
+        setWsConnected(true)
+      },
       () => setWsConnected(false),
     )
     return () => cleanup()
   }, [setPerf, setWsConnected])
 
-  // Build report only when trade count changes
-  const tradeCount = perf?.total_trades ?? 0
+  // Build report snapshot — only when tradeCount changes
   const adaptedResult = useMemo<BacktestResult | null>(() => {
-    if (!perf) return null
+    const perf = perfRef.current
+    if (!perf || tradeCount === 0) return null
     return livePerformanceToBacktestResult(perf, {
       exchange: activeEngine?.exchange,
       strategy: activeEngine?.strategy,
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tradeCount, activeEngine?.exchange, activeEngine?.strategy])
 
   if (!activeEngine) {
@@ -171,50 +181,23 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
 
   return (
     <>
-      {/* Engine info bar — updates every WS push (lightweight) */}
-      <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
-        <StatusBadge status={activeEngine.status} />
-        <span className="text-xs text-foreground font-medium">{activeEngine.strategy}</span>
-        <span className="text-[10px] text-muted-foreground">{activeEngine.symbol}</span>
-        <span className="text-[10px] text-muted-foreground">{activeEngine.timeframe}</span>
-        <span className="text-[10px] text-muted-foreground">{activeEngine.exchange}</span>
-        {activeEngine.demo && <Badge variant="warning" className="text-[9px]">DEMO</Badge>}
-        {activeEngine.leverage > 1 && <Badge variant="outline" className="text-[9px]">{activeEngine.leverage}x</Badge>}
-        <div className="flex-1" />
-        {perf && (
-          <div className="flex items-center gap-3 text-[10px] tabular-nums">
-            <span className="text-muted-foreground">
-              Balance: <span className="text-foreground font-medium">{perf.current_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-            </span>
-            <span className={perf.total_pnl >= 0 ? 'text-tv-green' : 'text-tv-red'}>
-              P&L: {perf.total_pnl >= 0 ? '+' : ''}{perf.total_pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              ({perf.total_return_pct >= 0 ? '+' : ''}{perf.total_return_pct.toFixed(2)}%)
-            </span>
-            <span className="text-muted-foreground">Trades: {perf.total_trades}</span>
-          </div>
-        )}
-        <span className={cn('w-2 h-2 rounded-full', wsConnected ? 'bg-tv-green animate-pulse' : 'bg-muted-foreground')} />
-        <span className="text-[9px] text-muted-foreground">{wsConnected ? 'Live' : 'Offline'}</span>
-      </div>
+      {/* Info bar — own component, re-renders freely on every WS push */}
+      <LiveInfoBar activeEngine={activeEngine} />
 
-      {/* Strategy Tester — memoized, only re-renders on new trade */}
+      {/* Report — only re-renders when tradeCount changes */}
       <div className="flex-1 overflow-auto">
-        {adaptedResult && adaptedResult.total_trades > 0 ? (
+        {adaptedResult ? (
           <StrategyTester result={adaptedResult} />
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <div className="text-muted-foreground text-sm">
-                {activeEngine.status === 'warmup' ? 'Warming up...' : 'Waiting for trades...'}
+                {activeEngine.status === 'warmup' ? 'Warming up indicators...' : 'Waiting for first trade...'}
               </div>
               <div className="text-muted-foreground/60 text-xs mt-1">
-                The strategy report will appear once trades are executed.
+                The report will appear after the first trade closes.
+                <br />Live stats are shown in the bar above.
               </div>
-              {perf && (
-                <div className="mt-4 text-[10px] text-muted-foreground/80">
-                  Balance: {perf.current_balance.toLocaleString()} USDT
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -248,293 +231,149 @@ export default function DashboardPage() {
 
   const paramUpdateRef = useRef(false)
 
-  // Active engine (first running / warmup)
-  const activeEngine = engines.find(
-    (e) => e.status === 'running' || e.status === 'warmup',
-  )
+  const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
 
-  // Set default strategy + load engines on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) setInitialized(true)
   }, [strategies, initialized])
 
-  // Load live engines on mount
-  useEffect(() => {
-    api.liveEngines().then(setEngines).catch(() => {})
-  }, [])
+  useEffect(() => { api.liveEngines().then(setEngines).catch(() => {}) }, [])
 
-  // Poll engines list periodically
   useEffect(() => {
-    const interval = setInterval(() => {
-      api.liveEngines().then(setEngines).catch(() => {})
-    }, 5000)
+    const interval = setInterval(() => { api.liveEngines().then(setEngines).catch(() => {}) }, 5000)
     return () => clearInterval(interval)
   }, [])
 
-  const handleStrategyChange = useCallback(
-    (name: string) => {
-      setSelectedStrategy(name)
-      if (name === CUSTOM_KEY) {
-        setSource(DEFAULT_PINE)
-        setPineParams(parsePineParams(DEFAULT_PINE))
-      } else {
-        api.strategySource(name).then(({ source: src }) => {
-          setSource(src)
-          setPineParams(parsePineParams(src))
-        })
-      }
-    },
-    [],
-  )
+  const handleStrategyChange = useCallback((name: string) => {
+    setSelectedStrategy(name)
+    if (name === CUSTOM_KEY) { setSource(DEFAULT_PINE); setPineParams(parsePineParams(DEFAULT_PINE)) }
+    else { api.strategySource(name).then(({ source: src }) => { setSource(src); setPineParams(parsePineParams(src)) }) }
+  }, [])
 
   const handleSourceChange = useCallback((val: string) => {
     setSource(val)
-    if (paramUpdateRef.current) {
-      paramUpdateRef.current = false
-      return
-    }
+    if (paramUpdateRef.current) { paramUpdateRef.current = false; return }
     setPineParams(parsePineParams(val))
   }, [])
 
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
     paramUpdateRef.current = true
     setSource((prev) => updatePineParam(prev, paramName, newValue))
-    setPineParams((prev) =>
-      prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p)),
-    )
+    setPineParams((prev) => prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p)))
   }, [])
 
-  // Start live engine
   const handleStart = useCallback(async () => {
-    setStarting(true)
-    setStartError(null)
+    setStarting(true); setStartError(null)
     try {
       const req: LiveStartRequest = {
-        pine_source: source,
-        exchange,
-        symbol,
-        timeframe,
-        position_size_usdt: positionSize,
-        leverage,
-        warmup_bars: warmupBars,
-        demo,
+        pine_source: source, exchange, symbol, timeframe,
+        position_size_usdt: positionSize, leverage, warmup_bars: warmupBars, demo,
       }
-      if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) {
-        req.strategy = selectedStrategy
-      }
+      if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) req.strategy = selectedStrategy
       await api.startLive(req)
-      const updated = await api.liveEngines()
-      setEngines(updated)
-    } catch (e) {
-      setStartError(String(e))
-    } finally {
-      setStarting(false)
-    }
+      setEngines(await api.liveEngines())
+    } catch (e) { setStartError(String(e)) }
+    finally { setStarting(false) }
   }, [source, exchange, symbol, timeframe, demo, positionSize, leverage, warmupBars, selectedStrategy])
 
-  // Stop live engine
   const handleStop = useCallback(async (engineId: string) => {
-    try {
-      await api.stopLive(engineId)
-      const updated = await api.liveEngines()
-      setEngines(updated)
-    } catch (e) {
-      setStartError(String(e))
-    }
+    try { await api.stopLive(engineId); setEngines(await api.liveEngines()) }
+    catch (e) { setStartError(String(e)) }
   }, [])
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 41px)' }}>
       <div className="flex flex-1 min-h-0">
-        {/* ── Left panel: strategy selector + settings ─────────────── */}
-        <div
-          className="w-80 shrink-0 flex flex-col bg-card border-r border-border"
-          style={{ height: '100%' }}
-        >
-          {/* Header */}
+        {/* ── Left panel ──────────────────────────────────────────── */}
+        <div className="w-80 shrink-0 flex flex-col bg-card border-r border-border h-full">
           <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Live Trading
-            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Live Trading</span>
             {activeEngine && <StatusBadge status={activeEngine.status} />}
           </div>
 
-          {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-            {/* Strategy selector */}
+          <div className="flex-1 overflow-y-auto min-h-0">
             <Section title="Strategy">
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Strategy</Label>
-                  <Select
-                    className="text-xs h-7"
-                    value={selectedStrategy}
-                    onChange={(e) => handleStrategyChange(e.target.value)}
-                    disabled={!!activeEngine}
-                  >
-                    <option value="">— Select —</option>
+                  <Select value={selectedStrategy} onChange={(e) => handleStrategyChange(e.target.value)} disabled={!!activeEngine} className="text-xs h-7">
+                    <option value="">-- Select --</option>
                     <option value={CUSTOM_KEY}>Custom Pine Script</option>
-                    {strategies.map((s) => (
-                      <option key={s.name} value={s.name}>
-                        {s.display_name}
-                      </option>
-                    ))}
+                    {strategies.map((s) => <option key={s.name} value={s.name}>{s.display_name}</option>)}
                   </Select>
                 </div>
               </div>
             </Section>
 
-            {/* Pine Script editor */}
             <Section title="Pine Script" defaultOpen={!activeEngine}>
-              <Textarea
-                className="w-full font-mono text-[11px] resize-y"
-                spellCheck={false}
-                rows={10}
-                style={{ minHeight: 100, maxHeight: 300 }}
-                value={source}
-                onChange={(e) => handleSourceChange(e.target.value)}
-                disabled={!!activeEngine}
-              />
+              <Textarea className="w-full font-mono text-[11px] resize-y" spellCheck={false} rows={10}
+                style={{ minHeight: 100, maxHeight: 300 }} value={source}
+                onChange={(e) => handleSourceChange(e.target.value)} disabled={!!activeEngine} />
             </Section>
 
-            {/* Parameters */}
             {pineParams.length > 0 && (
-              <Section
-                title={`Parameters (${pineParams.length})`}
-                defaultOpen={!activeEngine}
-              >
+              <Section title={`Parameters (${pineParams.length})`} defaultOpen={!activeEngine}>
                 <div className="space-y-0">
                   {pineParams.map((p) => (
                     <div key={p.name} className="flex flex-col gap-0.5 py-1">
                       <Label>{p.title}</Label>
-                      <Input
-                        type="number"
-                        className="text-xs h-7"
-                        value={p.value}
-                        step={p.step ?? (p.type === 'int' ? 1 : 0.01)}
-                        min={p.min}
-                        max={p.max}
+                      <Input type="number" className="text-xs h-7" value={p.value}
+                        step={p.step ?? (p.type === 'int' ? 1 : 0.01)} min={p.min} max={p.max}
                         disabled={!!activeEngine}
-                        onChange={(e) => {
-                          const v =
-                            p.type === 'int'
-                              ? parseInt(e.target.value)
-                              : parseFloat(e.target.value)
-                          if (!isNaN(v)) handleParamChange(p.name, v)
-                        }}
-                      />
+                        onChange={(e) => { const v = p.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value); if (!isNaN(v)) handleParamChange(p.name, v) }} />
                     </div>
                   ))}
                 </div>
               </Section>
             )}
 
-            {/* Settings */}
             <Section title="Settings">
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Exchange</Label>
-                  <Select
-                    className="text-xs h-7"
-                    value={exchange}
-                    onChange={(e) => setExchange(e.target.value)}
-                    disabled={!!activeEngine}
-                  >
-                    {exchanges.map((ex) => (
-                      <option key={ex.id} value={ex.id}>
-                        {ex.name}
-                      </option>
-                    ))}
+                  <Select className="text-xs h-7" value={exchange} onChange={(e) => setExchange(e.target.value)} disabled={!!activeEngine}>
+                    {exchanges.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
                   </Select>
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
-                  <Label className="text-[10px]">Symbol</Label>
-                  <Input
-                    className="text-xs h-7"
-                    value={symbol}
-                    onChange={(e) => setSymbol(e.target.value)}
-                    disabled={!!activeEngine}
-                  />
+                  <Label>Symbol</Label>
+                  <Input className="text-xs h-7" value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!activeEngine} />
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
-                  <Label className="text-[10px]">Timeframe</Label>
-                  <Select
-                    className="text-xs h-7"
-                    value={timeframe}
-                    onChange={(e) => setTimeframe(e.target.value)}
-                    disabled={!!activeEngine}
-                  >
-                    {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
-                      <option key={tf} value={tf}>
-                        {tf}
-                      </option>
-                    ))}
+                  <Label>Timeframe</Label>
+                  <Select className="text-xs h-7" value={timeframe} onChange={(e) => setTimeframe(e.target.value)} disabled={!!activeEngine}>
+                    {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <option key={tf} value={tf}>{tf}</option>)}
                   </Select>
                 </div>
                 <div className="flex gap-2">
                   <div className="flex-1 flex flex-col gap-0.5 py-1">
-                    <Label className="text-[10px]">Position Size (USDT)</Label>
-                    <Input
-                      type="number"
-                      className="text-xs h-7"
-                      value={positionSize}
-                      onChange={(e) => setPositionSize(Number(e.target.value))}
-                      disabled={!!activeEngine}
-                    />
+                    <Label>Position Size (USDT)</Label>
+                    <Input type="number" className="text-xs h-7" value={positionSize} onChange={(e) => setPositionSize(Number(e.target.value))} disabled={!!activeEngine} />
                   </div>
                   <div className="flex-1 flex flex-col gap-0.5 py-1">
-                    <Label className="text-[10px]">Leverage</Label>
-                    <Input
-                      type="number"
-                      className="text-xs h-7"
-                      value={leverage}
-                      min={1}
-                      max={125}
-                      onChange={(e) => setLeverage(Number(e.target.value))}
-                      disabled={!!activeEngine}
-                    />
+                    <Label>Leverage</Label>
+                    <Input type="number" className="text-xs h-7" value={leverage} min={1} max={125} onChange={(e) => setLeverage(Number(e.target.value))} disabled={!!activeEngine} />
                   </div>
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
-                  <Label className="text-[10px]">Warmup Bars</Label>
-                  <Input
-                    type="number"
-                    className="text-xs h-7"
-                    value={warmupBars}
-                    onChange={(e) => setWarmupBars(Number(e.target.value))}
-                    disabled={!!activeEngine}
-                  />
+                  <Label>Warmup Bars</Label>
+                  <Input type="number" className="text-xs h-7" value={warmupBars} onChange={(e) => setWarmupBars(Number(e.target.value))} disabled={!!activeEngine} />
                 </div>
                 <div className="flex items-center gap-2 py-1">
-                  <Checkbox
-                    id="demo-toggle"
-                    checked={demo}
-                    onCheckedChange={(checked) => setDemo(!!checked)}
-                    disabled={!!activeEngine}
-                  />
-                  <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">
-                    Demo Mode (Sandbox)
-                  </Label>
+                  <Checkbox id="demo-toggle" checked={demo} onCheckedChange={(c) => setDemo(!!c)} disabled={!!activeEngine} />
+                  <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
                 </div>
               </div>
             </Section>
 
-            {/* Running engines */}
             {engines.length > 0 && (
               <Section title={`Engines (${engines.length})`}>
                 <div className="space-y-1">
                   {engines.map((eng) => (
-                    <div
-                      key={eng.engine_id}
-                      className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50"
-                    >
+                    <div key={eng.engine_id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[11px] text-foreground truncate">
-                          {eng.strategy}
-                        </div>
-                        <div className="text-[9px] text-muted-foreground">
-                          {eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}
-                        </div>
+                        <div className="text-[11px] text-foreground truncate">{eng.strategy}</div>
+                        <div className="text-[9px] text-muted-foreground">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
                       </div>
                       <StatusBadge status={eng.status} />
                     </div>
@@ -544,39 +383,21 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Bottom action */}
           <div className="px-3 py-2 border-t border-border shrink-0">
-            {startError && (
-              <div
-                className="text-[10px] text-tv-red mb-1 truncate"
-                title={startError}
-              >
-                {startError}
-              </div>
-            )}
+            {startError && <div className="text-[10px] text-tv-red mb-1 truncate" title={startError}>{startError}</div>}
             {activeEngine ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="w-full"
-                onClick={() => handleStop(activeEngine.engine_id)}
-              >
+              <Button variant="destructive" size="sm" className="w-full" onClick={() => handleStop(activeEngine.engine_id)}>
                 Stop {activeEngine.strategy}
               </Button>
             ) : (
-              <Button
-                size="sm"
-                className="w-full"
-                disabled={starting || !source.trim()}
-                onClick={handleStart}
-              >
+              <Button size="sm" className="w-full" disabled={starting || !source.trim()} onClick={handleStart}>
                 {starting ? 'Starting...' : 'Start Live Trading'}
               </Button>
             )}
           </div>
         </div>
 
-        {/* ── Right panel — isolated component, WS updates don't re-render left panel */}
+        {/* ── Right panel — isolated, WS updates don't touch the left panel ── */}
         <div className="flex-1 flex flex-col min-w-0 bg-background">
           <LiveReportPanel activeEngine={activeEngine} />
         </div>
