@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -403,10 +403,14 @@ export default function DashboardPage() {
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Strategy</Label>
-                  <Select value={selectedStrategy} onChange={(e) => handleStrategyChange(e.target.value)} disabled={!!activeEngine} className="text-xs h-7">
-                    <option value="">-- Select --</option>
-                    <option value={CUSTOM_KEY}>Custom Pine Script</option>
-                    {strategies.map((s) => <option key={s.name} value={s.name}>{s.display_name}</option>)}
+                  <Select value={selectedStrategy} onValueChange={handleStrategyChange} disabled={!!activeEngine}>
+                    <SelectTrigger className="text-xs h-7">
+                      <SelectValue placeholder="-- Select --" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={CUSTOM_KEY}>Custom Pine Script</SelectItem>
+                      {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                 </div>
               </div>
@@ -438,8 +442,13 @@ export default function DashboardPage() {
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Exchange</Label>
-                  <Select className="text-xs h-7" value={exchange} onChange={(e) => setExchange(e.target.value)} disabled={!!activeEngine}>
-                    {exchanges.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+                  <Select value={exchange} onValueChange={setExchange} disabled={!!activeEngine}>
+                    <SelectTrigger className="text-xs h-7">
+                      <SelectValue placeholder="Select exchange" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
@@ -448,8 +457,13 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Timeframe</Label>
-                  <Select className="text-xs h-7" value={timeframe} onChange={(e) => setTimeframe(e.target.value)} disabled={!!activeEngine}>
-                    {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <option key={tf} value={tf}>{tf}</option>)}
+                  <Select value={timeframe} onValueChange={setTimeframe} disabled={!!activeEngine}>
+                    <SelectTrigger className="text-xs h-7">
+                      <SelectValue placeholder="Select timeframe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <SelectItem key={tf} value={tf}>{tf}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="flex gap-2">

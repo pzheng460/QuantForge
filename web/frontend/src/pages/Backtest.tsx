@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Collapsible,
@@ -281,16 +281,16 @@ export default function BacktestPage() {
               <div className="space-y-1">
                 <div className="flex flex-col gap-1">
                   <Label>Strategy</Label>
-                  <Select
-                    className="text-xs h-8"
-                    value={selectedStrategy}
-                    onChange={(e) => handleStrategyChange(e.target.value)}
-                  >
-                    <option value="">-- Select --</option>
-                    <option value={CUSTOM_KEY}>Custom Script</option>
-                    {strategies.map((s: StrategySchema) => (
-                      <option key={s.name} value={s.name}>{s.display_name}</option>
-                    ))}
+                  <Select value={selectedStrategy} onValueChange={handleStrategyChange}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="-- Select --" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={CUSTOM_KEY}>Custom Script</SelectItem>
+                      {strategies.map((s: StrategySchema) => (
+                        <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
               </div>
@@ -343,14 +343,15 @@ export default function BacktestPage() {
               <div className="space-y-1">
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Exchange</Label>
-                  <Select
-                    className="text-xs h-8"
-                    value={exchange}
-                    onChange={(e) => setExchange(e.target.value)}
-                  >
-                    {exchanges.map((ex: Exchange) => (
-                      <option key={ex.id} value={ex.id}>{ex.name}</option>
-                    ))}
+                  <Select value={exchange} onValueChange={setExchange}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Select exchange" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {exchanges.map((ex: Exchange) => (
+                        <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1 py-1">
@@ -370,17 +371,18 @@ export default function BacktestPage() {
                 </div>
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Timeframe</Label>
-                  <Select
-                    className="text-xs h-8"
-                    value={timeframe}
-                    onChange={(e) => setTimeframe(e.target.value)}
-                  >
-                    <option value="1m">1m</option>
-                    <option value="5m">5m</option>
-                    <option value="15m">15m</option>
-                    <option value="1h">1h</option>
-                    <option value="4h">4h</option>
-                    <option value="1d">1d</option>
+                  <Select value={timeframe} onValueChange={setTimeframe}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Select timeframe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1m">1m</SelectItem>
+                      <SelectItem value="5m">5m</SelectItem>
+                      <SelectItem value="15m">15m</SelectItem>
+                      <SelectItem value="1h">1h</SelectItem>
+                      <SelectItem value="4h">4h</SelectItem>
+                      <SelectItem value="1d">1d</SelectItem>
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="grid grid-cols-2 gap-2">

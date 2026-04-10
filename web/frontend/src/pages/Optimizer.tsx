@@ -9,7 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import type {
@@ -370,10 +370,15 @@ export default function OptimizerPage() {
           {mode === 'ai' && (
             <div className="flex flex-col gap-1">
               <Label>AI Skill</Label>
-              <Select value={selectedSkill} onChange={(e) => setSelectedSkill(e.target.value)}>
-                {agentSkills.map((skill) => (
-                  <option key={skill.name} value={skill.name}>{skill.name}</option>
-                ))}
+              <Select value={selectedSkill} onValueChange={setSelectedSkill}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select skill" />
+                </SelectTrigger>
+                <SelectContent>
+                  {agentSkills.map((skill) => (
+                    <SelectItem key={skill.name} value={skill.name}>{skill.name}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
               {selectedSkillInfo && (
                 <p className="text-xs text-muted-foreground mt-1">{selectedSkillInfo.description}</p>
@@ -385,15 +390,24 @@ export default function OptimizerPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="flex flex-col gap-1">
               <Label>Strategy</Label>
-              <Select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-                <option value="">-- Select --</option>
-                {strategies.map((s) => <option key={s.name} value={s.name}>{s.display_name}</option>)}
+              <Select value={strategy || '__none__'} onValueChange={(v) => setStrategy(v === '__none__' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="-- Select --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-1">
               <Label>Exchange</Label>
-              <Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                {exchanges.map((ex) => <option key={ex.id} value={ex.id}>{ex.name}</option>)}
+              <Select value={exchange} onValueChange={setExchange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select exchange" />
+                </SelectTrigger>
+                <SelectContent>
+                  {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-1">
@@ -432,8 +446,13 @@ export default function OptimizerPage() {
               {!useDateRange ? (
                 <div className="flex flex-col gap-1">
                   <Label>Period</Label>
-                  <Select value={period} onChange={(e) => setPeriod(e.target.value)}>
-                    {PERIODS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  <Select value={period} onValueChange={setPeriod}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PERIODS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                 </div>
               ) : (
@@ -451,10 +470,15 @@ export default function OptimizerPage() {
 
               <div className="flex flex-col gap-1">
                 <Label>Parallel jobs</Label>
-                <Select className="w-24" value={nJobs} onChange={(e) => setNJobs(Number(e.target.value))}>
-                  {[1, 2, 4, 8, -1].map((n) => (
-                    <option key={n} value={n}>{n === -1 ? 'All CPUs' : n}</option>
-                  ))}
+                <Select value={String(nJobs)} onValueChange={(v) => setNJobs(Number(v))}>
+                  <SelectTrigger className="w-24">
+                    <SelectValue placeholder="Jobs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 4, 8, -1].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n === -1 ? 'All CPUs' : n}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             </div>

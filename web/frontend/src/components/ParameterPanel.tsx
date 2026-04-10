@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import type { SchemaField, StrategySchema, Exchange } from '../types'
@@ -190,30 +190,30 @@ export default function ParameterPanel({
           <div className="space-y-1">
             <div className="flex flex-col gap-0.5 py-1">
               <Label className="text-[10px]">Strategy</Label>
-              <Select
-                className="text-xs py-1 h-7"
-                value={strategy}
-                onChange={(e) => onStrategyChange(e.target.value)}
-              >
-                {strategies.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.display_name}
-                  </option>
-                ))}
+              <Select value={strategy || '__none__'} onValueChange={(v) => onStrategyChange(v === '__none__' ? '' : v)}>
+                <SelectTrigger className="text-xs py-1 h-7">
+                  <SelectValue placeholder="-- Select --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {strategies.map((s) => (
+                    <SelectItem key={s.name} value={s.name}>
+                      {s.display_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-0.5 py-1">
               <Label className="text-[10px]">Exchange</Label>
-              <Select
-                className="text-xs py-1 h-7"
-                value={exchange}
-                onChange={(e) => onExchangeChange(e.target.value)}
-              >
-                {exchanges.map((ex) => (
-                  <option key={ex.id} value={ex.id}>
-                    {ex.name}
-                  </option>
-                ))}
+              <Select value={exchange} onValueChange={onExchangeChange}>
+                <SelectTrigger className="text-xs py-1 h-7">
+                  <SelectValue placeholder="Select exchange" />
+                </SelectTrigger>
+                <SelectContent>
+                  {exchanges.map((ex) => (
+                    <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-0.5 py-1">
@@ -258,16 +258,15 @@ export default function ParameterPanel({
             {!useDateRange ? (
               <div className="flex flex-col gap-0.5 py-1">
                 <Label className="text-[10px]">Period</Label>
-                <Select
-                  className="text-xs h-7"
-                  value={period}
-                  onChange={(e) => onPeriodChange(e.target.value)}
-                >
-                  {PERIODS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
+                <Select value={period} onValueChange={onPeriodChange}>
+                  <SelectTrigger className="text-xs h-7">
+                    <SelectValue placeholder="Select period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERIODS.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             ) : (
