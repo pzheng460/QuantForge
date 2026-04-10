@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
@@ -173,11 +173,19 @@ export default function DashboardPage() {
     api.liveEngines().then(setEngines).catch(() => {})
   }, [])
 
+  // Track last perf fingerprint to skip no-op updates
+  const lastPerfKeyRef = useRef('')
+
   // WebSocket subscription for real-time performance
   useEffect(() => {
     const cleanup = subscribeLivePerformance(
       (msg) => {
-        setPerf(msg)
+        // Only update store when data actually changed (trade count, balance, drawdown)
+        const key = `${msg.total_trades}|${msg.current_balance}|${msg.max_drawdown_pct}|${msg.total_pnl}`
+        if (key !== lastPerfKeyRef.current) {
+          lastPerfKeyRef.current = key
+          setPerf(msg)
+        }
         setWsConnected(true)
       },
       () => setWsConnected(false),
@@ -266,14 +274,15 @@ export default function DashboardPage() {
     }
   }, [])
 
-  // Convert live performance to BacktestResult for StrategyTester
-  const adaptedResult: BacktestResult | null =
-    perf
-      ? livePerformanceToBacktestResult(perf, {
-          exchange: activeEngine?.exchange,
-          strategy: activeEngine?.strategy,
-        })
-      : null
+  // Convert live performance to BacktestResult for StrategyTester — memoized
+  // to avoid recreating the object on every render (WS pushes every ~3s).
+  const adaptedResult = useMemo<BacktestResult | null>(() => {
+    if (!perf) return null
+    return livePerformanceToBacktestResult(perf, {
+      exchange: activeEngine?.exchange,
+      strategy: activeEngine?.strategy,
+    })
+  }, [perf, activeEngine?.exchange, activeEngine?.strategy])
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 37px)' }}>

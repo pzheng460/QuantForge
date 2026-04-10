@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { ChevronRight } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
@@ -1024,7 +1024,7 @@ interface Props {
   result: BacktestResult
 }
 
-export default function StrategyTester({ result }: Props) {
+function StrategyTesterInner({ result }: Props) {
   const [tab, setTab] = useState<Tab>('report')
   const { timezone } = useTimezone()
 
@@ -1073,3 +1073,20 @@ export default function StrategyTester({ result }: Props) {
     </div>
   )
 }
+
+/**
+ * Memoized — only re-renders when trade count, balance, or return %
+ * actually change, preventing full re-renders on each WS heartbeat.
+ */
+const StrategyTester = memo(StrategyTesterInner, (prev, next) => {
+  const p = prev.result
+  const n = next.result
+  return (
+    p.total_trades === n.total_trades &&
+    p.total_return_pct === n.total_return_pct &&
+    p.final_equity === n.final_equity &&
+    p.max_drawdown_pct === n.max_drawdown_pct
+  )
+})
+
+export default StrategyTester
