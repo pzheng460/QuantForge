@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { ChevronDown, Activity, Loader2, Play, Square } from 'lucide-react'
+import { Activity, Loader2, Play, Square } from 'lucide-react'
 import { api } from '../api/client'
 import { useBacktestStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/backtestStore'
 import { useCatalog } from '../hooks/useCatalog'
@@ -13,10 +13,16 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from '@/components/ui/collapsible'
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarProvider,
+} from '@/components/ui/sidebar'
 
 // ─── Resizable bottom panel ──────────────────────────────────────────────────
 
@@ -94,35 +100,6 @@ function updatePineParam(source: string, paramName: string, newValue: number): s
   return source.replace(re, `$1${newValue}`)
 }
 
-// ─── Collapsible section ────────────────────────────────────────────────────
-
-function Section({ title, children, defaultOpen = true, action }: {
-  title: string
-  children: React.ReactNode
-  defaultOpen?: boolean
-  action?: React.ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="border-b border-border">
-      <div className="flex items-center">
-        <CollapsibleTrigger className="flex flex-1 items-center justify-between px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
-          {title}
-          <ChevronDown
-            className={cn(
-              'h-3 w-3 transition-transform duration-200',
-              open && 'rotate-180',
-            )}
-          />
-        </CollapsibleTrigger>
-        {action && <div className="pr-3 shrink-0">{action}</div>}
-      </div>
-      <CollapsibleContent>
-        <div className="px-3 pb-3">{children}</div>
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
 
 // ─── Main Backtest page ─────────────────────────────────────────────────────
 
@@ -267,24 +244,24 @@ export default function BacktestPage() {
   const selectedExchange = exchanges.find((ex) => ex.id === exchange)
 
   return (
-    <div className="flex h-full min-h-0">
+    <SidebarProvider
+      defaultOpen
+      className="h-full min-h-0"
+      style={{ '--sidebar-width': '20rem' } as React.CSSProperties}
+    >
+      <Sidebar collapsible="none">
+        <SidebarHeader className="border-b border-sidebar-border px-3 py-2">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Backtest
+          </span>
+        </SidebarHeader>
 
-        {/* ── Left unified panel ──────────────────────────────────────── */}
-        <div className="w-80 shrink-0 flex flex-col bg-card border-r border-border h-full">
-
-          {/* Header */}
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Backtest
-            </span>
-          </div>
-
-          {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-
-            {/* Strategy selector */}
-            <Section title="Strategy">
-              <div className="space-y-1">
+        <SidebarContent>
+          {/* Strategy selector */}
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Strategy</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <div className="space-y-1 px-2">
                 <div className="flex flex-col gap-1">
                   <Label>Strategy</Label>
                   <Select value={selectedStrategy} onValueChange={handleStrategyChange}>
@@ -300,11 +277,14 @@ export default function BacktestPage() {
                   </Select>
                 </div>
               </div>
-            </Section>
+            </SidebarGroupContent>
+          </SidebarGroup>
 
-            {/* Pine Script editor */}
-            <Section title="Pine Script">
-              <div className="flex flex-col gap-1">
+          {/* Pine Script editor */}
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Pine Script</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <div className="px-2">
                 <Textarea
                   value={source}
                   onChange={(e) => handleSourceChange(e.target.value)}
@@ -315,12 +295,17 @@ export default function BacktestPage() {
                   style={{ minHeight: 120, maxHeight: 400 }}
                 />
               </div>
-            </Section>
+            </SidebarGroupContent>
+          </SidebarGroup>
 
-            {/* Parameters (parsed from Pine source) */}
-            {pineParams.length > 0 && (
-              <Section title={`Parameters (${pineParams.length})`}>
-                <div className="space-y-0">
+          {/* Parameters (parsed from Pine source) */}
+          {pineParams.length > 0 && (
+            <SidebarGroup>
+              <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">
+                {`Parameters (${pineParams.length})`}
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <div className="space-y-0 px-2">
                   {pineParams.map((p) => (
                     <div key={p.name} className="flex flex-col gap-0.5 py-1">
                       <Label>{p.title}</Label>
@@ -341,12 +326,15 @@ export default function BacktestPage() {
                     </div>
                   ))}
                 </div>
-              </Section>
-            )}
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
 
-            {/* Backtest settings */}
-            <Section title="Settings">
-              <div className="space-y-1">
+          {/* Backtest settings */}
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Settings</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <div className="space-y-1 px-2">
                 <div className="flex flex-col gap-0.5 py-1">
                   <Label>Exchange</Label>
                   <Select value={exchange} onValueChange={setExchange}>
@@ -423,110 +411,109 @@ export default function BacktestPage() {
                   />
                 </div>
               </div>
-            </Section>
-          </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
 
-          {/* Run / Cancel buttons */}
-          <div className="shrink-0 border-t border-border p-3 space-y-2">
-            {(status === 'pending' || status === 'running') && (
-              <div
-                className={cn(
-                  'text-xs text-center capitalize',
-                  status === 'running'
-                    ? 'text-primary animate-pulse'
-                    : 'text-muted-foreground',
-                )}
-              >
-                {status === 'running' ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Running...
-                  </span>
-                ) : (
-                  status
-                )}
-              </div>
-            )}
-            {status === 'pending' || status === 'running' ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="w-full"
-                onClick={handleCancel}
-              >
-                <Square className="mr-1.5 h-3 w-3" />
-                Cancel
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={handleRun}
-                disabled={loading || !source.trim()}
-              >
-                {loading ? (
-                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                ) : (
-                  <Play className="mr-1.5 h-3 w-3" />
-                )}
-                {loading ? 'Submitting...' : 'Run Backtest'}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* ── Right: Chart area + bottom panel ────────────────────────── */}
-        <div className="flex flex-col flex-1 min-w-0">
-
-          {/* Chart area */}
-          <div className="flex-1 min-h-0 bg-background relative">
-            {result ? (
-              <TradingChart
-                equityCurve={result.equity_curve}
-                trades={result.trades}
-                height={undefined}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                {loading ? (
-                  <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <span className="text-sm capitalize">{status || 'Loading...'}</span>
-                  </div>
-                ) : error ? (
-                  <div className="max-w-lg px-6">
-                    <p className="text-sm font-medium text-tv-red mb-2">Backtest failed</p>
-                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-auto max-h-48 bg-card border border-border rounded-sm p-3">
-                      {error}
-                    </pre>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                    <Activity className="h-12 w-12 stroke-1" />
-                    <span className="text-sm">Select a strategy or write Pine Script, then click Run Backtest</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Resize handle */}
-          {result && (
+        <SidebarFooter className="border-t border-sidebar-border">
+          {(status === 'pending' || status === 'running') && (
             <div
-              className="h-1 bg-border cursor-row-resize hover:bg-primary transition-colors"
-              onMouseDown={onDragStart}
-            />
-          )}
-
-          {/* Bottom results panel */}
-          {result && (
-            <div
-              className="shrink-0 bg-card border-t border-border overflow-hidden"
-              style={{ height: bottomHeight }}
+              className={cn(
+                'text-xs text-center capitalize',
+                status === 'running'
+                  ? 'text-primary animate-pulse'
+                  : 'text-muted-foreground',
+              )}
             >
-              <StrategyTester result={result} />
+              {status === 'running' ? (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Running...
+                </span>
+              ) : (
+                status
+              )}
             </div>
           )}
-        </div>    </div>
+          {status === 'pending' || status === 'running' ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full"
+              onClick={handleCancel}
+            >
+              <Square className="mr-1.5 h-3 w-3" />
+              Cancel
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={handleRun}
+              disabled={loading || !source.trim()}
+            >
+              {loading ? (
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : (
+                <Play className="mr-1.5 h-3 w-3" />
+              )}
+              {loading ? 'Submitting...' : 'Run Backtest'}
+            </Button>
+          )}
+        </SidebarFooter>
+      </Sidebar>
+
+      <SidebarInset className="flex flex-col min-w-0">
+        {/* Chart area */}
+        <div className="flex-1 min-h-0 bg-background relative">
+          {result ? (
+            <TradingChart
+              equityCurve={result.equity_curve}
+              trades={result.trades}
+              height={undefined}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              {loading ? (
+                <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="text-sm capitalize">{status || 'Loading...'}</span>
+                </div>
+              ) : error ? (
+                <div className="max-w-lg px-6">
+                  <p className="text-sm font-medium text-tv-red mb-2">Backtest failed</p>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-auto max-h-48 bg-card border border-border rounded-sm p-3">
+                    {error}
+                  </pre>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                  <Activity className="h-12 w-12 stroke-1" />
+                  <span className="text-sm">Select a strategy or write Pine Script, then click Run Backtest</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Resize handle */}
+        {result && (
+          <div
+            className="h-1 bg-border cursor-row-resize hover:bg-primary transition-colors"
+            onMouseDown={onDragStart}
+          />
+        )}
+
+        {/* Bottom results panel */}
+        {result && (
+          <div
+            className="shrink-0 bg-card border-t border-border overflow-hidden"
+            style={{ height: bottomHeight }}
+          >
+            <StrategyTester result={result} />
+          </div>
+        )}
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

@@ -5,13 +5,24 @@ import { useOptimizerStore } from '../stores/optimizerStore'
 import { useCatalog } from '../hooks/useCatalog'
 import AgentTraceViewer from '../components/AgentTraceViewer'
 import MetricsSummary from '../components/MetricsSummary'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarProvider,
+} from '@/components/ui/sidebar'
 import type {
   OptimizeRequest,
   OptimizeJobStatus,
@@ -221,9 +232,9 @@ export default function OptimizerPage() {
           setLoading(false)
         }
       },
-      (err) => { setError(String(err)); setLoading(false) },
+      (err: Event) => { setError(String(err)); setLoading(false) },
     )
-    return () => wsCleanupRef.current?.()
+    return () => { wsCleanupRef.current?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, mode])
 
@@ -235,9 +246,8 @@ export default function OptimizerPage() {
     const cleanup = subscribeAgent(
       agentJobId,
       (event) => { addAgentEvent(event) },
-      () => { console.warn('Agent WS disconnected, status poll will detect real errors') },
+      () => { console.warn('Agent WS disconnected') },
     )
-
     return cleanup
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentJobId, agentStatus])
@@ -255,10 +265,9 @@ export default function OptimizerPage() {
           clearInterval(interval)
         }
       } catch (err) {
-        console.error('Failed to poll agent status:', err)
+        console.error('Agent poll failed:', err)
       }
     }, 2000)
-
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentJobId])
@@ -294,7 +303,6 @@ export default function OptimizerPage() {
 
   const handleAIRun = useCallback(async () => {
     if (!selectedSkill) return
-
     resetAgent()
     setAgentStatus('pending')
 
@@ -306,7 +314,6 @@ export default function OptimizerPage() {
       timeframe: '1h',
       max_iterations: 5,
     }
-
     try {
       const job = await api.runAgent(req)
       setAgentJobId(job.job_id)
@@ -318,16 +325,9 @@ export default function OptimizerPage() {
 
   const handleCancel = useCallback(async () => {
     if (mode === 'grid' && jobId) {
-      try {
-        await api.cancelOptimize(jobId)
-        setStatus('cancelled')
-        setLoading(false)
-      } catch { /* ignore */ }
+      try { await api.cancelOptimize(jobId); setStatus('cancelled'); setLoading(false) } catch { /* ignore */ }
     } else if (mode === 'ai' && agentJobId) {
-      try {
-        await api.stopAgent(agentJobId)
-        setAgentStatus('cancelled')
-      } catch { /* ignore */ }
+      try { await api.stopAgent(agentJobId); setAgentStatus('cancelled') } catch { /* ignore */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, jobId, agentJobId])
@@ -339,160 +339,176 @@ export default function OptimizerPage() {
     (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running'))
 
   return (
-    <div className="h-full overflow-y-auto">
-    <div className="space-y-6 p-6 max-w-screen-2xl mx-auto">
+    <SidebarProvider>
+      <Sidebar collapsible="none">
+        <SidebarHeader className="border-b border-border px-3 py-2">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Optimizer
+          </span>
+        </SidebarHeader>
 
-      {/* ── Configuration Card ────────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-
+        <SidebarContent>
           {/* Mode selector */}
-          <div>
-            <Label className="mb-2 block">Optimization Mode</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {MODES.map((m) => (
-                <Button
-                  variant="outline"
-                  key={m.value}
-                  onClick={() => setMode(m.value as 'grid' | 'ai')}
-                  className={cn(
-                    'h-auto text-left p-3 rounded-sm justify-start flex-col items-start whitespace-normal',
-                    mode === m.value
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border hover:border-muted-foreground text-foreground',
-                  )}
-                >
-                  <div className="font-medium text-sm">{m.label}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-                </Button>
-              ))}
-            </div>
-          </div>
+          <SidebarGroup>
+            <SidebarGroupLabel>Mode</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <div className="grid grid-cols-2 gap-2">
+                {MODES.map((m) => (
+                  <Button
+                    key={m.value}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMode(m.value as 'grid' | 'ai')}
+                    className={cn(
+                      'h-auto text-left p-2 rounded-sm justify-start flex-col items-start whitespace-normal',
+                      mode === m.value && 'border-primary bg-primary/10 text-primary',
+                    )}
+                  >
+                    <span className="text-xs font-medium">{m.label}</span>
+                    <span className="text-[10px] text-muted-foreground leading-tight">{m.desc}</span>
+                  </Button>
+                ))}
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
 
-          {/* AI skill selector (only for AI mode) */}
-          {mode === 'ai' && (
-            <div className="flex flex-col gap-1">
-              <Label>AI Skill</Label>
-              <Select value={selectedSkill} onValueChange={setSelectedSkill}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select skill" />
-                </SelectTrigger>
-                <SelectContent>
-                  {agentSkills.map((skill) => (
-                    <SelectItem key={skill.name} value={skill.name}>{skill.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedSkillInfo && (
-                <p className="text-xs text-muted-foreground mt-1">{selectedSkillInfo.description}</p>
-              )}
-            </div>
-          )}
-
-          {/* Row: strategy + exchange + symbol + leverage */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="flex flex-col gap-1">
-              <Label>Strategy</Label>
-              <Select value={strategy || '__none__'} onValueChange={(v) => setStrategy(v === '__none__' ? '' : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="-- Select --" />
-                </SelectTrigger>
-                <SelectContent>
-                  {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label>Exchange</Label>
-              <Select value={exchange} onValueChange={setExchange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select exchange" />
-                </SelectTrigger>
-                <SelectContent>
-                  {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label>Symbol (default: {selectedExchange?.default_symbol ?? '...'})</Label>
-              <Input
-                type="text"
-                placeholder={selectedExchange?.default_symbol ?? ''}
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label>Leverage</Label>
-              <Input
-                type="number"
-                min={1}
-                max={20}
-                step={1}
-                value={leverage}
-                onChange={(e) => setLeverage(Number(e.target.value))}
-              />
-            </div>
-          </div>
-
-          {/* Period / Date range (only for grid search) */}
-          {mode === 'grid' && (
-            <div className="flex flex-wrap gap-4 items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={useDateRange}
-                  onCheckedChange={(checked) => setUseDateRange(checked === true)}
-                />
-                <span className="text-sm text-foreground">Custom date range</span>
-              </label>
-
-              {!useDateRange ? (
-                <div className="flex flex-col gap-1">
-                  <Label>Period</Label>
-                  <Select value={period} onValueChange={setPeriod}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select period" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PERIODS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-1">
-                    <Label>Start date</Label>
-                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label>End date</Label>
-                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                  </div>
-                </>
-              )}
-
+          {/* Configuration */}
+          <SidebarGroup>
+            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
+            <SidebarGroupContent className="space-y-2">
               <div className="flex flex-col gap-1">
-                <Label>Parallel jobs</Label>
-                <Select value={String(nJobs)} onValueChange={(v) => setNJobs(Number(v))}>
-                  <SelectTrigger className="w-24">
-                    <SelectValue placeholder="Jobs" />
+                <Label className="text-xs">Strategy</Label>
+                <Select value={strategy || '__none__'} onValueChange={(v) => setStrategy(v === '__none__' ? '' : v)}>
+                  <SelectTrigger className="text-xs h-8">
+                    <SelectValue placeholder="Select strategy" />
                   </SelectTrigger>
                   <SelectContent>
-                    {[1, 2, 4, 8, -1].map((n) => (
-                      <SelectItem key={n} value={String(n)}>{n === -1 ? 'All CPUs' : n}</SelectItem>
-                    ))}
+                    {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs">Exchange</Label>
+                <Select value={exchange} onValueChange={setExchange}>
+                  <SelectTrigger className="text-xs h-8">
+                    <SelectValue placeholder="Select exchange" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs">Symbol (default: {selectedExchange?.default_symbol ?? '...'})</Label>
+                <Input
+                  type="text"
+                  className="text-xs h-8"
+                  placeholder={selectedExchange?.default_symbol ?? ''}
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs">Leverage</Label>
+                <Input
+                  type="number"
+                  className="text-xs h-8"
+                  min={1}
+                  max={20}
+                  step={1}
+                  value={leverage}
+                  onChange={(e) => setLeverage(Number(e.target.value))}
+                />
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          {/* Grid-specific: period / date range / parallel jobs */}
+          {mode === 'grid' && (
+            <SidebarGroup>
+              <SidebarGroupLabel>Period</SidebarGroupLabel>
+              <SidebarGroupContent className="space-y-2">
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={useDateRange}
+                    onCheckedChange={(c) => setUseDateRange(c === true)}
+                  />
+                  <span className="text-xs text-muted-foreground">Custom date range</span>
+                </label>
+
+                {!useDateRange ? (
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs">Period</Label>
+                    <Select value={period} onValueChange={setPeriod}>
+                      <SelectTrigger className="text-xs h-8">
+                        <SelectValue placeholder="Select period" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PERIODS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <Label className="text-xs">Start Date</Label>
+                      <Input type="date" className="text-xs h-8" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <Label className="text-xs">End Date</Label>
+                      <Input type="date" className="text-xs h-8" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs">Parallel Jobs</Label>
+                  <Select value={String(nJobs)} onValueChange={(v) => setNJobs(Number(v))}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Jobs" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[1, 2, 4, 8, -1].map((n) => (
+                        <SelectItem key={n} value={String(n)}>{n === -1 ? 'All CPUs' : n}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </SidebarGroupContent>
+            </SidebarGroup>
           )}
 
-          {/* Action bar */}
-          <div className="flex items-center gap-3 pt-1">
+          {/* AI-specific: skill selector */}
+          {mode === 'ai' && (
+            <SidebarGroup>
+              <SidebarGroupLabel>AI Skill</SidebarGroupLabel>
+              <SidebarGroupContent className="space-y-2">
+                <Select value={selectedSkill} onValueChange={setSelectedSkill}>
+                  <SelectTrigger className="text-xs h-8">
+                    <SelectValue placeholder="Select skill" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agentSkills.map((s) => (
+                      <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedSkillInfo && (
+                  <p className="text-xs text-muted-foreground">{selectedSkillInfo.description}</p>
+                )}
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+        </SidebarContent>
+
+        <SidebarFooter className="border-t border-border p-3 space-y-2">
+          <div className="flex items-center gap-2">
             <Button
+              size="sm"
+              className="flex-1"
               onClick={mode === 'grid' ? handleGridRun : handleAIRun}
               disabled={
                 isRunning || !strategy ||
@@ -500,81 +516,83 @@ export default function OptimizerPage() {
               }
             >
               {mode === 'grid'
-                ? (isRunning ? 'Running\u2026' : 'Run Grid Search')
-                : (isRunning ? 'Running\u2026' : 'Run AI Optimize')}
+                ? (isRunning ? 'Running...' : 'Run Grid Search')
+                : (isRunning ? 'Running...' : 'Run AI Optimize')}
             </Button>
-
             {isRunning && (
               <Button variant="destructive" size="sm" onClick={handleCancel}>
                 Cancel
               </Button>
             )}
-
+          </div>
+          <div className="flex items-center gap-2">
             {mode === 'grid' && status && <StatusBadge status={status} />}
             {mode === 'ai' && agentStatus && <StatusBadge status={agentStatus} />}
-
             {isRunning && (
-              <span className="text-xs text-muted-foreground">This may take several minutes&hellip;</span>
+              <span className="text-[10px] text-muted-foreground">This may take several minutes&hellip;</span>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </SidebarFooter>
+      </Sidebar>
 
-      {/* ── Error cards ───────────────────────────────────────────────── */}
-      {error && mode === 'grid' && (
-        <Card className="border-destructive/50">
-          <CardContent className="pt-4">
-            <p className="text-sm font-medium text-red-500 mb-1">Grid search failed</p>
-            <pre className="text-xs text-red-400 whitespace-pre-wrap overflow-auto max-h-48">{error}</pre>
-          </CardContent>
-        </Card>
-      )}
+      <SidebarInset>
+        <div className="h-full overflow-y-auto p-6">
+          {/* ── Error displays ───────────────────────────────────────── */}
+          {error && mode === 'grid' && (
+            <Card className="border-destructive/50 mb-4">
+              <CardContent className="pt-4">
+                <p className="text-sm font-medium text-red-500 mb-1">Grid search failed</p>
+                <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-auto max-h-48">{error}</pre>
+              </CardContent>
+            </Card>
+          )}
 
-      {agentError && mode === 'ai' && (
-        <Card className="border-destructive/50">
-          <CardContent className="pt-4">
-            <p className="text-sm font-medium text-red-500 mb-1">AI optimization failed</p>
-            <pre className="text-xs text-red-400 whitespace-pre-wrap overflow-auto max-h-48">{agentError}</pre>
-          </CardContent>
-        </Card>
-      )}
+          {agentError && mode === 'ai' && (
+            <Card className="border-destructive/50 mb-4">
+              <CardContent className="pt-4">
+                <p className="text-sm font-medium text-red-500 mb-1">AI optimization failed</p>
+                <pre className="text-xs text-red-400 whitespace-pre-wrap overflow-auto max-h-48">{agentError}</pre>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* ── Grid Results ──────────────────────────────────────────────── */}
-      {mode === 'grid' && jobResult?.status === 'completed' && jobResult.grid_result && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Results{' '}
-              <span className="font-normal text-muted-foreground">
-                Grid Search &middot; {strategy} &middot; {exchange}
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+          {/* ── Grid Results ─────────────────────────────────────────── */}
+          {mode === 'grid' && jobResult?.status === 'completed' && jobResult.grid_result && (
             <GridResults r={jobResult.grid_result} />
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {/* ── AI Trace Viewer ───────────────────────────────────────────── */}
-      {mode === 'ai' && agentJobId && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[600px]">
-          <Card className="lg:col-span-2 overflow-hidden flex flex-col">
-            <CardContent className="flex-1 overflow-auto p-0">
-              <AgentTraceViewer events={agentEvents} status={agentStatus} className="h-full" />
-            </CardContent>
-          </Card>
-          <Card className="overflow-hidden">
-            <CardContent className="p-0 h-full">
-              <MetricsSummary
-                events={agentEvents}
-                metrics={selectedSkillInfo?.metrics ?? []}
-              />
-            </CardContent>
-          </Card>
+          {/* ── AI Trace Viewer ──────────────────────────────────────── */}
+          {mode === 'ai' && agentJobId && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[600px]">
+              <Card className="lg:col-span-2 overflow-hidden flex flex-col">
+                <CardContent className="flex-1 p-0">
+                  <AgentTraceViewer events={agentEvents} status={agentStatus} className="h-full" />
+                </CardContent>
+              </Card>
+              <Card className="overflow-hidden">
+                <CardContent className="p-0 h-full">
+                  <MetricsSummary
+                    events={agentEvents}
+                    metrics={selectedSkillInfo?.metrics ?? []}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!isRunning && !error && !agentError && !(mode === 'grid' && jobResult?.status === 'completed') && !(mode === 'ai' && agentJobId) && (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center max-w-md">
+                <div className="text-muted-foreground text-lg mb-2">No Results Yet</div>
+                <div className="text-muted-foreground/60 text-xs leading-relaxed">
+                  Configure your optimization settings in the sidebar, then click Run to start.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

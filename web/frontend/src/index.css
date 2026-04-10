@@ -5,23 +5,17 @@
 @layer base {
   :root {
     --radius: 0.375rem;
-  }
 
-  /*
-   * Single dark theme based on TradingView colors.
-   * All shadcn/ui CSS-variable slots are mapped here.
-   */
-  :root {
-    /* Surface / background */
+    /* Surface / background — TradingView dark theme */
     --background: 222 28% 10%;        /* #131722 */
     --foreground: 225 14% 82%;        /* #d1d4dc */
 
     /* Card / panel surfaces */
-    --card: 222 24% 15%;              /* #1e222d */
+    --card: 222 24% 12%;              /* #1e222d */
     --card-foreground: 225 14% 82%;   /* #d1d4dc */
 
     /* Popover / dropdown */
-    --popover: 222 24% 15%;           /* #1e222d */
+    --popover: 222 24% 12%;
     --popover-foreground: 225 14% 82%;
 
     /* Primary (TV blue) */
@@ -30,7 +24,7 @@
 
     /* Secondary */
     --secondary: 222 18% 19%;         /* #2a2e39 */
-    --secondary-foreground: 220 12% 82%; /* #d1d4dc */
+    --secondary-foreground: 220 12% 82%;
 
     /* Muted */
     --muted: 222 18% 19%;             /* #2a2e39 */
@@ -46,8 +40,25 @@
 
     /* Borders / input / ring */
     --border: 222 18% 19%;            /* #2a2e39 */
-    --input: 222 18% 19%;             /* #2a2e39 */
+    --input: 222 18% 19%;
     --ring: 224 100% 58%;             /* #2962ff */
+
+    /* Sidebar — dark TV panel */
+    --sidebar-background: 222 24% 12%;  /* #1e222d same as card */
+    --sidebar-foreground: 225 14% 82%;  /* same as foreground */
+    --sidebar-primary: 224 100% 58%;    /* #2962ff */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 18% 19%;      /* #2a2e39 */
+    --sidebar-accent-foreground: 220 12% 82%;
+    --sidebar-border: 222 18% 19%;      /* #2a2e39 */
+    --sidebar-ring: 224 100% 58%;
+
+    /* Chart colors */
+    --chart-1: 224 100% 58%;  /* primary blue */
+    --chart-2: 39 100% 48%;   /* amber/gold for B&H */
+    --chart-3: 160 60% 40%;   /* green */
+    --chart-4: 4 87% 63%;     /* red */
+    --chart-5: 270 60% 60%;   /* purple */
   }
 
   * {
@@ -64,16 +75,13 @@
     width: 6px;
     height: 6px;
   }
-
   ::-webkit-scrollbar-track {
     background: hsl(var(--card));
   }
-
   ::-webkit-scrollbar-thumb {
     background: #363a45;
     border-radius: 3px;
   }
-
   ::-webkit-scrollbar-thumb:hover {
     background: #4a4f5e;
   }

@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -21,7 +20,10 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import {
+  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
+  SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarProvider,
+} from '@/components/ui/sidebar'
 
 // ─── Pine parameter parsing ─────────────────────────────────────────────────
 
@@ -59,27 +61,6 @@ function updatePineParam(source: string, paramName: string, newValue: number): s
   return source.replace(
     new RegExp(`(${paramName}\\s*=\\s*input\\.(?:int|float)\\()(-?\\d+(?:\\.\\d+)?)`),
     `$1${newValue}`,
-  )
-}
-
-// ─── Collapsible section ────────────────────────────────────────────────────
-
-function Section({ title, defaultOpen = true, children }: {
-  title: string; children: React.ReactNode; defaultOpen?: boolean
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="border-b border-border">
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" className="w-full justify-between rounded-none h-auto px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">
-            {title}
-            <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="px-3 pb-3">{children}</CollapsibleContent>
-      </div>
-    </Collapsible>
   )
 }
 
@@ -397,121 +378,136 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <div className="flex h-full min-h-0">
-        {/* ── Left panel ──────────────────────────────────────────── */}
-        <div className="w-80 shrink-0 flex flex-col bg-card border-r border-border h-full">
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
+    <SidebarProvider defaultOpen>
+        {/* ── Left panel (Sidebar) ────────────────────────────────── */}
+        <Sidebar collapsible="none" className="border-r border-border">
+          <SidebarHeader className="px-3 py-2 border-b border-border flex-row items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Live Trading</span>
             {activeEngine && <StatusBadge status={activeEngine.status} />}
-          </div>
+          </SidebarHeader>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <Section title="Strategy">
-              <div className="space-y-1">
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Strategy</Label>
-                  <Select value={selectedStrategy} onValueChange={handleStrategyChange} disabled={!!activeEngine}>
-                    <SelectTrigger className="text-xs h-7">
-                      <SelectValue placeholder="-- Select --" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={CUSTOM_KEY}>Custom Pine Script</SelectItem>
-                      {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>Strategy</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <div className="space-y-1">
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <Label>Strategy</Label>
+                    <Select value={selectedStrategy} onValueChange={handleStrategyChange} disabled={!!activeEngine}>
+                      <SelectTrigger className="text-xs h-7">
+                        <SelectValue placeholder="-- Select --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={CUSTOM_KEY}>Custom Pine Script</SelectItem>
+                        {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
-            </Section>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-            <Section title="Pine Script" defaultOpen={!activeEngine}>
-              <Textarea className="w-full font-mono text-[11px] resize-y" spellCheck={false} rows={10}
-                style={{ minHeight: 100, maxHeight: 300 }} value={source}
-                onChange={(e) => handleSourceChange(e.target.value)} disabled={!!activeEngine} />
-            </Section>
+            <SidebarGroup>
+              <SidebarGroupLabel>Pine Script</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <Textarea className="w-full font-mono text-[11px] resize-y" spellCheck={false} rows={10}
+                  style={{ minHeight: 100, maxHeight: 300 }} value={source}
+                  onChange={(e) => handleSourceChange(e.target.value)} disabled={!!activeEngine} />
+              </SidebarGroupContent>
+            </SidebarGroup>
 
             {pineParams.length > 0 && (
-              <Section title={`Parameters (${pineParams.length})`} defaultOpen={!activeEngine}>
-                <div className="space-y-0">
-                  {pineParams.map((p) => (
-                    <div key={p.name} className="flex flex-col gap-0.5 py-1">
-                      <Label>{p.title}</Label>
-                      <Input type="number" className="text-xs h-7" value={p.value}
-                        step={p.step ?? (p.type === 'int' ? 1 : 0.01)} min={p.min} max={p.max}
-                        disabled={!!activeEngine}
-                        onChange={(e) => { const v = p.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value); if (!isNaN(v)) handleParamChange(p.name, v) }} />
-                    </div>
-                  ))}
-                </div>
-              </Section>
+              <SidebarGroup>
+                <SidebarGroupLabel>{`Parameters (${pineParams.length})`}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <div className="space-y-0">
+                    {pineParams.map((p) => (
+                      <div key={p.name} className="flex flex-col gap-0.5 py-1">
+                        <Label>{p.title}</Label>
+                        <Input type="number" className="text-xs h-7" value={p.value}
+                          step={p.step ?? (p.type === 'int' ? 1 : 0.01)} min={p.min} max={p.max}
+                          disabled={!!activeEngine}
+                          onChange={(e) => { const v = p.type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value); if (!isNaN(v)) handleParamChange(p.name, v) }} />
+                      </div>
+                    ))}
+                  </div>
+                </SidebarGroupContent>
+              </SidebarGroup>
             )}
 
-            <Section title="Settings">
-              <div className="space-y-1">
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Exchange</Label>
-                  <Select value={exchange} onValueChange={setExchange} disabled={!!activeEngine}>
-                    <SelectTrigger className="text-xs h-7">
-                      <SelectValue placeholder="Select exchange" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Symbol</Label>
-                  <Input className="text-xs h-7" value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!activeEngine} />
-                </div>
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Timeframe</Label>
-                  <Select value={timeframe} onValueChange={setTimeframe} disabled={!!activeEngine}>
-                    <SelectTrigger className="text-xs h-7">
-                      <SelectValue placeholder="Select timeframe" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <SelectItem key={tf} value={tf}>{tf}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1 flex flex-col gap-0.5 py-1">
-                    <Label>Position Size (USDT)</Label>
-                    <Input type="number" className="text-xs h-7" value={positionSize} onChange={(e) => setPositionSize(Number(e.target.value))} disabled={!!activeEngine} />
+            <SidebarGroup>
+              <SidebarGroupLabel>Settings</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <div className="space-y-1">
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <Label>Exchange</Label>
+                    <Select value={exchange} onValueChange={setExchange} disabled={!!activeEngine}>
+                      <SelectTrigger className="text-xs h-7">
+                        <SelectValue placeholder="Select exchange" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="flex-1 flex flex-col gap-0.5 py-1">
-                    <Label>Leverage</Label>
-                    <Input type="number" className="text-xs h-7" value={leverage} min={1} max={125} onChange={(e) => setLeverage(Number(e.target.value))} disabled={!!activeEngine} />
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <Label>Symbol</Label>
+                    <Input className="text-xs h-7" value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!activeEngine} />
+                  </div>
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <Label>Timeframe</Label>
+                    <Select value={timeframe} onValueChange={setTimeframe} disabled={!!activeEngine}>
+                      <SelectTrigger className="text-xs h-7">
+                        <SelectValue placeholder="Select timeframe" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <SelectItem key={tf} value={tf}>{tf}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex flex-col gap-0.5 py-1">
+                      <Label>Position Size (USDT)</Label>
+                      <Input type="number" className="text-xs h-7" value={positionSize} onChange={(e) => setPositionSize(Number(e.target.value))} disabled={!!activeEngine} />
+                    </div>
+                    <div className="flex-1 flex flex-col gap-0.5 py-1">
+                      <Label>Leverage</Label>
+                      <Input type="number" className="text-xs h-7" value={leverage} min={1} max={125} onChange={(e) => setLeverage(Number(e.target.value))} disabled={!!activeEngine} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-0.5 py-1">
+                    <Label>Warmup Bars</Label>
+                    <Input type="number" className="text-xs h-7" value={warmupBars} onChange={(e) => setWarmupBars(Number(e.target.value))} disabled={!!activeEngine} />
+                  </div>
+                  <div className="flex items-center gap-2 py-1">
+                    <Checkbox id="demo-toggle" checked={demo} onCheckedChange={(c) => setDemo(!!c)} disabled={!!activeEngine} />
+                    <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
                   </div>
                 </div>
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Warmup Bars</Label>
-                  <Input type="number" className="text-xs h-7" value={warmupBars} onChange={(e) => setWarmupBars(Number(e.target.value))} disabled={!!activeEngine} />
-                </div>
-                <div className="flex items-center gap-2 py-1">
-                  <Checkbox id="demo-toggle" checked={demo} onCheckedChange={(c) => setDemo(!!c)} disabled={!!activeEngine} />
-                  <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
-                </div>
-              </div>
-            </Section>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
             {engines.length > 0 && (
-              <Section title={`Engines (${engines.length})`}>
-                <div className="space-y-1">
-                  {engines.map((eng) => (
-                    <div key={eng.engine_id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[11px] text-foreground truncate">{eng.strategy}</div>
-                        <div className="text-[9px] text-muted-foreground">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
+              <SidebarGroup>
+                <SidebarGroupLabel>{`Engines (${engines.length})`}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <div className="space-y-1">
+                    {engines.map((eng) => (
+                      <div key={eng.engine_id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[11px] text-foreground truncate">{eng.strategy}</div>
+                          <div className="text-[9px] text-muted-foreground">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
+                        </div>
+                        <StatusBadge status={eng.status} />
                       </div>
-                      <StatusBadge status={eng.status} />
-                    </div>
-                  ))}
-                </div>
-              </Section>
+                    ))}
+                  </div>
+                </SidebarGroupContent>
+              </SidebarGroup>
             )}
-          </div>
+          </SidebarContent>
 
-          <div className="px-3 py-2 border-t border-border shrink-0">
+          <SidebarFooter className="px-3 py-2 border-t border-border">
             {startError && <div className="text-[10px] text-tv-red mb-1 truncate" title={startError}>{startError}</div>}
             {activeEngine ? (
               <Button variant="destructive" size="sm" className="w-full" onClick={() => handleStop(activeEngine.engine_id)}>
@@ -522,13 +518,13 @@ export default function DashboardPage() {
                 {starting ? 'Starting...' : 'Start Live Trading'}
               </Button>
             )}
-          </div>
-        </div>
+          </SidebarFooter>
+        </Sidebar>
 
         {/* ── Right panel — isolated, WS updates don't touch the left panel ── */}
-        <div className="flex-1 flex flex-col min-w-0 bg-background">
+        <SidebarInset className="flex flex-col min-w-0">
           <LiveReportPanel activeEngine={activeEngine} />
-      </div>
-    </div>
+        </SidebarInset>
+    </SidebarProvider>
   )
 }
