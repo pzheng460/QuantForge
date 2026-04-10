@@ -106,6 +106,7 @@ export default function TradingChart({ equityCurve, trades, height = 400 }: Prop
   }, [height])
 
   // Update data when equityCurve changes
+  const hasFittedRef = useRef(false)
   useEffect(() => {
     if (!strategySeriesRef.current || !bhSeriesRef.current || !equityCurve.length) return
 
@@ -165,7 +166,11 @@ export default function TradingChart({ equityCurve, trades, height = 400 }: Prop
       createSeriesMarkers(strategySeriesRef.current, dedupedMarkers)
     }
 
-    chartRef.current?.timeScale().fitContent()
+    // Only fit content on first data load — avoid jumping on live updates
+    if (!hasFittedRef.current) {
+      chartRef.current?.timeScale().fitContent()
+      hasFittedRef.current = true
+    }
   }, [equityCurve, trades])
 
   return (

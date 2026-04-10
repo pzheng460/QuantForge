@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
@@ -104,12 +104,11 @@ function StatusBadge({ status }: { status: string }) {
 function LiveEquityChart() {
   const perf = useDashboardStore((s) => s.perf)
 
-  // Build equity curve + trades from live perf
-  const { equityCurve, trades } = useMemo(() => {
-    if (!perf || perf.total_trades === 0) {
-      return { equityCurve: [] as EquityPoint[], trades: [] as TradeRecord[] }
-    }
+  // Build equity curve — cached in ref so TradingChart never unmounts
+  const curveRef = useRef<EquityPoint[]>([])
+  const tradesRef = useRef<TradeRecord[]>([])
 
+  if (perf && perf.total_trades > 0) {
     const initial = perf.initial_balance || 10000
     const curve: EquityPoint[] = [
       { t: perf.start_time || perf.last_update, strategy: initial, bh: initial },
@@ -119,10 +118,10 @@ function LiveEquityChart() {
       running += t.pnl
       curve.push({ t: t.exit_time, strategy: running, bh: initial })
     }
-    // Add a live point at current time with current balance
     curve.push({ t: perf.last_update, strategy: perf.current_balance, bh: initial })
+    curveRef.current = curve
 
-    const tradeRecords: TradeRecord[] = perf.trades.map((t) => ({
+    tradesRef.current = perf.trades.map((t) => ({
       timestamp: t.entry_time,
       side: (t.side === 'long' ? 'buy' : 'sell') as 'buy' | 'sell',
       price: t.entry_price,
@@ -134,15 +133,12 @@ function LiveEquityChart() {
       entry_time: t.entry_time,
       exit_time: t.exit_time,
     }))
+  }
 
-    return { equityCurve: curve, trades: tradeRecords }
-  }, [perf])
-
-  if (equityCurve.length === 0) return null
-
+  // Always render — TradingChart stays mounted, updates via setData
   return (
     <div className="h-[200px] border-b border-border shrink-0">
-      <TradingChart equityCurve={equityCurve} trades={trades} height={200} />
+      <TradingChart equityCurve={curveRef.current} trades={tradesRef.current} />
     </div>
   )
 }
