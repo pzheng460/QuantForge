@@ -73,10 +73,10 @@ function Section({ title, defaultOpen = true, children }: {
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="border-b border-border">
         <CollapsibleTrigger asChild>
-          <button className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+          <Button variant="ghost" className="w-full justify-between rounded-none h-auto px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">
             {title}
             <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
-          </button>
+          </Button>
         </CollapsibleTrigger>
         <CollapsibleContent className="px-3 pb-3">{children}</CollapsibleContent>
       </div>

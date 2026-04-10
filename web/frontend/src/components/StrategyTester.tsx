@@ -162,10 +162,10 @@ function Section({ title, children, defaultOpen = true }: { title: string; child
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="border-b border-border/30">
         <CollapsibleTrigger asChild>
-          <button className="flex items-center gap-1.5 w-full text-left py-2 px-1 text-[13px] font-semibold text-foreground hover:bg-muted/50">
+          <Button variant="ghost" className="w-full justify-start gap-1.5 rounded-none h-auto py-2 px-1 text-[13px] font-semibold text-foreground hover:bg-muted/50">
             <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
             {title}
-          </button>
+          </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="pb-3">{children}</div>
