@@ -178,11 +178,11 @@ export default function TradingChart({ equityCurve, trades, height = 400 }: Prop
       <div ref={containerRef} className="w-full h-full" />
       {/* Legend overlay */}
       <div className="absolute top-2 left-3 flex items-center gap-4 pointer-events-none">
-        <span className="flex items-center gap-1.5 text-xs text-tv-muted">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="inline-block w-5 h-0.5 bg-[#2962ff]" />
           Strategy
         </span>
-        <span className="flex items-center gap-1.5 text-xs text-tv-muted">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="inline-block w-5 border-t border-dashed border-[#f59f00]" />
           Buy &amp; Hold
         </span>
