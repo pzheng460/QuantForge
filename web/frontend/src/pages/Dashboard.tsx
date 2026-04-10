@@ -136,11 +136,7 @@ function LiveEquityChart() {
   }
 
   // Always render — TradingChart stays mounted, updates via setData
-  return (
-    <div className="h-[200px] border-b border-border shrink-0">
-      <TradingChart equityCurve={curveRef.current} trades={tradesRef.current} />
-    </div>
-  )
+  return <TradingChart equityCurve={curveRef.current} trades={tradesRef.current} />
 }
 
 // ─── Info bar: subscribes to perf for live stats ────────────────────────────
@@ -179,10 +175,42 @@ function LiveInfoBar({ activeEngine }: { activeEngine: LiveEngineOut }) {
 
 // ─── Report area: only re-renders when total_trades changes ─────────────────
 
+function useResizablePanel(defaultHeight: number) {
+  const [height, setHeight] = useState(defaultHeight)
+  const isDragging = useRef(false)
+  const startY = useRef(0)
+  const startH = useRef(defaultHeight)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true
+    startY.current = e.clientY
+    startH.current = height
+    e.preventDefault()
+  }, [height])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = startY.current - e.clientY
+      setHeight(Math.max(160, Math.min(600, startH.current + delta)))
+    }
+    const onUp = () => { isDragging.current = false }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  return { height, onMouseDown }
+}
+
 function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   const tradeCount = useDashboardStore((s) => s.perf?.total_trades ?? 0)
   const setPerf = useDashboardStore((s) => s.setPerf)
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
+  const { height: bottomHeight, onMouseDown: onDragStart } = useResizablePanel(280)
 
   // WebSocket subscription — drop stale messages where total_trades regresses
   const highWaterRef = useRef(0)
@@ -231,32 +259,41 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   }
 
   return (
-    <>
+    <div className="flex flex-col h-full">
       {/* Info bar — updates every WS push */}
       <LiveInfoBar activeEngine={activeEngine} />
 
-      {/* Equity chart — updates every WS push via lightweight-charts setData */}
-      <LiveEquityChart />
+      {/* Chart area — fills remaining space above the bottom panel */}
+      <div className="flex-1 min-h-0 bg-background relative">
+        <LiveEquityChart />
+      </div>
 
-      {/* Report — only re-renders when tradeCount changes */}
-      <div className="flex-1 overflow-auto">
-        {adaptedResult ? (
+      {/* Resize handle */}
+      {adaptedResult && (
+        <div
+          className="h-1 bg-border cursor-row-resize hover:bg-primary transition-colors shrink-0"
+          onMouseDown={onDragStart}
+        />
+      )}
+
+      {/* Bottom Strategy Tester panel — only re-renders when tradeCount changes */}
+      {adaptedResult ? (
+        <div className="shrink-0 bg-card border-t border-border overflow-hidden" style={{ height: bottomHeight }}>
           <StrategyTester result={adaptedResult} />
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="text-muted-foreground text-sm">
-                {activeEngine.status === 'warmup' ? 'Warming up indicators...' : 'Waiting for first trade...'}
-              </div>
-              <div className="text-muted-foreground/60 text-xs mt-1">
-                The report will appear after the first trade closes.
-                <br />Live stats are shown in the bar above.
-              </div>
+        </div>
+      ) : (
+        <div className="shrink-0 flex items-center justify-center bg-card border-t border-border" style={{ height: bottomHeight }}>
+          <div className="text-center">
+            <div className="text-muted-foreground text-sm">
+              {activeEngine.status === 'warmup' ? 'Warming up indicators...' : 'Waiting for first trade...'}
+            </div>
+            <div className="text-muted-foreground/60 text-xs mt-1">
+              The report will appear after the first trade closes.
             </div>
           </div>
-        )}
-      </div>
-    </>
+        </div>
+      )}
+    </div>
   )
 }
 
