@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
-import { ChevronRight, ArrowUpDown } from 'lucide-react'
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { ArrowUpDown } from 'lucide-react'
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { DataTable } from '@/components/ui/data-table'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -156,26 +157,6 @@ function computeSideStats(
   }
 }
 
-// ─── Collapsible section ────────────────────────────────────────────────────
-
-function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="border-b border-border/30">
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" className="w-full justify-start gap-1.5 rounded-none h-auto py-2 px-1 text-[13px] font-semibold text-foreground hover:bg-muted/50">
-            <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
-            {title}
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="pb-3">{children}</div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
-  )
-}
 
 // ─── TV-style metric table row ──────────────────────────────────────────────
 
@@ -301,8 +282,11 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
         </div>
       </div>
 
+      <Accordion type="multiple" defaultValue={["performance", "returns", "benchmark", "risk-adjusted", "trades-analysis"]}>
       {/* ── Performance (Profit structure + Benchmarking) ── */}
-      <Section title="Performance">
+      <AccordionItem value="performance">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Performance</AccordionTrigger>
+        <AccordionContent>
         <div className="grid grid-cols-2 gap-6 px-3">
           {/* Profit structure bar chart */}
           <div>
@@ -327,10 +311,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             />
           </div>
         </div>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
 
       {/* ── Returns ── */}
-      <Section title="Returns">
+      <AccordionItem value="returns">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Returns</AccordionTrigger>
+        <AccordionContent>
         <table className="w-full">
           <TableHeader />
           <tbody>
@@ -368,10 +355,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             />
           </tbody>
         </table>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
 
       {/* ── Benchmark comparison ── */}
-      <Section title="Benchmark comparison">
+      <AccordionItem value="benchmark">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Benchmark comparison</AccordionTrigger>
+        <AccordionContent>
         <table className="w-full">
           <TableHeader showLongShort={false} />
           <tbody>
@@ -386,10 +376,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             />
           </tbody>
         </table>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
 
       {/* ── Risk-adjusted performance ── */}
-      <Section title="Risk-adjusted performance">
+      <AccordionItem value="risk-adjusted">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Risk-adjusted performance</AccordionTrigger>
+        <AccordionContent>
         <table className="w-full">
           <TableHeader showLongShort={false} />
           <tbody>
@@ -397,10 +390,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             <Row showLongShort={false} label="Sortino ratio" all={r.sortino_ratio.toFixed(3)} />
           </tbody>
         </table>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
 
       {/* ── Trades analysis ── */}
-      <Section title="Trades analysis">
+      <AccordionItem value="trades-analysis">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Trades analysis</AccordionTrigger>
+        <AccordionContent>
         {/* P&L Distribution + Win/loss ratio */}
         <div className="grid grid-cols-2 gap-6 px-3 mb-4">
           <PnlDistribution trades={trades} />
@@ -494,10 +490,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             />
           </tbody>
         </table>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
 
       {/* ── Capital efficiency ── */}
-      <Section title="Capital efficiency" defaultOpen={false}>
+      <AccordionItem value="capital-efficiency">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Capital efficiency</AccordionTrigger>
+        <AccordionContent>
         <table className="w-full">
           <thead><SectionHeader title="Capital usage" /></thead>
           <TableHeader />
@@ -535,10 +534,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             <Row showLongShort={false} label="Margin calls" all="0" />
           </tbody>
         </table>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
 
       {/* ── Run-ups and drawdowns ── */}
-      <Section title="Run-ups and drawdowns" defaultOpen={false}>
+      <AccordionItem value="runups-drawdowns">
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Run-ups and drawdowns</AccordionTrigger>
+        <AccordionContent>
         <table className="w-full">
           <thead><SectionHeader title="Run-ups" /></thead>
           <TableHeader showLongShort={false} />
@@ -584,7 +586,9 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
             />
           </tbody>
         </table>
-      </Section>
+        </AccordionContent>
+      </AccordionItem>
+      </Accordion>
     </div>
   )
 }
@@ -1014,43 +1018,33 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
 
 // ─── Main StrategyTester component ──────────────────────────────────────────
 
-type Tab = 'report' | 'trades'
-
 interface Props {
   result: BacktestResult
 }
 
 export default function StrategyTester({ result }: Props) {
-  const [tab, setTab] = useState<Tab>('report')
   const { timezone } = useTimezone()
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'report', label: 'Strategy Report' },
-    { id: 'trades', label: 'List of Trades' },
-  ]
-
   return (
-    <div className="flex flex-col h-full">
-      {/* Tab bar */}
+    <Tabs defaultValue="report" className="flex flex-col h-full">
       <div className="flex items-center border-b border-border shrink-0">
         <span className="text-[11px] font-semibold text-muted-foreground px-3 py-2 border-r border-border mr-1">
           Strategy Tester
         </span>
-        {tabs.map((t) => (
-          <Button
-            variant="ghost"
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'px-4 py-2 text-xs font-medium rounded-none border-b-2 border-transparent h-auto',
-              tab === t.id
-                ? 'text-primary border-primary'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
+        <TabsList className="bg-transparent h-auto p-0">
+          <TabsTrigger
+            value="report"
+            className="px-4 py-2 text-xs font-medium rounded-none border-b-2 border-transparent h-auto data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-primary data-[state=active]:shadow-none text-muted-foreground hover:text-foreground"
           >
-            {t.label}
-          </Button>
-        ))}
+            Strategy Report
+          </TabsTrigger>
+          <TabsTrigger
+            value="trades"
+            className="px-4 py-2 text-xs font-medium rounded-none border-b-2 border-transparent h-auto data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-primary data-[state=active]:shadow-none text-muted-foreground hover:text-foreground"
+          >
+            List of Trades
+          </TabsTrigger>
+        </TabsList>
         {/* Summary info */}
         <div className="ml-auto flex items-center gap-4 pr-3 text-xs text-muted-foreground">
           <span>
@@ -1062,12 +1056,13 @@ export default function StrategyTester({ result }: Props) {
         </div>
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {tab === 'report' && <StrategyReportTab r={result} />}
-        {tab === 'trades' && <TradesListTab trades={result.trades} initialCapital={result.initial_capital} timezone={timezone} />}
-      </div>
-    </div>
+      <TabsContent value="report" className="flex-1 overflow-y-auto p-4 mt-0">
+        <StrategyReportTab r={result} />
+      </TabsContent>
+      <TabsContent value="trades" className="flex-1 overflow-y-auto p-4 mt-0">
+        <TradesListTab trades={result.trades} initialCapital={result.initial_capital} timezone={timezone} />
+      </TabsContent>
+    </Tabs>
   )
 }
 

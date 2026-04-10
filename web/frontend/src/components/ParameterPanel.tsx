@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
+import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
@@ -23,20 +24,10 @@ function FieldInput({
     return (
       <label className="flex items-center justify-between gap-2 cursor-pointer py-1">
         <span className="text-xs text-muted-foreground">{field.label}</span>
-        <div
-          className={cn(
-            'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
-            Boolean(value) ? 'bg-primary' : 'bg-border',
-          )}
-          onClick={() => onChange(!Boolean(value))}
-        >
-          <span
-            className={cn(
-              'absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform',
-              Boolean(value) ? 'translate-x-4' : 'translate-x-0.5',
-            )}
-          />
-        </div>
+        <Switch
+          checked={Boolean(value)}
+          onCheckedChange={(checked) => onChange(checked)}
+        />
       </label>
     )
   }
@@ -239,20 +230,10 @@ export default function ParameterPanel({
           <div className="space-y-1">
             <label className="flex items-center justify-between gap-2 cursor-pointer py-1">
               <span className="text-xs text-muted-foreground">Custom Date Range</span>
-              <div
-                className={cn(
-                  'relative w-8 h-4 rounded-full transition-colors cursor-pointer',
-                  useDateRange ? 'bg-primary' : 'bg-border',
-                )}
-                onClick={() => onUseDateRangeChange(!useDateRange)}
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform',
-                    useDateRange ? 'translate-x-4' : 'translate-x-0.5',
-                  )}
-                />
-              </div>
+              <Switch
+                checked={useDateRange}
+                onCheckedChange={(v) => onUseDateRangeChange(v)}
+              />
             </label>
 
             {!useDateRange ? (
