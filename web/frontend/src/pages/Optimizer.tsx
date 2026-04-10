@@ -1,8 +1,20 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { useForm, Controller } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { cn } from '@/lib/utils'
-import { api, subscribeOptimize, subscribeAgent } from '../api/client'
+import { subscribeOptimize, subscribeAgent } from '../api/client'
 import { useOptimizerStore } from '../stores/optimizerStore'
 import { useCatalog } from '../hooks/useCatalog'
+import { optimizeSchema, type OptimizeFormData } from '@/lib/schemas'
+import { FormField } from '@/components/ui/form-field'
+import {
+  useAgentSkills,
+  useAgentStatus,
+  useRunOptimize,
+  useRunAgent,
+  useCancelOptimize,
+  useStopAgent,
+} from '../hooks/use-queries'
 import AgentTraceViewer from '../components/AgentTraceViewer'
 import MetricsSummary from '../components/MetricsSummary'
 import { Card, CardContent } from '@/components/ui/card'
@@ -182,30 +194,68 @@ export default function OptimizerPage() {
   // Agent-specific state (persisted in store across tab switches)
   const {
     agentJobId, setAgentJobId,
-    agentStatus, setAgentStatus,
     agentEvents, addAgentEvent,
     agentError, setAgentError,
-    agentSkills, setAgentSkills: _setSkills,
+    agentSkills: storedSkills, setAgentSkills,
     selectedSkill, setSelectedSkill,
     resetAgent,
   } = useOptimizerStore()
 
-  const setAgentSkills = _setSkills
+  // React Query: load agent skills
+  const agentSkillsQuery = useAgentSkills()
+
+  // Sync React Query agent skills into Zustand (so the rest of the component works)
+  const agentSkills = agentSkillsQuery.data ?? storedSkills
+  useEffect(() => {
+    if (agentSkillsQuery.data) {
+      setAgentSkills(agentSkillsQuery.data)
+      if (agentSkillsQuery.data.length > 0 && !selectedSkill) {
+        setSelectedSkill(agentSkillsQuery.data[0].name)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentSkillsQuery.data])
+
+  // React Query mutations
+  const runOptimizeMutation = useRunOptimize()
+  const cancelOptimizeMutation = useCancelOptimize()
+  const runAgentMutation = useRunAgent()
+  const stopAgentMutation = useStopAgent()
+
+  // React Hook Form with Zod validation for configuration fields
+  const {
+    register: registerOpt,
+    control: controlOpt,
+    handleSubmit: handleSubmitOpt,
+    formState: { errors: formErrors },
+    setValue: _setFormValue,
+  } = useForm<OptimizeFormData>({
+    resolver: zodResolver(optimizeSchema),
+    defaultValues: {
+      strategy,
+      exchange,
+      symbol,
+      leverage,
+    },
+  })
 
   const wsCleanupRef = useRef<(() => void) | null>(null)
 
-  // Load agent skills
+  // Derive agentStatus from store
+  const { agentStatus, setAgentStatus } = useOptimizerStore()
+
+  // React Query: poll agent status (replaces manual setInterval)
+  const isAgentPolling = !!agentJobId && agentStatus !== 'completed' && agentStatus !== 'failed' && agentStatus !== 'cancelled'
+  const agentStatusQuery = useAgentStatus(agentJobId, isAgentPolling)
+
+  // Sync agent status query into Zustand
   useEffect(() => {
-    api.agentSkills()
-      .then((skills) => {
-        setAgentSkills(skills)
-        if (skills.length > 0 && !selectedSkill) {
-          setSelectedSkill(skills[0].name)
-        }
-      })
-      .catch(() => {})
+    if (!agentStatusQuery.data) return
+    const job = agentStatusQuery.data
+    setAgentStatus(job.status)
+    if (job.error) setAgentError(job.error)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [agentStatusQuery.data])
 
   // Set default state on first-ever load
   useEffect(() => {
@@ -252,38 +302,26 @@ export default function OptimizerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentJobId, agentStatus])
 
-  // Poll agent status
-  useEffect(() => {
-    if (!agentJobId) return
-
-    const interval = setInterval(async () => {
-      try {
-        const agentJob = await api.getAgentStatus(agentJobId)
-        setAgentStatus(agentJob.status)
-        if (agentJob.error) setAgentError(agentJob.error)
-        if (agentJob.status === 'completed' || agentJob.status === 'failed') {
-          clearInterval(interval)
-        }
-      } catch (err) {
-        console.error('Agent poll failed:', err)
-      }
-    }, 2000)
-    return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentJobId])
+  // Agent status polling is now handled by React Query (useAgentStatus above)
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleGridRun = useCallback(async () => {
+  const onValidGridRun = useCallback((data: OptimizeFormData) => {
+    // Sync validated data to Zustand
+    setStrategy(data.strategy)
+    setExchange(data.exchange)
+    setSymbol(data.symbol ?? '')
+    setLeverage(data.leverage)
+
     setLoading(true)
     setJobResult(null)
     setError(null)
     setStatus('pending')
 
     const req: OptimizeRequest = {
-      strategy, exchange,
-      symbol: symbol || undefined,
-      leverage, mode: 'grid', n_jobs: nJobs,
+      strategy: data.strategy, exchange: data.exchange,
+      symbol: data.symbol || undefined,
+      leverage: data.leverage, mode: 'grid', n_jobs: nJobs,
     }
     if (useDateRange) {
       req.start_date = startDate || undefined
@@ -292,42 +330,47 @@ export default function OptimizerPage() {
       req.period = period
     }
 
-    try {
-      const job = await api.runOptimize(req)
-      setJobId(job.job_id)
-    } catch (e) {
-      setError(String(e)); setLoading(false)
-    }
+    runOptimizeMutation.mutate(req, {
+      onSuccess: (job) => setJobId(job.job_id),
+      onError: (e) => { setError(String(e)); setLoading(false) },
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strategy, exchange, symbol, leverage, nJobs, useDateRange, period, startDate, endDate])
+  }, [nJobs, useDateRange, period, startDate, endDate])
 
-  const handleAIRun = useCallback(async () => {
+  const onValidAIRun = useCallback((data: OptimizeFormData) => {
     if (!selectedSkill) return
+    setStrategy(data.strategy)
+    setExchange(data.exchange)
+    setSymbol(data.symbol ?? '')
+    setLeverage(data.leverage)
+
     resetAgent()
     setAgentStatus('pending')
 
     const req: AgentRunRequest = {
       skill_path: selectedSkill,
-      strategy,
-      exchange,
-      symbol: symbol || undefined,
+      strategy: data.strategy,
+      exchange: data.exchange,
+      symbol: data.symbol || undefined,
       timeframe: '1h',
       max_iterations: 5,
     }
-    try {
-      const job = await api.runAgent(req)
-      setAgentJobId(job.job_id)
-    } catch (e) {
-      setAgentError(String(e))
-    }
+    runAgentMutation.mutate(req, {
+      onSuccess: (job) => setAgentJobId(job.job_id),
+      onError: (e) => setAgentError(String(e)),
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSkill, strategy, exchange, symbol])
+  }, [selectedSkill])
 
-  const handleCancel = useCallback(async () => {
+  const handleCancel = useCallback(() => {
     if (mode === 'grid' && jobId) {
-      try { await api.cancelOptimize(jobId); setStatus('cancelled'); setLoading(false) } catch { /* ignore */ }
+      cancelOptimizeMutation.mutate(jobId, {
+        onSuccess: () => { setStatus('cancelled'); setLoading(false) },
+      })
     } else if (mode === 'ai' && agentJobId) {
-      try { await api.stopAgent(agentJobId); setAgentStatus('cancelled') } catch { /* ignore */ }
+      stopAgentMutation.mutate(agentJobId, {
+        onSuccess: () => setAgentStatus('cancelled'),
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, jobId, agentJobId])
@@ -376,9 +419,12 @@ export default function OptimizerPage() {
           <SidebarGroup>
             <SidebarGroupLabel>Configuration</SidebarGroupLabel>
             <SidebarGroupContent className="space-y-2">
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs">Strategy</Label>
-                <Select value={strategy || '__none__'} onValueChange={(v) => setStrategy(v === '__none__' ? '' : v)}>
+              <FormField label="Strategy" error={formErrors.strategy?.message}>
+                <Controller
+                  name="strategy"
+                  control={controlOpt}
+                  render={({ field }) => (
+                <Select value={field.value || '__none__'} onValueChange={(v) => { const val = v === '__none__' ? '' : v; field.onChange(val); setStrategy(val) }}>
                   <SelectTrigger className="text-xs h-8">
                     <SelectValue placeholder="Select strategy" />
                   </SelectTrigger>
@@ -386,11 +432,16 @@ export default function OptimizerPage() {
                     {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
+                  )}
+                />
+              </FormField>
 
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs">Exchange</Label>
-                <Select value={exchange} onValueChange={setExchange}>
+              <FormField label="Exchange" error={formErrors.exchange?.message}>
+                <Controller
+                  name="exchange"
+                  control={controlOpt}
+                  render={({ field }) => (
+                <Select value={field.value} onValueChange={(v) => { field.onChange(v); setExchange(v) }}>
                   <SelectTrigger className="text-xs h-8">
                     <SelectValue placeholder="Select exchange" />
                   </SelectTrigger>
@@ -398,31 +449,34 @@ export default function OptimizerPage() {
                     {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
+                  )}
+                />
+              </FormField>
 
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs">Symbol (default: {selectedExchange?.default_symbol ?? '...'})</Label>
+              <FormField label={`Symbol (default: ${selectedExchange?.default_symbol ?? '...'})`} error={formErrors.symbol?.message}>
                 <Input
                   type="text"
                   className="text-xs h-8"
                   placeholder={selectedExchange?.default_symbol ?? ''}
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
+                  {...registerOpt('symbol', {
+                    onChange: (e) => setSymbol(e.target.value),
+                  })}
                 />
-              </div>
+              </FormField>
 
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs">Leverage</Label>
+              <FormField label="Leverage" error={formErrors.leverage?.message}>
                 <Input
                   type="number"
                   className="text-xs h-8"
                   min={1}
                   max={20}
                   step={1}
-                  value={leverage}
-                  onChange={(e) => setLeverage(Number(e.target.value))}
+                  {...registerOpt('leverage', {
+                    valueAsNumber: true,
+                    onChange: (e) => setLeverage(Number(e.target.value)),
+                  })}
                 />
-              </div>
+              </FormField>
             </SidebarGroupContent>
           </SidebarGroup>
 
@@ -509,7 +563,7 @@ export default function OptimizerPage() {
             <Button
               size="sm"
               className="flex-1"
-              onClick={mode === 'grid' ? handleGridRun : handleAIRun}
+              onClick={handleSubmitOpt(mode === 'grid' ? onValidGridRun : onValidAIRun)}
               disabled={
                 isRunning || !strategy ||
                 (mode === 'ai' && !selectedSkill)

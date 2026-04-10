@@ -1,11 +1,16 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Activity, Loader2, Play, Square } from 'lucide-react'
+import { useForm, Controller } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { api } from '../api/client'
 import { useBacktestStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/backtestStore'
 import { useCatalog } from '../hooks/useCatalog'
-import type { BacktestRequest, StrategySchema, Exchange, JobStatus } from '../types'
+import { useBacktestStatus, useRunBacktest, useCancelBacktest } from '../hooks/use-queries'
+import type { BacktestRequest, StrategySchema, Exchange } from '../types'
 import TradingChart from '../components/charts/TradingChart'
 import StrategyTester from '../components/StrategyTester'
+import { backtestSchema, type BacktestFormData } from '@/lib/schemas'
+import { FormField } from '@/components/ui/form-field'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -106,7 +111,7 @@ function updatePineParam(source: string, paramName: string, newValue: number): s
 export default function BacktestPage() {
   const { strategies, exchanges } = useCatalog()
 
-  // Zustand store (persists across tab switches)
+  // Zustand store — UI state only (persists across tab switches)
   const {
     selectedStrategy, setSelectedStrategy,
     source, setSource,
@@ -124,6 +129,44 @@ export default function BacktestPage() {
     loading, setLoading,
     initialized, setInitialized,
   } = useBacktestStore()
+
+  // React Query: poll backtest status when a job is running
+  const isPolling = !!jobId && status !== 'completed' && status !== 'failed' && status !== 'cancelled'
+  const backtestQuery = useBacktestStatus(jobId, isPolling)
+  const runBacktestMutation = useRunBacktest()
+  const cancelBacktestMutation = useCancelBacktest()
+
+  // Sync React Query polling results into Zustand for UI display
+  useEffect(() => {
+    if (!backtestQuery.data) return
+    const job = backtestQuery.data
+    setStatus(job.status)
+    if (job.status === 'completed' && job.result) {
+      setResult(job.result)
+      setLoading(false)
+    } else if (job.status === 'failed') {
+      setError(job.error ?? 'Unknown error')
+      setLoading(false)
+    }
+  }, [backtestQuery.data, setStatus, setResult, setLoading, setError])
+
+  // React Hook Form with Zod validation for settings fields
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors: formErrors },
+  } = useForm<BacktestFormData>({
+    resolver: zodResolver(backtestSchema),
+    defaultValues: {
+      exchange,
+      symbol,
+      timeframe,
+      startDate,
+      endDate,
+      warmupDays,
+    },
+  })
 
   // Resizable bottom panel
   const { height: bottomHeight, onMouseDown: onDragStart } = useResizablePanel(280)
@@ -176,70 +219,42 @@ export default function BacktestPage() {
     )
   }, [])
 
-  // Poll job status -- skip if already done
-  useEffect(() => {
-    if (!jobId) return
-    if (status === 'completed' || status === 'failed') return
-    let cancelled = false
-    const poll = async () => {
-      while (!cancelled) {
-        try {
-          const job: JobStatus = await api.getBacktestStatus(jobId)
-          if (cancelled) break
-          setStatus(job.status)
-          if (job.status === 'completed' && job.result) {
-            setResult(job.result)
-            setLoading(false)
-            break
-          } else if (job.status === 'failed') {
-            setError(job.error ?? 'Unknown error')
-            setLoading(false)
-            break
-          }
-        } catch {
-          // ignore transient errors
-        }
-        await new Promise((r) => setTimeout(r, 1500))
-      }
-    }
-    poll()
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId])
+  // Submit backtest via React Query mutation — triggered after Zod validation
+  const onValidSubmit = useCallback((data: BacktestFormData) => {
+    // Sync validated form data back to Zustand
+    setExchange(data.exchange)
+    setSymbol(data.symbol ?? '')
+    setTimeframe(data.timeframe)
+    setStartDate(data.startDate)
+    setEndDate(data.endDate)
+    setWarmupDays(data.warmupDays)
 
-  // Submit backtest
-  const handleRun = useCallback(async () => {
     setLoading(true)
     setResult(null)
     setError(null)
     setStatus('pending')
-    try {
-      const req: BacktestRequest = {
-        pine_source: source,
-        exchange,
-        symbol,
-        timeframe,
-        start_date: startDate,
-        end_date: endDate,
-        warmup_days: warmupDays,
-      }
-      const job = await api.runBacktest(req)
-      setJobId(job.job_id)
-    } catch (e) {
-      setError(String(e))
-      setLoading(false)
+    const req: BacktestRequest = {
+      pine_source: source,
+      exchange: data.exchange,
+      symbol: data.symbol,
+      timeframe: data.timeframe,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      warmup_days: data.warmupDays,
     }
+    runBacktestMutation.mutate(req, {
+      onSuccess: (job) => setJobId(job.job_id),
+      onError: (e) => { setError(String(e)); setLoading(false) },
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, exchange, symbol, timeframe, startDate, endDate, warmupDays])
+  }, [source])
 
-  const handleCancel = useCallback(async () => {
+  const handleCancel = useCallback(() => {
     if (!jobId) return
-    try {
-      await api.cancelBacktest(jobId)
-      setStatus('cancelled')
-      setLoading(false)
-    } catch { /* ignore */ }
-  }, [jobId, setStatus, setLoading])
+    cancelBacktestMutation.mutate(jobId, {
+      onSuccess: () => { setStatus('cancelled'); setLoading(false) },
+    })
+  }, [jobId, cancelBacktestMutation, setStatus, setLoading])
 
   const selectedExchange = exchanges.find((ex) => ex.id === exchange)
 
@@ -330,86 +345,99 @@ export default function BacktestPage() {
             </SidebarGroup>
           )}
 
-          {/* Backtest settings */}
+          {/* Backtest settings — validated by react-hook-form + zod */}
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Settings</SidebarGroupLabel>
             <SidebarGroupContent>
               <div className="space-y-1 px-2">
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Exchange</Label>
-                  <Select value={exchange} onValueChange={setExchange}>
-                    <SelectTrigger className="text-xs h-8">
-                      <SelectValue placeholder="Select exchange" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {exchanges.map((ex: Exchange) => (
-                        <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1 py-1">
-                  <Label>
-                    Symbol{' '}
-                    <span className="text-border">
-                      ({selectedExchange?.default_symbol ?? '\u2026'})
-                    </span>
-                  </Label>
+                <FormField label="Exchange" error={formErrors.exchange?.message}>
+                  <Controller
+                    name="exchange"
+                    control={control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={(v) => { field.onChange(v); setExchange(v) }}>
+                        <SelectTrigger className="text-xs h-8">
+                          <SelectValue placeholder="Select exchange" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {exchanges.map((ex: Exchange) => (
+                            <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </FormField>
+
+                <FormField
+                  label={`Symbol (${selectedExchange?.default_symbol ?? '\u2026'})`}
+                  error={formErrors.symbol?.message}
+                >
                   <Input
                     type="text"
                     className="text-xs h-8"
                     placeholder={selectedExchange?.default_symbol ?? ''}
-                    value={symbol}
-                    onChange={(e) => setSymbol(e.target.value)}
+                    {...register('symbol', {
+                      onChange: (e) => setSymbol(e.target.value),
+                    })}
                   />
-                </div>
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Timeframe</Label>
-                  <Select value={timeframe} onValueChange={setTimeframe}>
-                    <SelectTrigger className="text-xs h-8">
-                      <SelectValue placeholder="Select timeframe" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1m">1m</SelectItem>
-                      <SelectItem value="5m">5m</SelectItem>
-                      <SelectItem value="15m">15m</SelectItem>
-                      <SelectItem value="1h">1h</SelectItem>
-                      <SelectItem value="4h">4h</SelectItem>
-                      <SelectItem value="1d">1d</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                </FormField>
+
+                <FormField label="Timeframe" error={formErrors.timeframe?.message}>
+                  <Controller
+                    name="timeframe"
+                    control={control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={(v) => { field.onChange(v); setTimeframe(v) }}>
+                        <SelectTrigger className="text-xs h-8">
+                          <SelectValue placeholder="Select timeframe" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1m">1m</SelectItem>
+                          <SelectItem value="5m">5m</SelectItem>
+                          <SelectItem value="15m">15m</SelectItem>
+                          <SelectItem value="1h">1h</SelectItem>
+                          <SelectItem value="4h">4h</SelectItem>
+                          <SelectItem value="1d">1d</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </FormField>
+
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-0.5 py-1">
-                    <Label>Start Date</Label>
+                  <FormField label="Start Date" error={formErrors.startDate?.message}>
                     <Input
                       type="date"
                       className="text-xs h-8"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
+                      {...register('startDate', {
+                        onChange: (e) => setStartDate(e.target.value),
+                      })}
                     />
-                  </div>
-                  <div className="flex flex-col gap-0.5 py-1">
-                    <Label>End Date</Label>
+                  </FormField>
+                  <FormField label="End Date" error={formErrors.endDate?.message}>
                     <Input
                       type="date"
                       className="text-xs h-8"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
+                      {...register('endDate', {
+                        onChange: (e) => setEndDate(e.target.value),
+                      })}
                     />
-                  </div>
+                  </FormField>
                 </div>
-                <div className="flex flex-col gap-0.5 py-1">
-                  <Label>Warmup Days</Label>
+
+                <FormField label="Warmup Days" error={formErrors.warmupDays?.message}>
                   <Input
                     type="number"
                     className="text-xs h-8"
-                    value={warmupDays}
                     min={0}
                     max={365}
-                    onChange={(e) => setWarmupDays(Number(e.target.value))}
+                    {...register('warmupDays', {
+                      valueAsNumber: true,
+                      onChange: (e) => setWarmupDays(Number(e.target.value)),
+                    })}
                   />
-                </div>
+                </FormField>
               </div>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -449,7 +477,7 @@ export default function BacktestPage() {
             <Button
               size="sm"
               className="w-full"
-              onClick={handleRun}
+              onClick={handleSubmit(onValidSubmit)}
               disabled={loading || !source.trim()}
             >
               {loading ? (

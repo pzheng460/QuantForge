@@ -1,8 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useForm, Controller } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
+import { useLiveEngines, useStartLive, useStopLive } from '../hooks/use-queries'
 import type {
   LiveEngineOut,
   LiveStartRequest,
@@ -12,6 +15,8 @@ import StrategyTester from '../components/StrategyTester'
 import TradingChart from '../components/charts/TradingChart'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
 import type { EquityPoint, TradeRecord } from '../types'
+import { liveStartSchema, type LiveStartFormData } from '@/lib/schemas'
+import { FormField } from '@/components/ui/form-field'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -283,7 +288,7 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
 export default function DashboardPage() {
   const { strategies, exchanges } = useCatalog()
 
-  // Zustand store — NO perf/wsConnected here, so WS updates won't re-render this
+  // Zustand store — UI state only, no data-fetching state
   const {
     selectedStrategy, setSelectedStrategy,
     source, setSource,
@@ -295,8 +300,6 @@ export default function DashboardPage() {
     leverage, setLeverage,
     warmupBars, setWarmupBars,
     demo, setDemo,
-    engines, setEngines,
-    starting, setStarting,
     startError, setStartError,
     initialized, setInitialized,
   } = useDashboardStore(useShallow((s) => ({
@@ -310,14 +313,37 @@ export default function DashboardPage() {
     leverage: s.leverage, setLeverage: s.setLeverage,
     warmupBars: s.warmupBars, setWarmupBars: s.setWarmupBars,
     demo: s.demo, setDemo: s.setDemo,
-    engines: s.engines, setEngines: s.setEngines,
-    starting: s.starting, setStarting: s.setStarting,
     startError: s.startError, setStartError: s.setStartError,
     initialized: s.initialized, setInitialized: s.setInitialized,
   })))
 
-  const paramUpdateRef = useRef(false)
+  // React Query: live engines (replaces manual polling + zustand engines state)
+  const { data: engines = [] } = useLiveEngines()
+  const startLiveMutation = useStartLive()
+  const stopLiveMutation = useStopLive()
 
+  // React Hook Form with Zod validation for settings fields
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors: formErrors },
+    setValue: setFormValue,
+  } = useForm<LiveStartFormData>({
+    resolver: zodResolver(liveStartSchema),
+    defaultValues: {
+      strategy: selectedStrategy,
+      exchange,
+      symbol,
+      timeframe,
+      positionSize,
+      leverage,
+      warmupBars,
+      demo,
+    },
+  })
+
+  const paramUpdateRef = useRef(false)
 
   const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
 
@@ -327,20 +353,12 @@ export default function DashboardPage() {
   }, [strategies, initialized])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { api.liveEngines().then(setEngines).catch(() => {}) }, [])
-
-  useEffect(() => {
-    const interval = setInterval(() => { api.liveEngines().then(setEngines).catch(() => {}) }, 5000)
-    return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleStrategyChange = useCallback((name: string) => {
     setSelectedStrategy(name)
+    setFormValue('strategy', name)
     if (name === CUSTOM_KEY) { setSource(DEFAULT_PINE); setPineParams(parsePineParams(DEFAULT_PINE)) }
     else { api.strategySource(name).then(({ source: src }) => { setSource(src); setPineParams(parsePineParams(src)) }) }
-  }, [])
+  }, [setFormValue])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSourceChange = useCallback((val: string) => {
@@ -353,29 +371,39 @@ export default function DashboardPage() {
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
     paramUpdateRef.current = true
     setSource((prev) => updatePineParam(prev, paramName, newValue))
-    setPineParams((prev) => prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p)))
+    setPineParams((prev) => prev.map((p) => p.name === paramName ? { ...p, value: newValue } : p))
   }, [])
 
-  const handleStart = useCallback(async () => {
-    setStarting(true); setStartError(null)
-    try {
-      const req: LiveStartRequest = {
-        pine_source: source, exchange, symbol, timeframe,
-        position_size_usdt: positionSize, leverage, warmup_bars: warmupBars, demo,
-      }
-      if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) req.strategy = selectedStrategy
-      await api.startLive(req)
-      setEngines(await api.liveEngines())
-    } catch (e) { setStartError(String(e)) }
-    finally { setStarting(false) }
+  const onValidStart = useCallback((data: LiveStartFormData) => {
+    // Sync validated form data to Zustand
+    setExchange(data.exchange)
+    setSymbol(data.symbol)
+    setTimeframe(data.timeframe)
+    setPositionSize(data.positionSize)
+    setLeverage(data.leverage)
+    setWarmupBars(data.warmupBars)
+    setDemo(data.demo)
+
+    setStartError(null)
+    const req: LiveStartRequest = {
+      pine_source: source,
+      exchange: data.exchange,
+      symbol: data.symbol,
+      timeframe: data.timeframe,
+      position_size_usdt: data.positionSize,
+      leverage: data.leverage,
+      warmup_bars: data.warmupBars,
+      demo: data.demo,
+    }
+    if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) req.strategy = selectedStrategy
+    startLiveMutation.mutate(req, { onError: (e) => setStartError(String(e)) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, exchange, symbol, timeframe, demo, positionSize, leverage, warmupBars, selectedStrategy])
+  }, [source, selectedStrategy, startLiveMutation])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleStop = useCallback(async (engineId: string) => {
-    try { await api.stopLive(engineId); setEngines(await api.liveEngines()) }
-    catch (e) { setStartError(String(e)) }
-  }, [])
+  const handleStop = useCallback((engineId: string) => {
+    stopLiveMutation.mutate(engineId, { onError: (e) => setStartError(String(e)) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopLiveMutation])
 
   return (
     <SidebarProvider defaultOpen>
@@ -439,50 +467,76 @@ export default function DashboardPage() {
               <SidebarGroupLabel>Settings</SidebarGroupLabel>
               <SidebarGroupContent>
                 <div className="space-y-1">
-                  <div className="flex flex-col gap-0.5 py-1">
-                    <Label>Exchange</Label>
-                    <Select value={exchange} onValueChange={setExchange} disabled={!!activeEngine}>
-                      <SelectTrigger className="text-xs h-7">
-                        <SelectValue placeholder="Select exchange" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-0.5 py-1">
-                    <Label>Symbol</Label>
-                    <Input className="text-xs h-7" value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!activeEngine} />
-                  </div>
-                  <div className="flex flex-col gap-0.5 py-1">
-                    <Label>Timeframe</Label>
-                    <Select value={timeframe} onValueChange={setTimeframe} disabled={!!activeEngine}>
-                      <SelectTrigger className="text-xs h-7">
-                        <SelectValue placeholder="Select timeframe" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <SelectItem key={tf} value={tf}>{tf}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <FormField label="Exchange" error={formErrors.exchange?.message}>
+                    <Controller
+                      name="exchange"
+                      control={control}
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={(v) => { field.onChange(v); setExchange(v) }} disabled={!!activeEngine}>
+                          <SelectTrigger className="text-xs h-7">
+                            <SelectValue placeholder="Select exchange" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </FormField>
+                  <FormField label="Symbol" error={formErrors.symbol?.message}>
+                    <Input
+                      className="text-xs h-7"
+                      disabled={!!activeEngine}
+                      {...register('symbol', {
+                        onChange: (e) => setSymbol(e.target.value),
+                      })}
+                    />
+                  </FormField>
+                  <FormField label="Timeframe" error={formErrors.timeframe?.message}>
+                    <Controller
+                      name="timeframe"
+                      control={control}
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={(v) => { field.onChange(v); setTimeframe(v) }} disabled={!!activeEngine}>
+                          <SelectTrigger className="text-xs h-7">
+                            <SelectValue placeholder="Select timeframe" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <SelectItem key={tf} value={tf}>{tf}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </FormField>
                   <div className="flex gap-2">
-                    <div className="flex-1 flex flex-col gap-0.5 py-1">
-                      <Label>Position Size (USDT)</Label>
-                      <Input type="number" className="text-xs h-7" value={positionSize} onChange={(e) => setPositionSize(Number(e.target.value))} disabled={!!activeEngine} />
-                    </div>
-                    <div className="flex-1 flex flex-col gap-0.5 py-1">
-                      <Label>Leverage</Label>
-                      <Input type="number" className="text-xs h-7" value={leverage} min={1} max={125} onChange={(e) => setLeverage(Number(e.target.value))} disabled={!!activeEngine} />
-                    </div>
+                    <FormField label="Position Size (USDT)" error={formErrors.positionSize?.message} className="flex-1">
+                      <Input type="number" className="text-xs h-7" disabled={!!activeEngine}
+                        {...register('positionSize', { valueAsNumber: true, onChange: (e) => setPositionSize(Number(e.target.value)) })}
+                      />
+                    </FormField>
+                    <FormField label="Leverage" error={formErrors.leverage?.message} className="flex-1">
+                      <Input type="number" className="text-xs h-7" min={1} max={125} disabled={!!activeEngine}
+                        {...register('leverage', { valueAsNumber: true, onChange: (e) => setLeverage(Number(e.target.value)) })}
+                      />
+                    </FormField>
                   </div>
-                  <div className="flex flex-col gap-0.5 py-1">
-                    <Label>Warmup Bars</Label>
-                    <Input type="number" className="text-xs h-7" value={warmupBars} onChange={(e) => setWarmupBars(Number(e.target.value))} disabled={!!activeEngine} />
-                  </div>
-                  <div className="flex items-center gap-2 py-1">
-                    <Checkbox id="demo-toggle" checked={demo} onCheckedChange={(c) => setDemo(!!c)} disabled={!!activeEngine} />
-                    <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
-                  </div>
+                  <FormField label="Warmup Bars" error={formErrors.warmupBars?.message}>
+                    <Input type="number" className="text-xs h-7" disabled={!!activeEngine}
+                      {...register('warmupBars', { valueAsNumber: true, onChange: (e) => setWarmupBars(Number(e.target.value)) })}
+                    />
+                  </FormField>
+                  <Controller
+                    name="demo"
+                    control={control}
+                    render={({ field }) => (
+                      <div className="flex items-center gap-2 py-1">
+                        <Checkbox id="demo-toggle" checked={field.value}
+                          onCheckedChange={(c) => { const v = !!c; field.onChange(v); setDemo(v) }}
+                          disabled={!!activeEngine} />
+                        <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
+                      </div>
+                    )}
+                  />
                 </div>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -508,14 +562,18 @@ export default function DashboardPage() {
           </SidebarContent>
 
           <SidebarFooter className="px-3 py-2 border-t border-border">
-            {startError && <div className="text-[10px] text-tv-red mb-1 truncate" title={startError}>{startError}</div>}
+            {(startError || startLiveMutation.error) && (
+              <div className="text-[10px] text-tv-red mb-1 truncate" title={startError || String(startLiveMutation.error)}>
+                {startError || String(startLiveMutation.error)}
+              </div>
+            )}
             {activeEngine ? (
               <Button variant="destructive" size="sm" className="w-full" onClick={() => handleStop(activeEngine.engine_id)}>
                 Stop {activeEngine.strategy}
               </Button>
             ) : (
-              <Button size="sm" className="w-full" disabled={starting || !source.trim()} onClick={handleStart}>
-                {starting ? 'Starting...' : 'Start Live Trading'}
+              <Button size="sm" className="w-full" disabled={startLiveMutation.isPending || !source.trim()} onClick={handleSubmit(onValidStart)}>
+                {startLiveMutation.isPending ? 'Starting...' : 'Start Live Trading'}
               </Button>
             )}
           </SidebarFooter>
