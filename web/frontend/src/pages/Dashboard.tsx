@@ -138,10 +138,17 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   const setPerf = useDashboardStore((s) => s.setPerf)
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
 
-  // WebSocket subscription
+  // WebSocket subscription — drop stale messages where total_trades regresses
+  const highWaterRef = useRef(0)
   useEffect(() => {
     const cleanup = subscribeLivePerformance(
-      (msg) => { setPerf(msg); setWsConnected(true) },
+      (msg) => {
+        if (msg.total_trades >= highWaterRef.current) {
+          highWaterRef.current = msg.total_trades
+          setPerf(msg)
+        }
+        setWsConnected(true)
+      },
       () => setWsConnected(false),
     )
     return () => cleanup()
@@ -164,6 +171,7 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   }
 
   const adaptedResult = cachedResult.current
+
 
   if (!activeEngine) {
     return (
@@ -244,6 +252,7 @@ export default function DashboardPage() {
   })))
 
   const paramUpdateRef = useRef(false)
+
 
   const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
 
