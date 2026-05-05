@@ -3,13 +3,34 @@ import sys
 import msgspec
 
 from quantforge.cli.app import run_monitor
+from quantforge.cli.commands.agent_cmd import agent_group
+from quantforge.cli.commands.engines_cmd import engines_group
+from quantforge.cli.commands.exchanges_cmd import exchanges_group
+from quantforge.cli.commands.pine_cmd import backtest_cmd, live_cmd, optimize_cmd
+from quantforge.cli.commands.strategies_cmd import strategies_group
 from quantforge.core.entity import get_redis_client_if_available
 
 
 @click.group()
 def cli():
-    """QuantForge CLI tools for monitoring and management"""
+    """QuantForge CLI — every web feature available from the terminal.
+
+    Stateless commands (strategies, exchanges, engines list/perf, agent
+    skills/run) work without the web server. Stateful commands (engines
+    stop, agent status/stop) hit the web API at $QF_API_URL (default
+    http://127.0.0.1:8000).
+    """
     pass
+
+
+# Register subgroups + thin wrappers around quantforge.pine.cli.
+cli.add_command(strategies_group)
+cli.add_command(exchanges_group)
+cli.add_command(engines_group)
+cli.add_command(agent_group)
+cli.add_command(backtest_cmd)
+cli.add_command(optimize_cmd)
+cli.add_command(live_cmd)
 
 
 @cli.command()

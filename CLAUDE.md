@@ -434,6 +434,41 @@ The `quantforge/backtest/simulation/` submodule provides statistical simulation 
 | Bybit | `bybit` | 0.02% | 0.05% |
 | Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
 
+## Unified CLI (`quantforge-cli`)
+
+`quantforge-cli` is a Click-based command group that mirrors every web route as a CLI subcommand. Stateless ops read the filesystem directly (no server needed); stateful ops hit the web API at `$QF_API_URL` (default `http://127.0.0.1:8000`).
+
+| Command | Web equivalent | Mode |
+|---|---|---|
+| `strategies list` / `show <n>` / `source <n>` / `rename <old> <new>` | `/strategies*` | filesystem |
+| `exchanges list` | `/exchanges` | static |
+| `engines list [--via-server]` | `/live/engines` | persist file or HTTP |
+| `engines start <pine> [--via-server]` | `/live/start` | foreground or HTTP |
+| `engines stop <id>` | `/live/stop/{id}` | HTTP only |
+| `engines performance [strategy]` | `/live/performance` | persist file |
+| `agent skills` | `/agent/skills` | filesystem |
+| `agent run --skill X --strategy Y [--via-server]` | `/agent/run` | foreground subprocess or HTTP |
+| `agent status <id>` / `stop <id>` | `/agent/{id}*` | HTTP only |
+| `backtest <pine>` / `optimize <pine>` / `live <pine>` | `/backtest/run`, `/optimize/run`, `/live/start` | wraps `quantforge.pine.cli` |
+
+All list-style commands accept `--json` for scripting. Pine names auto-resolve from `quantforge/pine/strategies/`. Sources live in `quantforge/cli/commands/{strategies,exchanges,engines,agent,pine}_cmd.py` plus `_http.py` for the HTTP client.
+
+## TiMi Optimizer A/B Harness (`eval/optimizer_ab/`)
+
+Air-gapped evaluation framework for comparing variants of the LLM optimizer (`~/.openclaw/skills/quantforge-optimizer`). Each trial = (method, strategy, regime, seed); `runner.py` invokes Claude Code in an isolated staged skill dir on the train window only, then `holdout_eval.py` runs the optimized .pine on the regime's holdout window in a separate process so the agent never sees OOS data.
+
+| File | Role |
+|---|---|
+| `test_set.yaml` | Frozen 3-tier strategy split (dev/test/holdout) × 3 regimes × seeds. |
+| `methods/<name>/SKILL.md` | One per method under test; `baseline/SKILL.md` snapshots the canonical skill. |
+| `runner.py` | Single trial: stage skill, invoke `claude --print --stream-json`, capture `FINAL_OUTPUT:` sentinel. |
+| `holdout_eval.py` | Runs train + holdout backtests; **filters equity_curve and trades by bar timestamp so the warmup prefix doesn't contaminate OOS metrics**. |
+| `orchestrate.py` | Matrix loop over cells; resume key is `cell_id + "__"` so seed=1 is not a prefix of seed=10. Appends rows to `results/matrix.csv`. |
+| `analyze.py` | Per-method aggregates + paired Wilcoxon + bootstrap 95 % CI on Δ. |
+| `rebuild_csv.py` | Regenerate the CSV from existing trial JSONs without re-invoking the runner (use after metric-formula fixes). |
+
+Air-gap invariants: agent's prompt pins `--start --end` to the train window; OOS metrics are computed only on bars with `time >= start_unix`; per-trial `optimization_log.jsonl` is wiped so cross-run learning doesn't pollute baselines.
+
 ## Claude Code Memories
 
 ### Workflow Rules

@@ -402,6 +402,41 @@ uv run pytest quantforge/dsl/tests/ -v  # 35个测试
 | Bybit | `bybit` | 0.02% | 0.05% |
 | Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
 
+## 统一 CLI (`quantforge-cli`)
+
+`quantforge-cli` 是 Click 命令组，把每个 web route 都映射成 CLI 子命令。无状态操作直接读文件系统（不需要 server）；有状态操作走 `$QF_API_URL`（默认 `http://127.0.0.1:8000`）的 web API。
+
+| 命令 | Web 对应 | 模式 |
+|---|---|---|
+| `strategies list` / `show <n>` / `source <n>` / `rename <old> <new>` | `/strategies*` | 文件系统 |
+| `exchanges list` | `/exchanges` | 静态 |
+| `engines list [--via-server]` | `/live/engines` | 持久化文件 或 HTTP |
+| `engines start <pine> [--via-server]` | `/live/start` | 前台 或 HTTP |
+| `engines stop <id>` | `/live/stop/{id}` | 仅 HTTP |
+| `engines performance [strategy]` | `/live/performance` | 持久化文件 |
+| `agent skills` | `/agent/skills` | 文件系统 |
+| `agent run --skill X --strategy Y [--via-server]` | `/agent/run` | 前台子进程 或 HTTP |
+| `agent status <id>` / `stop <id>` | `/agent/{id}*` | 仅 HTTP |
+| `backtest <pine>` / `optimize <pine>` / `live <pine>` | `/backtest/run`, `/optimize/run`, `/live/start` | 委托 `quantforge.pine.cli` |
+
+所有 list 类命令支持 `--json`；Pine 名字自动从 `quantforge/pine/strategies/` 解析。代码在 `quantforge/cli/commands/{strategies,exchanges,engines,agent,pine}_cmd.py`，HTTP 客户端在 `_http.py`。
+
+## TiMi 优化器 A/B 评测框架 (`eval/optimizer_ab/`)
+
+针对 LLM 优化器（`~/.openclaw/skills/quantforge-optimizer`）的 air-gap 评测框架。每个 trial = (method, strategy, regime, seed)：`runner.py` 在隔离的 staged skill dir 里只在 train window 上调 Claude Code，再由独立进程 `holdout_eval.py` 在该 regime 的 holdout window 上跑优化后的 .pine——agent 永远看不到 OOS 数据。
+
+| 文件 | 作用 |
+|---|---|
+| `test_set.yaml` | 冻结的 3 层策略切分（dev/test/holdout）× 3 regime × seeds |
+| `methods/<name>/SKILL.md` | 每个待测方法一份；`baseline/SKILL.md` 是 canonical skill 的快照 |
+| `runner.py` | 单 trial：staging skill、调 `claude --print --stream-json`、抓 `FINAL_OUTPUT:` sentinel |
+| `holdout_eval.py` | 跑 train + holdout 双回测；**按 bar 时间戳过滤 equity_curve 和 trades，warmup 不污染 OOS metrics** |
+| `orchestrate.py` | 矩阵循环；resume key 用 `cell_id + "__"`，避免 seed=1 是 seed=10 的 prefix。结果追加到 `results/matrix.csv` |
+| `analyze.py` | per-method 聚合 + paired Wilcoxon + bootstrap 95% CI |
+| `rebuild_csv.py` | 改完 metric 计算后从 trial JSON 重建 CSV，不需要花钱重跑 runner |
+
+Air-gap 不变量：agent prompt 钉死 `--start --end` 到 train window；OOS metrics 只算 `time >= start_unix` 的 bars；每 trial 的 `optimization_log.jsonl` 清空，跨 run 学习不污染 baseline。
+
 ## Claude Code 记忆
 
 ### 工作规范
