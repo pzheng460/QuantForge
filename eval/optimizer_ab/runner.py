@@ -95,9 +95,23 @@ def build_prompt(skill_dir, src, work_path, output_path,
         f"- Original (read-only): {src}\n"
         f"- Working copy (edit only this): {work_path}\n"
         f"- Symbol: {symbol}  Timeframe: {timeframe}  Exchange: {exchange}\n\n"
+        "## ANTI-FABRICATION CONTRACT — read carefully\n"
+        "The harness audits every Bash tool call you make. It will compare\n"
+        "the metrics you report against the actual stdout of the backtest\n"
+        "you ran. Trials that emit FINAL_OUTPUT without at least one real\n"
+        "Bash backtest invocation are flagged and rejected.\n\n"
+        "Specifically you MUST:\n"
+        "  1. Run the baseline backtest via the Bash tool (not just describe it).\n"
+        "  2. Quote actual numbers from the backtest's stdout — never estimate,\n"
+        "     never reuse memorised numbers, never claim a strategy passes\n"
+        "     Gate 1 without seeing real PF/MaxDD/trades values from stdout.\n"
+        "  3. If you propose a code change, you MUST re-run the backtest on\n"
+        "     the modified file to verify the claimed improvement.\n"
+        "Hallucinated metrics will fail the trial regardless of FINAL_OUTPUT.\n\n"
         "## Stop conditions\n"
-        f"At most {max_iters} iterations OR Gate 1 passes:\n"
-        "  PF > 1.2 AND MaxDD < 15% AND total_trades >= 30.\n\n"
+        f"At most {max_iters} iterations OR Gate 1 passes (PF > 1.2 AND\n"
+        "MaxDD < 15% AND total_trades >= 30) — but the values must come\n"
+        "from a Bash backtest you actually executed in the current session.\n\n"
         "## Required final action\n"
         f"1. Run:  cp {work_path} {output_path}\n"
         "2. Print, on a line by itself, exactly:\n"
@@ -175,6 +189,32 @@ def extract_cost(stream):
     return last
 
 
+def count_real_backtests(stream):
+    """Return how many Bash tool calls ran `pine.cli backtest`. Trials with
+    zero real backtests are flagged as `lazy` — the agent fabricated metrics
+    or skipped optimization entirely. The air gap still holds (holdout_eval
+    is run independently) but the trial does not represent real optimizer
+    work and should be excluded from baseline distributions."""
+    n = 0
+    for line in stream.splitlines():
+        s = line.strip()
+        if not s.startswith("{"):
+            continue
+        try:
+            obj = json.loads(s)
+        except Exception:
+            continue
+        if obj.get("type") != "assistant":
+            continue
+        for item in obj.get("message", {}).get("content", []):
+            if item.get("type") != "tool_use" or item.get("name") != "Bash":
+                continue
+            cmd = item.get("input", {}).get("command", "") or ""
+            if "pine.cli backtest" in cmd or "pine.cli optimize" in cmd:
+                n += 1
+    return n
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=str(EVAL_ROOT / "test_set.yaml"))
@@ -237,6 +277,7 @@ def main():
         str(out_pine) if out_pine.exists() else None
     )
     cost = extract_cost(stream)
+    n_backtests = count_real_backtests(stream)
     record = {
         "trial_id": trial_id,
         "method": a.method,
@@ -248,6 +289,8 @@ def main():
         "finished_at": finished,
         "returncode": rc,
         "cost_usd": cost,
+        "n_backtests": n_backtests,
+        "lazy_warning": n_backtests == 0,
         "stream_log": str(log_path),
         "work_dir": str(work_root),
         "optimized_pine": optimized,

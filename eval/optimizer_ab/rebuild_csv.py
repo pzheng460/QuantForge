@@ -19,6 +19,7 @@ from pathlib import Path
 FIELDS = [
     "trial_id", "method", "strategy_name", "regime", "seed",
     "returncode", "cost_usd", "duration_s",
+    "n_backtests", "lazy_warning",
     "is_sharpe", "is_pf", "is_mdd", "is_win_rate", "is_n_trades",
     "oos_sharpe", "oos_pf", "oos_mdd", "oos_win_rate", "oos_n_trades",
     "overfit_index", "is_to_oos_pf_ratio",
@@ -45,6 +46,8 @@ def row_from_trial(p: Path) -> dict | None:
         "returncode": rec.get("returncode"),
         "cost_usd": rec.get("cost_usd"),
         "duration_s": "",
+        "n_backtests": rec.get("n_backtests"),
+        "lazy_warning": rec.get("lazy_warning"),
         "is_sharpe": is_m.get("sharpe"),
         "is_pf": is_m.get("profit_factor"),
         "is_mdd": is_m.get("max_drawdown"),

@@ -25,6 +25,7 @@ EVAL_ROOT = Path(__file__).resolve().parent
 FIELDS = [
     "trial_id", "method", "strategy_name", "regime", "seed",
     "returncode", "cost_usd", "duration_s",
+    "n_backtests", "lazy_warning",
     "is_sharpe", "is_pf", "is_mdd", "is_win_rate", "is_n_trades",
     "oos_sharpe", "oos_pf", "oos_mdd", "oos_win_rate", "oos_n_trades",
     "overfit_index", "is_to_oos_pf_ratio",
@@ -116,6 +117,8 @@ def _row(method, strat, regime, seed, cell_id, trial_json, duration, rc):
         "returncode": rec.get("returncode", rc),
         "cost_usd": rec.get("cost_usd", 0.0),
         "duration_s": round(duration, 1),
+        "n_backtests": rec.get("n_backtests"),
+        "lazy_warning": rec.get("lazy_warning"),
         "is_sharpe": is_m.get("sharpe"),
         "is_pf": is_m.get("profit_factor"),
         "is_mdd": is_m.get("max_drawdown"),

@@ -112,6 +112,9 @@ def main():
     p.add_argument("--baseline", default="baseline")
     p.add_argument("--treatment", required=True)
     p.add_argument("--metric", default="oos_sharpe")
+    p.add_argument("--include-lazy", action="store_true",
+                   help="Include trials where the agent emitted FINAL_OUTPUT "
+                        "without running any real backtest (default: exclude).")
     a = p.parse_args()
 
     rows = []
@@ -119,12 +122,20 @@ def main():
     with open(a.csv) as f:
         for r in _csv.DictReader(f):
             for k in list(r.keys()):
-                if k not in ("trial_id", "method", "strategy_name", "regime", "trial_json", "stream_log"):
+                if k not in ("trial_id", "method", "strategy_name", "regime",
+                             "trial_json", "stream_log", "lazy_warning"):
                     r[k] = to_float(r[k])
             rows.append(r)
     if not rows:
         print("(empty CSV)")
         return 1
+
+    if not a.include_lazy:
+        before = len(rows)
+        rows = [r for r in rows if str(r.get("lazy_warning", "")).lower() != "true"]
+        dropped = before - len(rows)
+        if dropped:
+            print(f"(excluded {dropped} lazy trials — re-run with --include-lazy to include)")
 
     methods = sorted({r["method"] for r in rows})
     by_method = defaultdict(list)
