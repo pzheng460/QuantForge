@@ -67,7 +67,7 @@ methods:
 
 # ─── Trial budget ─────────────────────────────────────────────────────────
 trial:
-  model: claude-sonnet-4-20250514
+  model: claude-sonnet-4-6
   max_iterations: 5
   max_turns: 80
   timeout_seconds: 1800   # 30min per trial, hard kill
