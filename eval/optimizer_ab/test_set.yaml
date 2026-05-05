@@ -1,0 +1,75 @@
+# Frozen test set for TiMi optimizer A/B evaluation.
+#
+# Three-tier split — DO NOT cross-contaminate:
+#   • dev:     used while iterating on a new method (read-only by harness, OK for hand inspection)
+#   • test:    used for the final A/B comparison
+#   • holdout: never seen by the agent; used only by holdout_eval.py for air-gapped OOS scoring
+#
+# Time windows are configured per-tier. The agent only optimizes on `train_period`;
+# `holdout_period` is fed exclusively to holdout_eval.py after the agent finishes.
+
+defaults:
+  symbol: BTC/USDT:USDT
+  timeframe: 1h
+  exchange: bitget
+  warmup_days: 60
+
+# ── Strategy split ────────────────────────────────────────────────────────────
+strategies:
+  dev:
+    # Use these for prompt iteration. Free to inspect, agent may have seen them before.
+    - quantforge/pine/strategies/ema_crossover.pine
+    - quantforge/pine/strategies/bollinger_band.pine
+
+  test:
+    # Frozen: don't iterate methods on these.
+    - quantforge/pine/strategies/momentum_adx.pine
+    - quantforge/pine/strategies/sma_trend.pine
+    - quantforge/pine/strategies/macd_trend.pine
+    - quantforge/pine/strategies/rsi_momentum.pine
+    - quantforge/pine/strategies/dual_regime.pine
+
+  holdout:
+    # Hard-frozen: only used in the final report. None of these appear in
+    # ~/.openclaw/skills/quantforge-optimizer/knowledge/optimization_log.jsonl.
+    - quantforge/pine/strategies/bb_squeeze.pine
+    - quantforge/pine/strategies/hurst_kalman.pine
+    - quantforge/pine/strategies/bollinger_band_v4.pine
+
+# ─── Regimes ────────────────────────────────────────────────────────────
+# Each regime defines the WINDOW the agent optimizes on (train) and the
+# disjoint period used for OOS scoring (holdout). Holdout is air-gapped.
+
+regimes:
+  trend_2024h1:
+    name: "BTC trending 2024 H1"
+    train_period: { start: 2024-01-01, end: 2024-06-30 }
+    holdout_period: { start: 2024-07-01, end: 2024-09-30 }
+
+  range_2024h2:
+    name: "BTC ranging 2024 H2"
+    train_period: { start: 2024-08-01, end: 2024-12-31 }
+    holdout_period: { start: 2025-01-01, end: 2025-03-31 }
+
+  vol_2025h1:
+    name: "BTC high-vol 2025 H1"
+    train_period: { start: 2025-01-01, end: 2025-06-30 }
+    holdout_period: { start: 2025-07-01, end: 2025-09-30 }
+
+# ─── Methods under test ───────────────────────────────────────────────────
+# Each method points to a SKILL.md variant. Add a new dir under methods/
+# with a different SKILL.md to define a new method.
+
+methods:
+  baseline:
+    skill_md: eval/optimizer_ab/methods/baseline/SKILL.md
+    description: "Current TiMi loop (snapshot of ~/.openclaw/skills/quantforge-optimizer/SKILL.md)"
+
+# ─── Trial budget ─────────────────────────────────────────────────────────
+trial:
+  model: claude-sonnet-4-20250514
+  max_iterations: 5
+  max_turns: 80
+  timeout_seconds: 1800   # 30min per trial, hard kill
+  max_cost_usd: 5.0       # informational; not enforced by claude CLI
+  seeds: [1, 2, 3]        # run each combination N times to control LLM stochasticity
