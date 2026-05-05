@@ -36,7 +36,21 @@ SKILL_SRC = Path.home() / ".openclaw" / "skills" / "quantforge-optimizer"
 FINAL_RE = re.compile(r"FINAL_OUTPUT:\s*([^\s\"'\\]+)")
 
 
-def stage_skill(method_dir, work_root):
+_DATE_RANGE_RE = re.compile(
+    r"--start\s+\d{4}-\d{2}-\d{2}\s+--end\s+\d{4}-\d{2}-\d{2}"
+)
+
+
+def _sanitize_dates(text: str, train_start: str, train_end: str) -> str:
+    """Replace any hardcoded `--start YYYY-MM-DD --end YYYY-MM-DD` snippet
+    with the trial's pinned training window. Without this, the agent can
+    copy the example dates from SKILL.md / scripts and end up backtesting
+    outside the training window — which would breach the air gap.
+    """
+    return _DATE_RANGE_RE.sub(f"--start {train_start} --end {train_end}", text)
+
+
+def stage_skill(method_dir, work_root, train_start=None, train_end=None):
     if not SKILL_SRC.exists():
         raise SystemExit(f"Canonical skill missing: {SKILL_SRC}")
     method_skill = method_dir / "SKILL.md"
@@ -48,6 +62,22 @@ def stage_skill(method_dir, work_root):
     log = staged / "knowledge" / "optimization_log.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("")
+
+    # Air-gap hardening: rewrite any hardcoded date ranges in SKILL.md and
+    # script docstrings so the agent cannot accidentally copy them.
+    if train_start and train_end:
+        for path in [staged / "SKILL.md",
+                     *(staged / "scripts").glob("*.py"),
+                     *(staged / "references").glob("*.md")]:
+            if not path.is_file():
+                continue
+            try:
+                txt = path.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            new = _sanitize_dates(txt, train_start, train_end)
+            if new != txt:
+                path.write_text(new)
     return staged
 
 
@@ -172,7 +202,11 @@ def main():
 
     trial_id = f"{a.method}__{src.stem}__{a.regime}__s{a.seed}__{uuid.uuid4().hex[:6]}"
     work_root = Path(tempfile.mkdtemp(prefix=f"qf_ab_{trial_id}_"))
-    skill_dir = stage_skill(method_dir, work_root)
+    skill_dir = stage_skill(
+        method_dir, work_root,
+        train_start=str(train["start"]),
+        train_end=str(train["end"]),
+    )
 
     work_pine = work_root / src.name
     shutil.copy(str(src), str(work_pine))

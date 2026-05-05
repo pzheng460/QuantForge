@@ -83,3 +83,26 @@ The harness preserves these properties; do not break them when adding methods:
 3. `holdout_eval.py` runs after `runner.py` returns, in a separate process.
 4. `optimization_log.jsonl` is wiped per trial (cross-run learning would
    contaminate baseline).
+5. `runner.stage_skill` rewrites every `--start YYYY-MM-DD --end YYYY-MM-DD`
+   pattern in SKILL.md, scripts, and references to the trial's pinned
+   training window so the agent cannot copy a stale example.
+6. `holdout_eval.evaluate` filters equity_curve and trades by bar timestamp
+   before computing metrics; the warmup prefix that overlaps the train
+   window is excluded.
+
+## Known limitations
+
+- **No deterministic LLM seed.** The Claude Code CLI does not expose
+  `--seed`, so `seeds: [1, 2, 3]` in test_set.yaml are *replicate
+  indices*, not reproducible random seeds — re-running the same (method,
+  strategy, regime, seed) cell produces a fresh sample. Results should
+  be reported as median ± bootstrap CI across seeds, not as point
+  estimates from a single run. `analyze.py` does this by default.
+- **Exchange data depth.** ccxt fetches in pages of 1000 bars; for
+  Bitget on 1h BTC, full 6-month windows may not return all expected
+  bars. The harness reports `n_bars` and `n_warmup_bars` so this is
+  visible.
+- **Agent may stop before max_iterations.** If the strategy passes its
+  own Gate-1 early (regardless of whether the in-sample sample size is
+  meaningful), the agent stops. This is the agent's behaviour, not a
+  framework bug.

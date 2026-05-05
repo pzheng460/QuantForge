@@ -467,7 +467,9 @@ Air-gapped evaluation framework for comparing variants of the LLM optimizer (`~/
 | `analyze.py` | Per-method aggregates + paired Wilcoxon + bootstrap 95 % CI on Δ. |
 | `rebuild_csv.py` | Regenerate the CSV from existing trial JSONs without re-invoking the runner (use after metric-formula fixes). |
 
-Air-gap invariants: agent's prompt pins `--start --end` to the train window; OOS metrics are computed only on bars with `time >= start_unix`; per-trial `optimization_log.jsonl` is wiped so cross-run learning doesn't pollute baselines.
+Air-gap invariants: agent's prompt pins `--start --end` to the train window; `stage_skill` rewrites every hardcoded `--start YYYY-MM-DD --end YYYY-MM-DD` snippet in SKILL.md / scripts / references to the trial's training window so the agent cannot copy stale examples; OOS metrics are computed only on bars with `time >= start_unix`; per-trial `optimization_log.jsonl` is wiped so cross-run learning doesn't pollute baselines.
+
+Known limitations: Claude CLI exposes no `--seed`, so `seeds: [1, 2, 3]` are *replicate indices*, not reproducible random seeds — report median ± bootstrap CI across seeds, not single-point estimates.
 
 ## Claude Code Memories
 

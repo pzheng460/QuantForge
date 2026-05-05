@@ -435,7 +435,9 @@ uv run pytest quantforge/dsl/tests/ -v  # 35个测试
 | `analyze.py` | per-method 聚合 + paired Wilcoxon + bootstrap 95% CI |
 | `rebuild_csv.py` | 改完 metric 计算后从 trial JSON 重建 CSV，不需要花钱重跑 runner |
 
-Air-gap 不变量：agent prompt 钉死 `--start --end` 到 train window；OOS metrics 只算 `time >= start_unix` 的 bars；每 trial 的 `optimization_log.jsonl` 清空，跨 run 学习不污染 baseline。
+Air-gap 不变量：agent prompt 钉死 `--start --end` 到 train window；`stage_skill` 把 SKILL.md / scripts / references 里所有硬编码 `--start YYYY-MM-DD --end YYYY-MM-DD` 都改写成本次 trial 的训练窗口，agent 复制示例时不会跑出框；OOS metrics 只算 `time >= start_unix` 的 bars；每 trial 的 `optimization_log.jsonl` 清空，跨 run 学习不污染 baseline。
+
+已知限制：Claude CLI 没有 `--seed`，`seeds: [1, 2, 3]` 是*重复采样编号*而非可重现随机种子——报告应给 median ± bootstrap CI，不是单点估计。
 
 ## Claude Code 记忆
 
