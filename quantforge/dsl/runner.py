@@ -184,6 +184,12 @@ def main():
 
     args = parser.parse_args()
 
+    # Import examples before list/deploy so decorator-based registration runs.
+    try:
+        import quantforge.dsl.examples  # noqa: F401
+    except ImportError:
+        pass
+
     if args.list:
         names = list_strategies()
         if not names:
@@ -199,12 +205,6 @@ def main():
     if not args.strategy:
         parser.print_help()
         return
-
-    # Import examples to trigger registration
-    try:
-        import quantforge.dsl.examples  # noqa: F401
-    except ImportError:
-        pass
 
     from quantforge.dsl.registry import get_strategy
 

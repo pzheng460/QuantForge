@@ -30,8 +30,7 @@ strategies:
     - quantforge/pine/strategies/dual_regime.pine
 
   holdout:
-    # Hard-frozen: only used in the final report. None of these appear in
-    # ~/.openclaw/skills/quantforge-optimizer/knowledge/optimization_log.jsonl.
+    # Hard-frozen: only used in the final report.
     - quantforge/pine/strategies/bb_squeeze.pine
     - quantforge/pine/strategies/hurst_kalman.pine
     - quantforge/pine/strategies/bollinger_band_v4.pine
@@ -63,7 +62,10 @@ regimes:
 methods:
   baseline:
     skill_md: eval/optimizer_ab/methods/baseline/SKILL.md
-    description: "Current TiMi loop (snapshot of ~/.openclaw/skills/quantforge-optimizer/SKILL.md)"
+    description: "Repo-local TiMi loop baseline"
+  cross_review_guided:
+    skill_md: eval/optimizer_ab/methods/cross_review_guided/SKILL.md
+    description: "Baseline loop plus Claude/Codex cross-review-derived factor constraints"
 
 # ─── Trial budget ─────────────────────────────────────────────────────────
 trial:

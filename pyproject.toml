@@ -42,6 +42,7 @@ dependencies = [
 ]
 
 [project.scripts]
+quantforge = "quantforge.cli.main:quantforge"
 quantforge-cli = "quantforge.cli.main:main"
 
 [build-system]

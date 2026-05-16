@@ -14,7 +14,7 @@ import requests
 
 
 def base_url() -> str:
-    return os.environ.get("QF_API_URL", "http://127.0.0.1:8000").rstrip("/")
+    return os.environ.get("QF_API_URL", "http://127.0.0.1:8000/api").rstrip("/")
 
 
 class ServerUnreachable(RuntimeError):
@@ -28,7 +28,7 @@ def get(path: str, **kwargs):
     except requests.ConnectionError as e:
         raise ServerUnreachable(
             f"Cannot reach {url} — is the web server running? "
-            f"(start with `uvicorn web.backend.main:app --reload`)"
+            f"(start with `uvicorn apps.dashboard.backend.main:app --reload`)"
         ) from e
     r.raise_for_status()
     return r.json()

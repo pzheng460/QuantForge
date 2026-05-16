@@ -189,6 +189,170 @@ uv run python -m strategy.backtest.runner
 
 The web UI serves on `http://localhost:5173` with interactive charts, trade markers, equity curves, and performance metrics.
 
+## CLI
+
+QuantForge exposes the project workflows through one entry point:
+
+```bash
+uv run quantforge-cli --help
+```
+
+Common workflows:
+
+```bash
+# Pine strategies
+uv run quantforge-cli strategies list
+uv run quantforge-cli backtest ema_crossover --symbol BTC/USDT:USDT --exchange bitget
+uv run quantforge-cli optimize ema_crossover --metric sharpe --top 10
+uv run quantforge-cli live ema_crossover --demo --dry-run
+
+# Web stack and API
+uv run quantforge-cli web start
+uv run quantforge-cli api get /health
+uv run quantforge-cli api post /backtest/run --json-file request.json
+
+# Live engines, examples, DSL, and evaluation harnesses
+uv run quantforge-cli engines list
+uv run quantforge-cli examples list bybit
+uv run quantforge-cli dsl --list
+uv run quantforge-cli eval optimizer-ab orchestrate --tier dev --methods baseline
+```
+
+Server-backed commands use `QF_API_URL`, defaulting to `http://127.0.0.1:8000/api`.
+Agent workflows support both Claude Code and Codex CLI. By default, Codex
+uses the model configured for the logged-in Codex account; pass `--model`
+only when that account supports the requested model.
+
+```bash
+uv run quantforge-cli agent run --provider codex --skill quantforge-optimizer --strategy ema_crossover
+uv run quantforge-cli eval optimizer-ab orchestrate --tier dev --methods baseline --agent-provider codex
+uv run quantforge-cli eval optimizer-ab orchestrate --tier dev --methods baseline \
+  --strategies ema_crossover --agent-providers claude,codex
+uv run python -m eval.optimizer_ab.analyze \
+  --csv eval/optimizer_ab/results/matrix.csv \
+  --metric oos_sharpe --compare-providers claude,codex
+uv run quantforge-cli eval optimizer-ab cross-review \
+  --csv eval/optimizer_ab/results/matrix.csv \
+  --providers claude,codex \
+  --summary-csv eval/optimizer_ab/results/cross_reviews/factors.csv
+uv run quantforge-cli eval optimizer-ab orchestrate \
+  --tier dev --methods baseline,cross_review_guided \
+  --strategies ema_crossover --agent-providers claude,codex
+uv run quantforge-cli eval auto-tune run \
+  --pine quantforge/pine/strategies/ema_crossover.pine \
+  --strategy ema_crossover \
+  --symbol BTC/USDT:USDT --timeframe 1h \
+  --windows current:2024-07-01:2024-12-31,stress:2024-08-01:2024-09-30 \
+  --news-file events.jsonl
+uv run quantforge-cli auto-tune run-once \
+  --pine quantforge/pine/strategies/ema_crossover.pine \
+  --strategy ema_crossover \
+  --windows current:2024-07-01:2024-12-31,stress:2024-08-01:2024-09-30 \
+  --news-file events.jsonl
+uv run quantforge-cli auto-tune run-once \
+  --pine quantforge/pine/strategies/ema_crossover.pine \
+  --strategy ema_crossover \
+  --windows current:2024-07-01:2024-12-31,stress:2024-08-01:2024-09-30 \
+  --news-file events.jsonl \
+  --execute \
+  --auto-deploy \
+  --optimizer-results-csv eval/optimizer_ab/results/auto_tune.csv \
+  --optimizer-trials-dir eval/optimizer_ab/results/auto_tune_trials \
+  --promotion-report eval/optimizer_ab/results/promotion_pipeline.json \
+  --shadow-report eval/optimizer_ab/results/shadow_compare.json
+uv run quantforge-cli news collect raw_events.jsonl --out events.jsonl
+uv run quantforge-cli news rss \
+  https://www.coindesk.com/arc/outboundfeeds/rss/ \
+  --symbols BTC/USDT:USDT \
+  --out eval/optimizer_ab/results/news_events.jsonl
+uv run quantforge-cli news exchange-status \
+  https://status.example.com/api/v2/incidents/unresolved.json \
+  --exchange bitget \
+  --symbols BTC/USDT:USDT \
+  --out eval/optimizer_ab/results/exchange_events.jsonl
+uv run quantforge-cli news microstructure market_microstructure.json \
+  --source-name bitget \
+  --out eval/optimizer_ab/results/microstructure_events.jsonl
+uv run quantforge-cli auto-tune daemon \
+  --job-file eval/optimizer_ab/results/auto_tune_jobs.json \
+  --interval-sec 3600
+# auto-tune fuses news/status/funding/OI/liquidation events into news_risk.components
+# Writes QuantForge-owned scheduler artifacts:
+# eval/optimizer_ab/results/auto_tune_jobs_state.json
+# eval/optimizer_ab/results/auto_tune_runs/*.jsonl
+# eval/optimizer_ab/results/auto_tune_failed/*.json
+uv run quantforge-cli control apply-report \
+  --strategy-id ema_crossover \
+  --report eval/optimizer_ab/results/auto_tune_report.json
+uv run quantforge-cli deployment register \
+  --strategy-id ema_crossover \
+  --pine eval/optimizer_ab/results/auto_tune_trials/best/optimized.pine \
+  --evidence eval/optimizer_ab/results/auto_tune_report.json \
+  --source auto_tune
+uv run quantforge-cli deployment transition <version-id> paper
+uv run quantforge-cli deployment transition <version-id> shadow
+uv run quantforge-cli deployment shadow-compare ema_crossover \
+  --start 2024-07-01 --end 2024-12-31 \
+  --out eval/optimizer_ab/results/shadow_compare.json
+uv run quantforge-cli deployment promote <version-id>
+uv run quantforge-cli deployment auto-promote ema_crossover \
+  --pine eval/optimizer_ab/results/auto_tune_trials/best/optimized.pine \
+  --evidence eval/optimizer_ab/results/auto_tune_report.json \
+  --start 2024-07-01 --end 2024-12-31 \
+  --shadow-report eval/optimizer_ab/results/shadow_compare.json \
+  --ledger ~/.quantforge/paper_ledger.sqlite \
+  --min-runtime-fills 2 \
+  --min-runtime-pnl-delta 0 \
+  --max-runtime-drawdown-delta 0.02 \
+  --out eval/optimizer_ab/results/promotion_pipeline.json
+uv run quantforge-cli deployment live-command ema_crossover --mode paper
+uv run quantforge-cli deployment approval request live_command --strategy-id ema_crossover
+uv run quantforge-cli deployment approval approve <approval-id> --approver <name>
+uv run quantforge-cli deployment live-command ema_crossover \
+  --mode live \
+  --approval-id <approval-id> \
+  --approvals ~/.quantforge/approvals.json \
+  --policy live_policy.yaml \
+  --request live_request.json
+
+# Paper/shadow execution ledger
+uv run quantforge-cli paper signal ema_crossover \
+  --role shadow --side buy --price 100 --quantity 2 \
+  --version-id <candidate-version-id> \
+  --fee-rate 0.001 --slippage-bps 10
+uv run quantforge-cli paper summary ema_crossover --role shadow
+uv run quantforge-cli paper shadow-run ema_crossover \
+  --events eval/optimizer_ab/results/runtime_signals.jsonl \
+  --registry ~/.quantforge/deployments.json \
+  --ledger ~/.quantforge/paper_ledger.sqlite \
+  --out eval/optimizer_ab/results/shadow_observation.json
+uv run quantforge-cli risk check ema_crossover \
+  --role promoted \
+  --max-drawdown 0.05 \
+  --max-daily-loss 500 \
+  --auto-rollback \
+  --registry ~/.quantforge/deployments.json \
+  --control-state eval/optimizer_ab/results/trading_control.json \
+  --out eval/optimizer_ab/results/risk_report.json
+uv run quantforge-cli risk execution live_orders.jsonl \
+  --strategy-id ema_crossover \
+  --control-state eval/optimizer_ab/results/trading_control.json \
+  --max-slippage-bps 50 \
+  --max-latency-ms 1000 \
+  --max-spread-bps 20 \
+  --out eval/optimizer_ab/results/execution_risk.json
+uv run quantforge-cli risk live-policy live_policy.yaml live_request.json \
+  --approvals ~/.quantforge/approvals.json \
+  --out eval/optimizer_ab/results/live_policy_report.json
+uv run quantforge-cli audit build ema_crossover \
+  --auto-tune eval/optimizer_ab/results/auto_tune_report.json \
+  --promotion eval/optimizer_ab/results/promotion_pipeline.json \
+  --shadow eval/optimizer_ab/results/shadow_compare.json \
+  --risk eval/optimizer_ab/results/risk_report.json \
+  --json-out eval/optimizer_ab/results/audit_report.json \
+  --markdown-out eval/optimizer_ab/results/audit_report.md
+```
+
 ## Web Callbacks
 
 Expose FastAPI endpoints alongside a running strategy:
@@ -236,11 +400,11 @@ quantforge/
 ├── exchange/       # Exchange connectors (Binance, OKX, Bybit, Bitget, Hyperliquid)
 ├── indicator/      # Indicator framework with warmup
 ├── backtest/       # Backtesting engine & analysis
-├── web/            # FastAPI web server
+├── web/            # Embedded strategy web interface
 └── schema/         # Data models (msgspec Structs)
 
 strategy/           # Strategy implementations
-web/frontend/       # TradingView-style backtest UI
+apps/dashboard/     # Product dashboard backend + frontend
 ```
 
 ## Attribution

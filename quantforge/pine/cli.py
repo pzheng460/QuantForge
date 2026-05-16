@@ -218,6 +218,8 @@ def _run_live(args: argparse.Namespace) -> None:
     print(f"  Warmup:   {args.warmup_bars} bars")
     print()
 
+    _apply_live_control(args, pine_file.stem)
+
     engine = PineLiveEngine(
         pine_source=source,
         exchange=args.exchange,
@@ -239,6 +241,21 @@ def _run_live(args: argparse.Namespace) -> None:
         print(f"Processed {engine.bars_processed} bars total")
         if engine.bridge:
             print(f"Signals captured: {len(engine.bridge.signals)}")
+
+
+def _apply_live_control(args: argparse.Namespace, strategy_id: str) -> None:
+    if getattr(args, "ignore_control", False):
+        return
+    from quantforge.trading_control import TradingControl
+
+    state = TradingControl(getattr(args, "control_state", None)).get_action(strategy_id)
+    action = state.get("action", "resume")
+    if action == "pause":
+        print(f"Error: strategy {strategy_id} is paused by QuantForge control state")
+        raise SystemExit(2)
+    if action == "reduce":
+        args.position_size = float(args.position_size) * 0.5
+        print(f"Control state reduce active: position size set to {args.position_size:.2f}")
 
 
 def _run_optimize(args: argparse.Namespace) -> None:
@@ -482,6 +499,17 @@ def main() -> None:
         type=int,
         default=1,
         help="Leverage multiplier (default: 1)",
+    )
+    lv.add_argument(
+        "--control-state",
+        default=None,
+        help="QuantForge trading control state JSON path",
+    )
+    lv.add_argument(
+        "--ignore-control",
+        action="store_true",
+        default=False,
+        help="Ignore QuantForge trading control state",
     )
 
     # optimize subcommand

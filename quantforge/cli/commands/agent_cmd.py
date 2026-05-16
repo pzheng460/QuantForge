@@ -1,23 +1,22 @@
-"""`quantforge-cli agent ...` — LLM agent (Claude Code) workflows.
+"""`quantforge-cli agent ...` — LLM coding-agent workflows.
 
 Stateless ops (`skills`) walk ~/.openclaw/skills/ directly.
 
-`agent run` spawns Claude Code as a subprocess, like the web `/agent/run`
-endpoint does — but unlike the web flow, runs in the foreground and
-streams events to stdout. For job-tracked async runs (status, stop)
-that survive across CLI invocations, use --via-server which goes through
-the web API and lets the server manage the subprocess.
+`agent run` spawns a coding agent subprocess, like the web `/agent/run`
+endpoint does. For job-tracked async runs (status, stop) that survive
+across CLI invocations, use --via-server so the server owns the process.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 import click
+
+from quantforge.agent_providers import build_agent_command, resolve_model
 
 from . import _http
 
@@ -101,12 +100,17 @@ def skills_cmd(as_json: bool):
 @click.option("--exchange", default="bitget")
 @click.option("--timeframe", default="1h")
 @click.option("--max-iterations", type=int, default=5)
-@click.option("--model", default="claude-sonnet-4-20250514")
+@click.option("--provider", type=click.Choice(["claude", "codex"]), default="claude",
+              show_default=True, help="Coding agent provider.")
+@click.option("--model", default=None,
+              help="Provider model. Claude has a default; Codex uses its account default.")
 @click.option("--via-server", is_flag=True,
               help="Submit through web API (job tracked, recoverable). "
-                   "Default runs Claude Code in foreground.")
-def run_cmd(skill, strategy, symbol, exchange, timeframe, max_iterations, model, via_server):
+                   "Default runs the provider in foreground.")
+def run_cmd(skill, strategy, symbol, exchange, timeframe, max_iterations,
+            provider, model, via_server):
     """Run an agent workflow (foreground by default, or --via-server)."""
+    resolved_model = resolve_model(provider, model)
     if via_server:
         try:
             res = _http.post(
@@ -118,7 +122,8 @@ def run_cmd(skill, strategy, symbol, exchange, timeframe, max_iterations, model,
                     "exchange": exchange,
                     "timeframe": timeframe,
                     "max_iterations": max_iterations,
-                    "model": model,
+                    "agent_provider": provider,
+                    "model": resolved_model,
                 },
             )
             click.echo(json.dumps(res, indent=2))
@@ -161,16 +166,17 @@ def run_cmd(skill, strategy, symbol, exchange, timeframe, max_iterations, model,
         timeframe=timeframe,
         max_iterations=max_iterations,
     )
-    cmd = [
-        "claude", "--print", "--verbose",
-        "--permission-mode", "bypassPermissions",
-        "--output-format", "stream-json",
-        "--model", model,
-        "--max-turns", "80",
-        "-p", prompt,
-    ]
-    click.echo(f"[agent] running skill={skill} strategy={strategy or '(none)'} model={model}")
-    proc = subprocess.run(cmd, cwd=str(project_dir))
+    cmd = build_agent_command(
+        provider,
+        resolved_model,
+        project_dir=project_dir,
+        max_turns=80,
+    )
+    click.echo(
+        f"[agent] running provider={provider} skill={skill} "
+        f"strategy={strategy or '(none)'} model={resolved_model}"
+    )
+    proc = subprocess.run(cmd, cwd=str(project_dir), input=prompt, text=True)
     sys.exit(proc.returncode)
 
 

@@ -40,7 +40,19 @@ yaml-config/
 appendonlydir/node_modules/
 node_modules/
 appendonlydir/
+apps/dashboard/*.log
+apps/dashboard/*.pid
+apps/dashboard/frontend/dist/
+apps/dashboard/frontend/node_modules/
+web/*.log
+web/*.pid
+web/frontend/dist/
+web/frontend/node_modules/
 
 # Strategy artifacts
 strategy/**/*.log
 strategy/results/
+
+# QuantForge local ops state
+.quantforge/
+quantforge_ops/

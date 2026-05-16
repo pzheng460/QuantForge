@@ -21,6 +21,7 @@ from __future__ import annotations
 import itertools
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 from quantforge.pine.interpreter.context import BarData, ExecutionContext
 from quantforge.pine.interpreter.runtime import PineRuntime
@@ -312,6 +313,7 @@ def run_optimization(
     grid: list[dict[str, float]],
     warmup_count: int = 0,
     metric: str = "sharpe",
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> list[OptResult]:
     """Run grid search optimisation over a Pine script.
 
@@ -334,6 +336,7 @@ def run_optimization(
         Results sorted by the chosen metric (best first).
     """
     results: list[OptResult] = []
+    total = len(grid)
 
     for i, params in enumerate(grid):
         ctx = ExecutionContext(bars=list(bars))
@@ -369,6 +372,11 @@ def run_optimization(
                 equity_curve=eq,
             )
         )
+        if progress_cb is not None:
+            try:
+                progress_cb(i + 1, total)
+            except Exception:
+                pass  # never let progress reporting break the loop
 
     # Sort by chosen metric
     if metric == "return":

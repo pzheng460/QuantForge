@@ -256,7 +256,7 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 ### Web UI 架构
 
 **前端技术栈**：React 18 + TypeScript（strict 模式）+ Vite + Tailwind CSS + **shadcn/ui** 组件库
-- UI 组件（`Button`, `Input`, `Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible` 等）位于 `web/frontend/src/components/ui/`
+- UI 组件（`Button`, `Input`, `Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible` 等）位于 `apps/dashboard/frontend/src/components/ui/`
 - Select 使用 Radix `@radix-ui/react-select`（非原生 `<select>`）；所有表单输入均使用 shadcn 组件
 - `ErrorBoundary` 组件包裹全局；页面使用 `React.lazy` + `Suspense` 懒加载
 - Vite build chunk 分割：`vendor`（react/zustand）、`charts`（recharts/lightweight-charts）、`ui`（radix/lucide）
@@ -266,14 +266,14 @@ python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo 
 - 交易相关颜色（盈利绿 `tv-green`、亏损红 `tv-red`）保留在 Tailwind 配置中
 
 所有回测和优化逻辑统一在主回测模块中：
-- `web/backend/jobs.py` — 共享工具（`_fetch_ohlcv`、`_resolve_pine_source`、`_resolve_date_range`）及回测/优化任务运行器
-- `web/backend/routers/backtest.py` — `/backtest/run`（POST）、`/backtest/{id}`（GET，轮询状态）
-- `web/backend/routers/optimize.py` — `/optimize/run`（POST）、`/optimize/{id}`（GET）
-- `web/backend/routers/strategies.py` — `/strategies`、`/exchanges`
-- `web/backend/routers/live.py` — 实盘引擎管理：`/live/start`（POST）、`/live/stop/{id}`（POST）、`/live/engines`（GET）、`/ws/live/performance`（WS）
-- `web/backend/live_engines.py` — 内存引擎管理器：`start_engine()`、`stop_engine()`、`list_engines()` — 以 asyncio 任务运行 PineLiveEngine
+- `apps/dashboard/backend/jobs.py` — 共享工具（`_fetch_ohlcv`、`_resolve_pine_source`、`_resolve_date_range`）及回测/优化任务运行器
+- `apps/dashboard/backend/routers/backtest.py` — `/backtest/run`（POST）、`/backtest/{id}`（GET，轮询状态）
+- `apps/dashboard/backend/routers/optimize.py` — `/optimize/run`（POST）、`/optimize/{id}`（GET）
+- `apps/dashboard/backend/routers/strategies.py` — `/strategies`、`/exchanges`
+- `apps/dashboard/backend/routers/live.py` — 实盘引擎管理：`/live/start`（POST）、`/live/stop/{id}`（POST）、`/live/engines`（GET）、`/ws/live/performance`（WS）
+- `apps/dashboard/backend/live_engines.py` — 内存引擎管理器：`start_engine()`、`stop_engine()`、`list_engines()` — 以 asyncio 任务运行 PineLiveEngine
 - 前端页面：`Dashboard.tsx`（实盘交易：策略选择器+启停控制+StrategyTester）、`Backtest.tsx`、`Optimizer.tsx`
-- `web/frontend/src/utils/liveAdapter.ts` — 将 `LivePerformance` 转换为 `BacktestResult` 供 StrategyTester 渲染
+- `apps/dashboard/frontend/src/utils/liveAdapter.ts` — 将 `LivePerformance` 转换为 `BacktestResult` 供 StrategyTester 渲染
 - 路由：`/`（实盘交易）、`/backtest`、`/optimizer`
 
 ### Pine 实盘交易引擎

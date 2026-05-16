@@ -1,0 +1,2 @@
+{"action": "started", "jobId": "ema_crossover", "run_id": "503b629d-b72c-412b-9347-958a8ebebd01", "ts": 1778740375234}
+{"action": "finished", "deployment_report_path": "", "duration_ms": 0, "jobId": "ema_crossover", "promoted": null, "report_path": "/tmp/pytest-of-pzheng46/pytest-129/test_run_once_applies_report_t0/report.json", "returncode": 0, "run_id": "503b629d-b72c-412b-9347-958a8ebebd01", "status": "ok", "ts": 1778740375235}

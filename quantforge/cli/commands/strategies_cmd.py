@@ -1,6 +1,6 @@
 """`quantforge-cli strategies ...` — Pine strategy listing and metadata.
 
-Mirrors web/backend/routers/strategies.py but works from the filesystem,
+Mirrors apps/dashboard/backend/routers/strategies.py but works from the filesystem,
 no server required.
 """
 

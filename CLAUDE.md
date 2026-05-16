@@ -260,7 +260,7 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 ### Web UI Architecture
 
 **Frontend stack**: React 18 + TypeScript (strict) + Vite + Tailwind CSS + **shadcn/ui** component library
-- UI primitives (`Button`, `Input`, `Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible`, `Table`, `Separator`, `Popover`, `ScrollArea`) live in `web/frontend/src/components/ui/`
+- UI primitives (`Button`, `Input`, `Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible`, `Table`, `Separator`, `Popover`, `ScrollArea`) live in `apps/dashboard/frontend/src/components/ui/`
 - Select uses Radix `@radix-ui/react-select` (not native `<select>`); all form inputs use shadcn components
 - `ErrorBoundary` component wraps the app; pages are lazy-loaded with `React.lazy` + `Suspense`
 - Vite chunk splitting: `vendor` (react/zustand), `charts` (recharts/lightweight-charts), `ui` (@radix-ui/lucide)
@@ -271,14 +271,14 @@ The transpiler (`quantforge/pine/transpiler/codegen.py`) generates **self-contai
 - Domain-specific colors (trading green/red) remain as `tv-green`, `tv-red` in Tailwind config
 
 All backtest and optimization logic is unified in the main backtest module:
-- `web/backend/jobs.py` — Shared helpers (`_fetch_ohlcv`, `_resolve_pine_source`, `_resolve_date_range`) and job runners for both backtest and optimization
-- `web/backend/routers/backtest.py` — `/backtest/run` (POST, accepts `strategy` file name OR `pine_source` raw code), `/backtest/{id}` (GET, poll status)
-- `web/backend/routers/optimize.py` — `/optimize/run` (POST, Pine grid search), `/optimize/{id}` (GET, poll status)
-- `web/backend/routers/strategies.py` — `/strategies` (lists Pine files with parsed input params), `/exchanges`
-- `web/backend/routers/live.py` — Live engine management: `/live/start` (POST), `/live/stop/{id}` (POST), `/live/engines` (GET), `/ws/live/performance` (WS)
-- `web/backend/live_engines.py` — In-memory engine manager: `start_engine()`, `stop_engine()`, `list_engines()` — runs PineLiveEngine as asyncio tasks
+- `apps/dashboard/backend/jobs.py` — Shared helpers (`_fetch_ohlcv`, `_resolve_pine_source`, `_resolve_date_range`) and job runners for both backtest and optimization
+- `apps/dashboard/backend/routers/backtest.py` — `/backtest/run` (POST, accepts `strategy` file name OR `pine_source` raw code), `/backtest/{id}` (GET, poll status)
+- `apps/dashboard/backend/routers/optimize.py` — `/optimize/run` (POST, Pine grid search), `/optimize/{id}` (GET, poll status)
+- `apps/dashboard/backend/routers/strategies.py` — `/strategies` (lists Pine files with parsed input params), `/exchanges`
+- `apps/dashboard/backend/routers/live.py` — Live engine management: `/live/start` (POST), `/live/stop/{id}` (POST), `/live/engines` (GET), `/ws/live/performance` (WS)
+- `apps/dashboard/backend/live_engines.py` — In-memory engine manager: `start_engine()`, `stop_engine()`, `list_engines()` — runs PineLiveEngine as asyncio tasks
 - Frontend pages: `Dashboard.tsx` (live trading: strategy selector + start/stop + StrategyTester), `Backtest.tsx`, `Optimizer.tsx`
-- `web/frontend/src/utils/liveAdapter.ts` — Converts `LivePerformance` → `BacktestResult` for StrategyTester rendering
+- `apps/dashboard/frontend/src/utils/liveAdapter.ts` — Converts `LivePerformance` → `BacktestResult` for StrategyTester rendering
 - Route: `/` (live trading), `/backtest`, `/optimizer` in the web UI
 
 ### Pine Live Trading Engine
@@ -455,7 +455,7 @@ All list-style commands accept `--json` for scripting. Pine names auto-resolve f
 
 ## TiMi Optimizer A/B Harness (`eval/optimizer_ab/`)
 
-Air-gapped evaluation framework for comparing variants of the LLM optimizer (`~/.openclaw/skills/quantforge-optimizer`). Each trial = (method, strategy, regime, seed); `runner.py` invokes Claude Code in an isolated staged skill dir on the train window only, then `holdout_eval.py` runs the optimized .pine on the regime's holdout window in a separate process so the agent never sees OOS data.
+Air-gapped evaluation framework for comparing variants of the LLM optimizer (`.claude/skills/quantforge-optimizer`). Each trial = (method, strategy, regime, seed); `runner.py` invokes Claude Code in an isolated staged skill dir on the train window only, then `holdout_eval.py` runs the optimized .pine on the regime's holdout window in a separate process so the agent never sees OOS data.
 
 | File | Role |
 |---|---|

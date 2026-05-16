@@ -3,7 +3,7 @@
 **File:** `baseline_n43.csv` (43 successful trials out of 45 attempted; 2 timed out).
 **Date generated:** 2026-05-06.
 **Cost:** $27.65 in Claude API spend (`claude-sonnet-4-6` via Claude Code CLI).
-**Method:** baseline (snapshot of `~/.openclaw/skills/quantforge-optimizer/SKILL.md` at the time of the run, copied to `eval/optimizer_ab/methods/baseline/SKILL.md`).
+**Method:** baseline (snapshot of `.claude/skills/quantforge-optimizer/SKILL.md` at the time of the run, copied to `eval/optimizer_ab/methods/baseline/SKILL.md`).
 **Air-gap invariants enforced:** training-window-only prompt; SKILL.md sanitized; OOS metrics computed on filtered equity_curve; per-trial knowledge log wiped.
 
 ## Test matrix
@@ -115,7 +115,7 @@ The successful seed=2 in the same cell ran 1.38 USD of compute, suggesting the f
 
 ```bash
 # Stage the baseline method
-cp ~/.openclaw/skills/quantforge-optimizer/SKILL.md \
+cp .claude/skills/quantforge-optimizer/SKILL.md \
    eval/optimizer_ab/methods/baseline/SKILL.md
 
 # Re-run (resume-safe; ~$28 + ~3 hours wallclock)
@@ -130,4 +130,4 @@ uv run python -m eval.optimizer_ab.analyze \
     --metric oos_sharpe
 ```
 
-The exact baseline SKILL.md used is checked in at `eval/optimizer_ab/methods/baseline/SKILL.md`. Re-runs against the *current* canonical skill at `~/.openclaw/skills/quantforge-optimizer/SKILL.md` may differ if that file has been modified since this snapshot.
+The exact baseline SKILL.md used is checked in at `eval/optimizer_ab/methods/baseline/SKILL.md`. Re-runs against the *current* canonical skill at `.claude/skills/quantforge-optimizer/SKILL.md` may differ if that file has been modified since this snapshot.

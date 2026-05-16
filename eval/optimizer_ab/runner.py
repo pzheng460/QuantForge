@@ -24,14 +24,16 @@ import sys
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
 
+from quantforge.agent_providers import build_agent_command, resolve_model
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_ROOT = Path(__file__).resolve().parent
-SKILL_SRC = Path.home() / ".openclaw" / "skills" / "quantforge-optimizer"
+CANONICAL_SKILL = PROJECT_ROOT / ".claude" / "skills" / "quantforge-optimizer"
 
 FINAL_RE = re.compile(r"FINAL_OUTPUT:\s*([^\s\"'\\]+)")
 
@@ -51,13 +53,13 @@ def _sanitize_dates(text: str, train_start: str, train_end: str) -> str:
 
 
 def stage_skill(method_dir, work_root, train_start=None, train_end=None):
-    if not SKILL_SRC.exists():
-        raise SystemExit(f"Canonical skill missing: {SKILL_SRC}")
+    if not CANONICAL_SKILL.exists():
+        raise SystemExit(f"Claude skill missing: {CANONICAL_SKILL}")
     method_skill = method_dir / "SKILL.md"
     if not method_skill.exists():
         raise SystemExit(f"Method SKILL.md missing: {method_skill}")
     staged = work_root / "skill"
-    shutil.copytree(SKILL_SRC, staged)
+    shutil.copytree(CANONICAL_SKILL, staged)
     shutil.copy(method_skill, staged / "SKILL.md")
     log = staged / "knowledge" / "optimization_log.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -81,15 +83,47 @@ def stage_skill(method_dir, work_root, train_start=None, train_end=None):
     return staged
 
 
+def split_train_window(train_start: str, train_end: str, train_fraction: float = 0.7):
+    start = datetime.strptime(train_start, "%Y-%m-%d").date()
+    end = datetime.strptime(train_end, "%Y-%m-%d").date()
+    if end <= start:
+        return {
+            "fit_start": train_start,
+            "fit_end": train_end,
+            "validation_start": train_start,
+            "validation_end": train_end,
+        }
+    total_days = (end - start).days + 1
+    fit_days = max(1, int(total_days * train_fraction))
+    fit_end = start + timedelta(days=fit_days - 1)
+    if fit_end >= end:
+        fit_end = start + timedelta(days=max(0, total_days - 2))
+    validation_start = fit_end + timedelta(days=1)
+    return {
+        "fit_start": start.isoformat(),
+        "fit_end": fit_end.isoformat(),
+        "validation_start": validation_start.isoformat(),
+        "validation_end": end.isoformat(),
+    }
+
+
 def build_prompt(skill_dir, src, work_path, output_path,
                  symbol, timeframe, exchange,
-                 train_start, train_end, max_iters, seed):
+                 train_start, train_end, max_iters, seed,
+                 internal_split=None):
+    internal_split = internal_split or split_train_window(train_start, train_end)
     return (
         "You are an expert quantitative trading strategy optimizer.\n\n"
         "FROZEN TRAINING WINDOW — every backtest MUST use these dates:\n"
         f"    --start {train_start} --end {train_end}\n"
         "A separate evaluator owns the hidden out-of-sample window.\n"
         "Do NOT backtest outside the training window.\n\n"
+        "INTERNAL TRAIN/VALIDATION SPLIT — visible to you and required:\n"
+        f"  fit window:        --start {internal_split['fit_start']} --end {internal_split['fit_end']}\n"
+        f"  validation window: --start {internal_split['validation_start']} --end {internal_split['validation_end']}\n"
+        "Use the fit window to propose candidates. Use the validation window\n"
+        "to select among candidates. The full frozen training window is only\n"
+        "for final confirmation after selection.\n\n"
         f"Read the closed-loop protocol at {skill_dir}/SKILL.md.\n\n"
         "## Task\n"
         f"- Original (read-only): {src}\n"
@@ -108,10 +142,31 @@ def build_prompt(skill_dir, src, work_path, output_path,
         "  3. If you propose a code change, you MUST re-run the backtest on\n"
         "     the modified file to verify the claimed improvement.\n"
         "Hallucinated metrics will fail the trial regardless of FINAL_OUTPUT.\n\n"
+        "## Robust optimization requirement\n"
+        "Gate 1 passing is NOT enough to stop. Even if the baseline passes,\n"
+        "you must test at least 3 distinct candidate variants before final\n"
+        "selection. A candidate variant can be a parameter-neighborhood\n"
+        "perturbation, constrained-grid result, or a small risk-control edit.\n"
+        "You may still select the original baseline, but only after running\n"
+        "and comparing those candidates.\n\n"
+        "For each candidate you MUST run both:\n"
+        "  1. fit-window backtest\n"
+        "  2. validation-window backtest\n"
+        "Name/log these as candidate_N_fit and candidate_N_validation.\n\n"
+        "Score candidates by validation-first robust_score, not raw IS Sharpe:\n"
+        "  fit_score = fit_PF - 2*fit_MaxDD\n"
+        "  val_score = val_PF - 2*val_MaxDD\n"
+        "  robust_score = val_score - 0.5*max(0, fit_score - val_score)\n"
+        "                 - 0.01*abs(val_trades - baseline_val_trades)\n"
+        "Reject candidates with validation trades < 10, validation PF < 1.0,\n"
+        "or validation MaxDD >= 15%.\n"
+        "Prefer candidates whose nearby parameter perturbations keep PF > 1.0\n"
+        "and MaxDD < 15%.\n\n"
         "## Stop conditions\n"
-        f"At most {max_iters} iterations OR Gate 1 passes (PF > 1.2 AND\n"
-        "MaxDD < 15% AND total_trades >= 30) — but the values must come\n"
-        "from a Bash backtest you actually executed in the current session.\n\n"
+        f"At most {max_iters} iterations after the baseline, but never fewer\n"
+        "than 3 candidates with fit+validation backtests unless the strategy cannot be parsed or\n"
+        "every candidate fails syntax validation. Gate values must come from\n"
+        "Bash backtests executed in the current session.\n\n"
         "## Required final action\n"
         f"1. Run:  cp {work_path} {output_path}\n"
         "2. Print, on a line by itself, exactly:\n"
@@ -126,14 +181,13 @@ def build_prompt(skill_dir, src, work_path, output_path,
     )
 
 
-def invoke_claude(prompt, model, max_turns, timeout_s, log_path):
-    cmd = [
-        "claude", "--print", "--verbose",
-        "--permission-mode", "bypassPermissions",
-        "--output-format", "stream-json",
-        "--model", model,
-        "--max-turns", str(max_turns),
-    ]
+def invoke_agent(prompt, provider, model, max_turns, timeout_s, log_path):
+    cmd = build_agent_command(
+        provider,
+        model,
+        project_dir=PROJECT_ROOT,
+        max_turns=max_turns,
+    )
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -204,6 +258,12 @@ def count_real_backtests(stream):
             obj = json.loads(s)
         except Exception:
             continue
+        if obj.get("type") == "item.completed":
+            item = obj.get("item") or {}
+            if item.get("type") == "command_execution":
+                cmd = item.get("command", "") or ""
+                if "pine.cli backtest" in cmd or "pine.cli optimize" in cmd:
+                    n += 1
         if obj.get("type") != "assistant":
             continue
         for item in obj.get("message", {}).get("content", []):
@@ -215,6 +275,115 @@ def count_real_backtests(stream):
     return n
 
 
+def _extract_command(obj):
+    if obj.get("type") == "item.completed":
+        item = obj.get("item") or {}
+        if item.get("type") == "command_execution":
+            return item.get("command", "") or ""
+    if obj.get("type") == "assistant":
+        commands = []
+        for item in obj.get("message", {}).get("content", []):
+            if item.get("type") == "tool_use" and item.get("name") == "Bash":
+                commands.append(item.get("input", {}).get("command", "") or "")
+        return "\n".join(commands)
+    return ""
+
+
+def _backtest_commands(stream):
+    commands = []
+    for line in stream.splitlines():
+        s = line.strip()
+        if not s.startswith("{"):
+            continue
+        try:
+            obj = json.loads(s)
+        except Exception:
+            continue
+        cmd = _extract_command(obj)
+        if "pine.cli backtest" in cmd or "pine.cli optimize" in cmd:
+            commands.append(cmd)
+    return commands
+
+
+def _uses_date_range(cmd, start, end):
+    return f"--start {start}" in cmd and f"--end {end}" in cmd
+
+
+def _validation_commands(commands, internal_split=None):
+    validation_start = (internal_split or {}).get("validation_start")
+    validation_end = (internal_split or {}).get("validation_end")
+    return [
+        cmd for cmd in commands
+        if (
+            "validation" in cmd.lower()
+            or "_val" in cmd.lower()
+            or (
+                validation_start
+                and validation_end
+                and _uses_date_range(cmd, validation_start, validation_end)
+            )
+        )
+    ]
+
+
+def _fit_or_validation_commands(commands, internal_split=None):
+    fit_start = (internal_split or {}).get("fit_start")
+    fit_end = (internal_split or {}).get("fit_end")
+    validation_start = (internal_split or {}).get("validation_start")
+    validation_end = (internal_split or {}).get("validation_end")
+    if not all([fit_start, fit_end, validation_start, validation_end]):
+        return []
+    return [
+        cmd for cmd in commands
+        if (
+            _uses_date_range(cmd, fit_start, fit_end)
+            or _uses_date_range(cmd, validation_start, validation_end)
+        )
+    ]
+
+
+def _command_weight(cmd):
+    m = re.search(r"for\s+\w+\s+in\s+([0-9 ]+)\s*;", cmd)
+    if not m:
+        return 1
+    return len([x for x in m.group(1).split() if x.strip()])
+
+
+def summarize_trial_audit(stream, optimized, work_pine, internal_split=None):
+    commands = _backtest_commands(stream)
+    work_name = Path(work_pine).name
+    split_commands = set(_fit_or_validation_commands(commands, internal_split))
+    candidate_commands = [
+        cmd for cmd in commands
+        if (
+            work_name not in cmd
+            or "candidate" in cmd.lower()
+            or "optimized" in cmd.lower()
+            or cmd in split_commands
+        )
+    ]
+    validation_commands = _validation_commands(candidate_commands, internal_split)
+    candidate_backtests = sum(_command_weight(cmd) for cmd in candidate_commands)
+    validation_backtests = sum(_command_weight(cmd) for cmd in validation_commands)
+    optimization_attempted = candidate_backtests >= 6 and validation_backtests >= 3
+    optimized_path = Path(optimized) if optimized else None
+    work_path = Path(work_pine)
+    no_op = (not optimization_attempted) or (
+        optimized_path is not None
+        and optimized_path.exists()
+        and work_path.exists()
+        and optimized_path.read_text() == work_path.read_text()
+        and len(candidate_commands) == 0
+    )
+    return {
+        "n_backtests": sum(_command_weight(cmd) for cmd in commands),
+        "candidate_backtests": candidate_backtests,
+        "validation_backtests": validation_backtests,
+        "optimization_attempted": optimization_attempted,
+        "no_op": no_op,
+    }
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=str(EVAL_ROOT / "test_set.yaml"))
@@ -223,6 +392,8 @@ def main():
     p.add_argument("--regime", required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--agent-provider", choices=["claude", "codex"], default=None)
+    p.add_argument("--model", default=None)
     a = p.parse_args()
 
     cfg = yaml.safe_load(Path(a.config).read_text())
@@ -251,7 +422,12 @@ def main():
     work_pine = work_root / src.name
     shutil.copy(str(src), str(work_pine))
     out_pine = work_root / "optimized.pine"
-    log_path = work_root / "claude_stream.log"
+    provider = a.agent_provider or trial_cfg.get("agent_provider", "claude")
+    config_provider = trial_cfg.get("agent_provider", "claude")
+    config_model = trial_cfg.get("model") if provider == config_provider else None
+    model = resolve_model(provider, a.model or config_model)
+    log_path = work_root / f"{provider}_stream.log"
+    internal_split = split_train_window(str(train["start"]), str(train["end"]))
 
     prompt = build_prompt(
         skill_dir, src, work_pine, out_pine,
@@ -261,11 +437,13 @@ def main():
         str(train["start"]), str(train["end"]),
         int(trial_cfg.get("max_iterations", 5)),
         a.seed,
+        internal_split,
     )
     started = datetime.now(timezone.utc).isoformat()
-    rc, stream = invoke_claude(
+    rc, stream = invoke_agent(
         prompt,
-        trial_cfg["model"],
+        provider,
+        model,
         int(trial_cfg.get("max_turns", 80)),
         int(trial_cfg.get("timeout_seconds", 1800)),
         log_path,
@@ -277,7 +455,7 @@ def main():
         str(out_pine) if out_pine.exists() else None
     )
     cost = extract_cost(stream)
-    n_backtests = count_real_backtests(stream)
+    audit = summarize_trial_audit(stream, optimized, work_pine, internal_split)
     record = {
         "trial_id": trial_id,
         "method": a.method,
@@ -289,16 +467,22 @@ def main():
         "finished_at": finished,
         "returncode": rc,
         "cost_usd": cost,
-        "n_backtests": n_backtests,
-        "lazy_warning": n_backtests == 0,
+        "n_backtests": audit["n_backtests"],
+        "candidate_backtests": audit["candidate_backtests"],
+        "validation_backtests": audit["validation_backtests"],
+        "optimization_attempted": audit["optimization_attempted"],
+        "no_op": audit["no_op"],
+        "lazy_warning": audit["n_backtests"] == 0,
         "stream_log": str(log_path),
         "work_dir": str(work_root),
         "optimized_pine": optimized,
         "train_window": {"start": str(train["start"]), "end": str(train["end"])},
+        "internal_split": split_train_window(str(train["start"]), str(train["end"])),
         "symbol": defaults.get("symbol"),
         "timeframe": defaults.get("timeframe"),
         "exchange": defaults.get("exchange"),
-        "model": trial_cfg["model"],
+        "agent_provider": provider,
+        "model": model,
     }
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(record, indent=2))
