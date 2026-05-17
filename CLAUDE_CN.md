@@ -1,326 +1,242 @@
-# CLAUDE.md（中文版）
+# CLAUDE_CN.md
 
-本文件为 Claude Code (claude.ai/code) 在本代码库中工作时提供指引。
+为在本仓库工作的 Claude Code（claude.ai/code）提供的中文指引。
 
-## 项目概述
+## 项目概览
 
-QuantForge 是一个基于 Python 3.11+ 构建的专业级量化交易平台，专注于跨多交易所的高性能、低延迟交易。采用模块化、事件驱动架构，核心组件由 Rust 驱动，以实现极致性能。
+QuantForge 是基于 Python 3.11+ 的量化交易平台，由**三个松耦合模块**组成：
 
-**所有交易策略均以 Pine Script (.pine) 文件表达。** `quantforge/` 包是唯一的代码源。
+1. **Pine 引擎** (`quantforge/pine/`) — TradingView 兼容的 Pine Script v5
+   解析器、解释器、转译器、优化器、实盘引擎。**所有交易策略都是 `.pine`
+   文件**，这是主要的策略层。
+2. **DSL 引擎** (`quantforge/dsl/`) — 一套轻量的声明式 Python API
+   (`class MyStrategy(Strategy): on_bar(...)`)，用于快速原型。
+3. **Web 面板** (`apps/dashboard/`) — FastAPI 后端 + React/Vite 前端，
+   把 Pine/DSL 的能力以 UI 形式包装出来：Live、Backtest、Grid Optimize、
+   AI Optimize。
+
+交易所连接**直接走 `ccxt`** — 实盘链路里没有任何手写的单交易所
+OMS/WebSocket 代码。Pine 引擎通过 `quantforge/pine/live/connector.py::CcxtConnector`
+调用 `ccxt.binance(...)` / `ccxt.okx(...)` 等。
 
 ## 开发命令
 
-### 依赖安装与环境配置
+### 安装
 ```bash
-# 使用 uv 安装（本项目使用的包管理器）
-uv sync
-
-# 安装开发依赖
-uv sync --group dev
-
-# 安装 pre-commit hooks（贡献代码时必须安装）
-uv add --dev pre-commit
-pre-commit install
+uv sync                       # 安装运行依赖
+uv sync --group dev           # 安装开发/测试依赖
+uv add --dev pre-commit && pre-commit install   # 贡献代码前必装
 ```
 
 ### 测试
 ```bash
-# 运行所有测试（138 Pine/DSL + 核心测试）
-uv run pytest
+uv run pytest                                       # 全套
 
-# Pine Script 测试（103个：解释器、转译器一致性、实盘引擎、优化器）
-uv run pytest quantforge/pine/tests/ -v
-
-# DSL 测试（35个）
-uv run pytest quantforge/dsl/tests/ -v
-
-# 核心框架测试
-uv run pytest test/core/
-
-# 测试配置：pytest.ini 启用 asyncio_mode = auto
+uv run pytest quantforge/pine/tests/ -v             # 89 Pine 引擎
+uv run pytest quantforge/dsl/tests/ -v              # 35 DSL
+uv run pytest test/cli/ -v                          # 18 CLI 表面
+uv run pytest test/dashboard/ -v                    # 10 后端路由
+uv run pytest test/optimizer_ab/ -v                 # 26 A/B 框架
 ```
+`pytest.ini` 启用了 `asyncio_mode = auto`。总计约 178 个测试。
 
 ### 代码质量
 ```bash
-# 代码检查与格式化（通过 ruff）
-uvx ruff check
-uvx ruff format
+uvx ruff check                # lint
+uvx ruff format               # format
 ```
 
-### 开发基础设施
+## Web 面板 (`apps/dashboard/`)
+
+```
+apps/dashboard/
+├── backend/
+│   ├── main.py              # FastAPI 应用；prod 模式下挂载 frontend/dist/
+│   ├── jobs.py              # _fetch_ohlcv / _resolve_pine_source / _run_pine_optimize / _run_wfo / _run_three_stage / _run_heatmap
+│   ├── live_engines.py      # in-memory 引擎管理器（start/stop/list）
+│   ├── models.py            # Pydantic 请求/响应模型
+│   └── routers/
+│       ├── strategies.py    # /api/strategies, /api/exchanges
+│       ├── backtest.py      # /api/backtest/{run, {id}, cancel/{id}}
+│       ├── optimize.py      # /api/optimize/{run, {id}, cancel/{id}, ws/{id}}
+│       ├── live.py          # /api/live/{start, stop/{id}, engines, performance, ws}
+│       └── agent.py         # /api/agent/{skills, run, {id}, {id}/stop, ws/{id}}
+├── frontend/
+│   ├── src/
+│   │   ├── App.tsx          # Linear/Vercel 风顶栏 + 导航 + ErrorBoundary
+│   │   ├── pages/{Dashboard,Backtest,Optimizer}.tsx
+│   │   ├── components/
+│   │   │   ├── ResizableSidebarShell.tsx  # SidebarProvider + 可拖拽手柄
+│   │   │   ├── ResizeHandle.tsx           # capture-phase pointer 事件
+│   │   │   ├── StrategyTester.tsx
+│   │   │   ├── AgentTraceViewer.tsx
+│   │   │   ├── MetricsSummary.tsx
+│   │   │   ├── charts/{TradingChart,EquityChart,DrawdownChart,HeatmapChart}.tsx
+│   │   │   └── ui/                        # shadcn 原语（Button、Input 等）
+│   │   ├── api/client.ts                  # 基础路径 `/api`，ApiError 类
+│   │   ├── hooks/use-queries.ts           # React Query hooks
+│   │   ├── stores/{dashboard,backtest,optimizer,catalog}Store.ts (zustand)
+│   │   └── types.ts
+│   └── vite.config.ts                     # dev 模式 /api → :8000 代理
+└── start.sh                                # dev (vite HMR + uvicorn --reload) | --prod (vite build + StaticFiles)
+```
+
+### 前端设计系统
+
+- **技术栈**：React 18 + Vite 5 + TypeScript（strict）+ Tailwind 3 +
+  shadcn/ui（Radix） + lightweight-charts + recharts + zustand + react-router 6。
+- **主题**：冷调 Linear/Vercel 风格。CSS 变量定义在 `index.css`：
+  - `--background` 纯白、`--surface` zinc-50（卡片背后的微冷调底色）、
+    `--card` 纯白。
+  - `--primary` zinc-900 (#18181B)、`--brand` blue-500 (#3B82F6)。
+  - 盈亏语义色：`--positive` green-600、`--negative` red-600。
+  - 精细阴影 `--shadow-{xs,sm,md,lg,glow}`，替代默认的飘软阴影。
+- **字体**：**Geist** sans + **Geist Mono**（不用 Fraunces / Inter）。
+  正文 letter-spacing `-0.011em`；所有数字走 mono + `tabular-nums`。
+- **布局不变式**（不要破坏）：
+  - 根 div `h-screen overflow-hidden flex-col` — 视口硬封顶。
+  - SidebarProvider 加 `!min-h-0 h-full overflow-hidden` 覆盖 shadcn 默认
+    的 `min-h-svh`（否则子项 content 一长就撑穿）。
+  - chart pane 一律 `flex-1 min-h-0 overflow-hidden`，让
+    lightweight-charts 的 canvas 能在 flex 压力下真的收缩。
+
+### dev 与 prod 模式
+
 ```bash
-# 启动 Redis、PostgreSQL、Loki 日志服务
-docker-compose up -d
-
-# 清除日志文件
-./clear.sh
-
-# 进程管理（生产环境）
-pm2 start ecosystem.config.js
+./apps/dashboard/start.sh           # dev：vite :5173 + uvicorn :8000 --reload
+./apps/dashboard/start.sh --prod    # prod：vite build → dist/，FastAPI 在 :8000 直接 serve SPA
+./apps/dashboard/start.sh stop      # 停止两者
 ```
 
-## 架构概览
+dev 模式的 `--reload` **限定范围**到 `apps/dashboard/backend` 和
+`quantforge/`，避免 StatReload 浪费一个 CPU 核扫 `eval/`、`node_modules/`、
+agent job JSON 等。prod 模式不开 `--reload`，通过 FastAPI `StaticFiles`
+挂载 `apps/dashboard/frontend/dist/` + SPA fallback 到 `index.html`。
 
-### 核心组件
-- **Engine（引擎）**：管理所有交易系统的中央协调器（`quantforge/engine.py`）
-- **Strategy（策略）**：支持多种执行模式的交易逻辑基类（`quantforge/strategy.py`）
-- **Pine 引擎**：Pine Script 解释器 + 实盘交易引擎（`quantforge/pine/`）
-- **Connectors（连接器）**：交易所专用的公共（行情数据）和私有（交易）连接器
-- **EMS**（执行管理系统）：订单提交与执行
-- **OMS**（订单管理系统）：订单状态跟踪与管理
-- **Cache（缓存）**：高性能数据缓存层（`quantforge/core/cache.py`）
-- **Registry（注册表）**：订单和组件跟踪（`quantforge/core/registry.py`）
+### 可拖拽侧栏 (`ResizableSidebarShell`)
 
-### 交易所集成
-每个交易所在 `quantforge/exchange/{exchange}/` 下遵循统一模式：
-- **PublicConnector**：行情数据 WebSocket 流
-- **PrivateConnector**：账户数据和订单执行
-- **EMS/OMS**：交易所专用订单管理
-- **ExchangeManager**：协调连接器和各子系统
+每个页面（Dashboard / Backtest / Optimizer）都把 `SidebarProvider` 包在
+`ResizableSidebarShell` 里，用户可拖拽右沿调宽。宽度按页持久化
+（`localStorage["sidebar-width:<storageKey>"]`），双击重置。
 
-支持的交易所：
-- **主要**：Binance、Bybit、OKX（完整实现）
-- **其他**：Bitget、Hyperliquid
+页内的垂直分割（chart ↔ 底部面板）用同一个 `ResizeHandle` 组件。**有个
+踩过一次的坑，不要再踩**：lightweight-charts 会在自己容器上挂
+`pointermove` 监听器，整片图区域都会捕获指针事件。直接用
+`window.addEventListener` 的处理器会被它饿死。所以 hook 用**文档级、
+capture-phase 的监听器**（`document.addEventListener('pointermove', ..., true)`）
+抢在 chart 的 bubble-phase 之前触发。代码在
+`apps/dashboard/frontend/src/pages/{Dashboard,Backtest}.tsx` 的
+`useResizablePanel()` 里。
 
-### 性能优化
-- **uvloop**：高性能事件循环（比原生 asyncio 快 2-4 倍）
-- **picows**：基于 Cython 的 WebSocket 库（C++ 级性能）
-- **msgspec**：超快速序列化/反序列化
-- **nautilus-trader**：Rust 驱动的 MessageBus 和 Clock 组件
+### AI Optimizer 任务持久化
 
-## 关键文件位置
+`POST /api/agent/run` 启动一个 `claude --print --stream-json` 子进程，
+通过 `/ws/agent/{job_id}` 推送事件，并把每次状态变更持久化到
+`~/.quantforge/dashboard/agent_jobs/{job_id}.json`。
 
-### 核心框架
-- `quantforge/engine.py` - 主交易引擎
-- `quantforge/strategy.py` - 策略基类
-- `quantforge/config.py` - 配置管理
-- `quantforge/schema.py` - 数据结构与模式
-- `quantforge/indicator.py` - 技术指标框架
+- **单任务保留**：新建 job 会先清掉旧文件。
+- **重启恢复**：后端启动时，持久化里 `running` / `pending` 的任务被
+  标为 `failed` 加 "Backend restarted" 提示，**同时根据捕获的 PID 给
+  孤儿子进程发 SIGTERM**，避免它继续吃 CPU。
+- **前端 404 自愈**：`useAgentStatus` 收到 404 后停止轮询，Optimizer
+  页面自动调 `resetAgent()`，UI 不会卡在一个不存在的任务上。
 
-### 流式指标
-- `quantforge/indicators/streaming.py` - StreamingEMA、StreamingSMA、StreamingATR、StreamingADX、StreamingROC、StreamingBB、StreamingRSI
+### Grid Search 进度
 
-### 基类
-- `quantforge/base/connector.py` - 连接器基类实现
-- `quantforge/base/ems.py` - 执行管理基类
-- `quantforge/base/oms.py` - 订单管理基类
+`quantforge/pine/optimize.py::run_optimization()` 接受 `progress_cb`。
+后端在 `_run_pine_optimize(req, job_id)` 里挂上去，把
+`progress = { completed, total, avg_secs_per_combo, elapsed_secs }` 写回
+in-memory job，WS 每秒推完整 status。前端渲染进度条 + "≈ 2m 15s 剩余 ·
+1.23s / combo"。
 
-### 交易所实现
-每个交易所目录包含：
-- `connector.py` - 公共/私有连接器
-- `ems.py` - 交易所专用执行管理
-- `oms.py` - 交易所专用订单管理
-- `schema.py` - 交易所数据结构
-- `websockets.py` - WebSocket 实现
-- `rest_api.py` - REST API 客户端
+## Pine Script 引擎 (`quantforge/pine/`)
 
-### 配置与数据
-- `quantforge/constants.py` - 枚举和常量
-- `quantforge/backends/` - 数据库后端（Redis、PostgreSQL、SQLite）
+TradingView 兼容 Pine Script v5 的解析器 + 解释器 + 转译器 + 实盘引擎 +
+优化器。
 
-## 环境配置
+### Pine 策略 (`quantforge/pine/strategies/`)
 
-复制 `env.example` 为 `.env` 并进行配置：
-```bash
-# Redis 配置
-QUANTFORGE_REDIS_HOST=127.0.0.1
-QUANTFORGE_REDIS_PORT=6379
-QUANTFORGE_REDIS_DB=0
-QUANTFORGE_REDIS_PASSWORD=your_redis_password
+当前 `.pine` 文件（`/api/strategies` 会列出）：
+`bb_squeeze`, `bb_squeeze_v2`, `bollinger_band`, `bollinger_band_v4`,
+`dual_regime`, `ema_crossover`, `ema_crossover_v2`, `ema_crossover_v3`,
+`hurst_kalman`, `macd_trend`, `momentum_adx`, `rsi_momentum`,
+`sma_trend`。
 
-# PostgreSQL 配置
-QUANTFORGE_PG_HOST=localhost
-QUANTFORGE_PG_PORT=5432
-QUANTFORGE_PG_USER=postgres
-QUANTFORGE_PG_PASSWORD=your_postgres_password
-QUANTFORGE_PG_DATABASE=postgres
-```
+AI 优化产出的 `.pine` 文件存放在 `quantforge/pine/strategies/optimized/`
+（目前 `/api/strategies` 不暴露 — 作为 checkpoint 保留，不算 live 候选）。
 
-## 交易对格式
-
-所有交易对遵循以下命名规则：`{基础货币}{计价货币}-{合约类型}.{交易所}`
-
-示例：
-- `BTCUSDT-PERP.BINANCE`（Binance 永续合约）
-- `BTCUSDT-PERP.OKX`（OKX 永续合约）
-- `BTCUSDT-PERP.BYBIT`（Bybit 永续合约）
-
-## 配置管理
-
-使用 `dynaconf` 进行基于环境的配置管理：
-- API 凭证存储在 `settings` 系统中
-- 通过 `.env` 文件管理环境变量
-- 交易所账户类型指定测试网/主网及账户类别
-
-## 贡献指南
-
-源自 CONTRIBUTING.md：
-1. 实现更改前先创建 GitHub issue
-2. 从 main 分支 fork 并保持同步
-3. 安装 pre-commit hooks（强制要求）
-4. 小型、聚焦的 pull request，描述清晰
-5. 在 PR 描述中引用 GitHub issue
-6. 所有 PR 以 main 分支为目标
-
-## 基础设施服务
-
-开发环境技术栈包括：
-- **Redis**：数据缓存和发布/订阅消息
-- **PostgreSQL**：持久化数据存储
-- **Grafana Loki**：集中式日志
-- **Promtail**：日志收集代理
-
-启动方式：`docker-compose up -d`
-
-## 开发规范
-
-### 导入规范
-- 始终使用绝对路径导入
-
-### 连接器杠杆设置
-- `PrivateConnectorConfig.leverage` 设置杠杆倍数；`leverage_symbols` 可选地限制应用于哪些交易对。
-- 杠杆在 `strategy.on_start()` 之后通过 `engine._apply_leverage()` 应用，因此只针对策略实际订阅的交易对。
-- 优先级：显式 `leverage_symbols` 配置 → 自动检测策略交易对 → 跳过（无全品种兜底）。
-
-## 流式指标原语（`quantforge/indicators/streaming.py`）
-
-| 类名 | 描述 |
-|------|------|
-| `StreamingEMA(period)` | 指数移动平均线 |
-| `StreamingSMA(period)` | 简单移动平均线（滚动窗口） |
-| `StreamingATR(period)` | 平均真实波幅（Wilder 平滑） |
-| `StreamingROC(period)` | 变化率 |
-| `StreamingADX(period)` | 平均方向指数 |
-| `StreamingBB(period, multiplier)` | 布林带（SMA ± multiplier × σ） |
-| `StreamingRSI(period)` | 相对强弱指数（Wilder 平滑） |
-
-所有原语共享：`.value` 属性、`.update()` 返回 `Optional[float]`、`.reset()` 方法。
-
-使用者：`quantforge/dsl/indicators.py`、Pine 转译器 TA 计算器。
-
-## Pine Script 引擎
-
-Pine Script 引擎（`quantforge/pine/`）提供 TradingView 兼容的 Pine Script v5 解析器、解释器和转译器。**这是主要的策略层。**
-
-### Pine 策略
-
-所有交易策略以 `.pine` 文件形式存放在 `quantforge/pine/strategies/`：
-
-| 策略 | 文件 | 描述 |
-|------|------|------|
-| 动量 ADX | `momentum_adx.pine` | ROC、EMA、ADX 过滤、ATR 追踪止损的趋势跟踪 |
-| 布林带 | `bollinger_band.pine` | 带趋势 SMA 过滤的布林带均值回归 |
-| 双状态 | `dual_regime.pine` | 自适应：趋势环境用动量，震荡环境用均值回归 |
-| SMA 趋势 | `sma_trend.pine` | 仅做多的日线 SMA 趋势跟踪 |
-| Hurst Kalman | `hurst_kalman.pine` | 统计套利近似（EMA 代理 Kalman 滤波） |
-| EMA 交叉 | `ema_crossover.pine` | 简单 EMA 交叉（快/慢） |
-
-测试固件在 `quantforge/pine/tests/fixtures/`：`ema_cross.pine`、`rsi_strategy.pine`、`rsi_mean_revert.pine`、`macd_cross.pine`、`bb_strategy.pine`、`ema_cross_5_13.pine`
+测试 fixture 在 `quantforge/pine/tests/fixtures/`：
+`ema_cross.pine`, `rsi_strategy.pine`, `rsi_mean_revert.pine`,
+`macd_cross.pine`, `bb_strategy.pine`, `ema_cross_5_13.pine`。
 
 ### Pine CLI
 
 ```bash
-# 在交易所数据上回测 .pine 文件
-python -m quantforge.pine.cli backtest my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
+# Backtest
+python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
 
-# 优化输入参数（对 input.int/input.float 范围进行网格搜索）
-python -m quantforge.pine.cli optimize my_strategy.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
+# Grid 优化（对 input.int / input.float 的范围做网格搜索）
+python -m quantforge.pine.cli optimize my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
 
-# 将 Pine Script 转译为独立 Python
-python -m quantforge.pine.cli transpile my_strategy.pine --output strategy.py
-python strategy.py  # 独立运行 — 不依赖 Pine 解释器
+# 转译成自包含 Python（运行时不依赖 Pine 引擎）
+python -m quantforge.pine.cli transpile my.pine --output strategy.py
 
-# 实盘交易（模拟/纸上交易）
-python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --demo --symbol BTC/USDT:USDT --timeframe 15m
+# Live demo/sandbox
+python -m quantforge.pine.cli live my.pine --exchange okx --demo --symbol BTC/USDT:USDT --timeframe 1h
 
-# 实盘交易（真金白银）
-python -m quantforge.pine.cli live my_strategy.pine --exchange bitget --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 15m
+# Live 实盘（需要 --confirm-live 兜底）
+python -m quantforge.pine.cli live my.pine --exchange okx --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 1h --leverage 5
 ```
 
 ### Pine 转译器
 
-转译器（`quantforge/pine/transpiler/codegen.py`）生成**自包含的 Python 脚本**：
-- 内嵌与 TradingView 完全一致的 TA 计算器类（EMA 使用 SMA 种子、RSI 使用 Wilder/RMA 平滑等）
-- 使用下一根 K 线开盘价执行语义跟踪仓位和执行订单
-- 通过 ccxt 获取 OHLCV 数据或接受 `list[list]` 格式
-- 独立计算盈亏 — 不依赖 Pine 解释器
+`quantforge/pine/transpiler/codegen.py` 生成与 Pine 解释器逐 bit 一致的
+自包含 Python 代码。**TA 映射**：`ta.ema → _EMACalc`、`ta.sma →
+_SMACalc`、`ta.rsi → _RSICalc`（Wilder/RMA 平滑）、`ta.macd →
+_MACDCalc`、`ta.atr → _ATRCalc`、`ta.adx → _ADXCalc`、`ta.bb →
+_BBCalc`、`ta.stoch → _StochCalc`、`ta.stdev → _StdevCalc`、
+`ta.crossover/crossunder → _crossover/_crossunder`（带前一根 bar 跟踪）、
+`ta.highest/lowest → _HighestCalc/_LowestCalc`、`ta.change →
+_ChangeCalc`。**策略映射**：`strategy.entry → tracker.queue_entry()`、
+`strategy.close → tracker.queue_close()`（订单在下一根 bar 的 open 处
+成交）。**21 个 parity 测试**锁死这一行为。
 
-**TA 映射**：`ta.ema` → `_EMACalc`、`ta.sma` → `_SMACalc`、`ta.rsi` → `_RSICalc`、`ta.macd` → `_MACDCalc`、`ta.stdev` → `_StdevCalc`、`ta.atr` → `_ATRCalc`、`ta.adx` → `_ADXCalc`、`ta.bb` → `_BBCalc`、`ta.stoch` → `_StochCalc`、`ta.crossover`/`ta.crossunder` → `_crossover`/`_crossunder`、`ta.highest`/`ta.lowest` → `_HighestCalc`/`_LowestCalc`、`ta.change` → `_ChangeCalc`
+### Pine 实盘引擎
 
-**一致性保证**：转译后的代码在相同数据上产生与 Pine 解释器完全一致的交易和盈亏。通过 21 个一致性测试覆盖 6 个策略验证。
+回测和实盘**共用同一个解释器**，模式之间不做转译。关键文件：
+- `quantforge/pine/live/engine.py` — `PineLiveEngine`：warmup + 实时
+  K 线循环，按 bar 精确对时
+- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：拦截 Pine
+  `strategy.entry/close/exit` 回调，下到 ccxt
+- `quantforge/pine/live/connector.py` — `CcxtConnector`（处理 demo
+  开关、从 `settings` 读 API key、调用 `set_leverage` /
+  `create_{market,limit}_order` / `fetch_positions` / `fetch_balance`）
 
-### 支持的 ta.* 函数
+实盘表现按 bar 落盘到
+`~/.quantforge/live/{strategy_name}/live_performance.json`；后端的
+`_find_perf_files()` 扫文件，每 3s 通过 `/ws/live/performance` 推送。
 
-`ta.sma`, `ta.ema`, `ta.rma`, `ta.rsi`, `ta.atr`, `ta.adx`, `ta.macd`, `ta.bb`, `ta.stoch`, `ta.stdev`, `ta.crossover`, `ta.crossunder`, `ta.highest`, `ta.lowest`, `ta.change`, `ta.tr`
+### 支持的 `ta.*` 函数
+`ta.sma`, `ta.ema`, `ta.rma`, `ta.rsi`, `ta.atr`, `ta.adx`, `ta.macd`,
+`ta.bb`, `ta.stoch`, `ta.stdev`, `ta.crossover`, `ta.crossunder`,
+`ta.highest`, `ta.lowest`, `ta.change`, `ta.tr`。
 
-### Web UI 架构
+## Streaming 指标原语 (`quantforge/indicators/streaming.py`)
 
-**前端技术栈**：React 18 + TypeScript（strict 模式）+ Vite + Tailwind CSS + **shadcn/ui** 组件库
-- UI 组件（`Button`, `Input`, `Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `Label`, `Badge`, `Card`, `Checkbox`, `Tabs`, `Collapsible` 等）位于 `apps/dashboard/frontend/src/components/ui/`
-- Select 使用 Radix `@radix-ui/react-select`（非原生 `<select>`）；所有表单输入均使用 shadcn 组件
-- `ErrorBoundary` 组件包裹全局；页面使用 `React.lazy` + `Suspense` 懒加载
-- Vite build chunk 分割：`vendor`（react/zustand）、`charts`（recharts/lightweight-charts）、`ui`（radix/lucide）
-- 使用 CSS 变量主题系统（`index.css`），深色 TradingView 风格
-- 图表组件统一在 `src/components/charts/` 目录
-- 路径别名 `@/` → `./src/`
-- 交易相关颜色（盈利绿 `tv-green`、亏损红 `tv-red`）保留在 Tailwind 配置中
+| 类 | 说明 |
+|---|---|
+| `StreamingEMA(period)` | 指数移动平均 |
+| `StreamingSMA(period)` | 简单移动平均（滚动窗口） |
+| `StreamingATR(period)` | 平均真实波幅（Wilder 平滑） |
+| `StreamingROC(period)` | 变化率 |
+| `StreamingADX(period)` | 平均趋向指数 |
+| `StreamingBB(period, multiplier)` | 布林带 |
+| `StreamingRSI(period)` | RSI（Wilder/RMA 平滑） |
 
-所有回测和优化逻辑统一在主回测模块中：
-- `apps/dashboard/backend/jobs.py` — 共享工具（`_fetch_ohlcv`、`_resolve_pine_source`、`_resolve_date_range`）及回测/优化任务运行器
-- `apps/dashboard/backend/routers/backtest.py` — `/backtest/run`（POST）、`/backtest/{id}`（GET，轮询状态）
-- `apps/dashboard/backend/routers/optimize.py` — `/optimize/run`（POST）、`/optimize/{id}`（GET）
-- `apps/dashboard/backend/routers/strategies.py` — `/strategies`、`/exchanges`
-- `apps/dashboard/backend/routers/live.py` — 实盘引擎管理：`/live/start`（POST）、`/live/stop/{id}`（POST）、`/live/engines`（GET）、`/ws/live/performance`（WS）
-- `apps/dashboard/backend/live_engines.py` — 内存引擎管理器：`start_engine()`、`stop_engine()`、`list_engines()` — 以 asyncio 任务运行 PineLiveEngine
-- 前端页面：`Dashboard.tsx`（实盘交易：策略选择器+启停控制+StrategyTester）、`Backtest.tsx`、`Optimizer.tsx`
-- `apps/dashboard/frontend/src/utils/liveAdapter.ts` — 将 `LivePerformance` 转换为 `BacktestResult` 供 StrategyTester 渲染
-- 路由：`/`（实盘交易）、`/backtest`、`/optimizer`
+共享接口：`.value`（`Optional[float]`）、`.update(...)`、`.reset()`。被
+DSL（`quantforge/dsl/indicators.py`）和 Pine 转译器的 TA 计算器复用。
 
-### Pine 实盘交易引擎
-
-Pine 解释器**直接**作为实盘交易引擎运行——无需转译。
-
-**架构：**
-```
-Pine Script (.pine 文件)
-     ↓
-Pine 解释器（回测和实盘使用同一引擎）
-     ↓  喂入实时确认 K 线
-QuantForge 交易所连接器（通过 ccxt）
-     ↓  strategy.entry/close 信号 → 真实订单
-交易所
-```
-
-**关键文件：**
-- `quantforge/pine/live/engine.py` — `PineLiveEngine`：预热 + 实时 K 线循环
-- `quantforge/pine/live/order_bridge.py` — `OrderBridge`：Pine 信号 → 交易所订单
-- `quantforge/pine/live/connector.py` — 预热 K 线获取 + `CcxtConnector`
-- `quantforge/pine/optimize.py` — 参数网格搜索优化
-
-**增量执行 API**：
-- `init_incremental(script)` — 解析声明，重置指标状态
-- `process_bar(bar) → list[Order]` — 喂入一根 K 线，返回新订单
-- `finalize() → BacktestResult` — 关闭剩余仓位，返回结果
-
-**一致性保证：** 11 个测试验证增量逐根执行产生与批量执行完全相同的交易和权益曲线。
-
-**实时性能仪表板集成：**
-- `DemoTracker.to_dict()` 将盈亏、交易、回撤序列化为 `LivePerformanceOut` 兼容 JSON
-- `PineLiveEngine._flush_performance()` 每根 K 线后写入 `~/.quantforge/live/{策略名}/live_performance.json`
-- Web 后端 `_find_perf_files()` 通过 `rglob("live_performance.json")` 发现这些文件
-- WebSocket 端点 `/ws/live/performance` 每 3 秒推送更新
-
-### Pine 测试
-
-```bash
-uv run pytest quantforge/pine/tests/ -v  # 89个测试（55 解释器/解析器 + 11 实时引擎 + 16 优化器 + 7 TV对齐）
-```
-
-## 声明式策略 DSL (`quantforge/dsl/`)
-
-简化的声明式 Python API，用 ~15-30 行代码定义交易策略。使用 `quantforge/indicators/` 中的流式指标。
-
-### 快速开始
+## 声明式 DSL (`quantforge/dsl/`)
 
 ```python
 from quantforge.dsl import Strategy, Param
@@ -336,117 +252,151 @@ class EMACross(Strategy):
         self.ema_slow = self.add_indicator("ema", self.slow_period)
 
     def on_bar(self, bar):
-        if self.ema_fast.crossover(self.ema_slow):
-            return self.BUY
-        if self.ema_fast.crossunder(self.ema_slow):
-            return self.SELL
+        if self.ema_fast.crossover(self.ema_slow): return self.BUY
+        if self.ema_fast.crossunder(self.ema_slow): return self.SELL
         return self.HOLD
 ```
 
-### 包结构
+`add_indicator` 支持的名称：`ema`, `sma`, `rsi`, `atr`, `adx`, `bb`,
+`roc`。35 个测试。
 
-```
-quantforge/dsl/
-├── __init__.py          # 公共API: Strategy, Param, Bar, Indicator
-├── api.py               # Strategy基类, Param描述符, Bar数据类
-├── indicators.py        # 指标包装器（crossover/crossunder/历史/回溯）
-├── registry.py          # 通过元类自动注册
-├── backtest.py          # 简单回测器，支持1根K线信号延迟
-├── runner.py            # CLI 运行器
-├── examples/            # 5个示例策略
-└── tests/
-    └── test_new_api.py  # 35个测试
-```
+## Backtest 数据基础设施 (`quantforge/backtest/`)
 
-### 支持的指标
+### 本地缓存
+`quantforge/backtest/data/database.py::KlineDatabase` — SQLite 缓存，
+路径 `~/.quantforge/data/klines.db`。API：`save / load / has_data /
+get_gaps / stats`。唯一约束 `(exchange, symbol, interval, timestamp)`。
+通过 `calendar.timegm()` 保证时区安全。
 
-`"ema"`, `"sma"`, `"rsi"`, `"atr"`, `"adx"`, `"bb"`, `"roc"` — 全部复用 `quantforge/indicators/streaming.py` 中的 `StreamingXXX` 类
+`quantforge/backtest/data/cached_provider.py::CachedDataProvider.fetch()`
+先查缓存、只拉缺失段。`ValidatedData.fetch_and_validate()` 跨交易所
+对比，返回 `{primary_data, validation_report, anomalies, is_valid}`。
 
-### DSL 测试
-
-```bash
-uv run pytest quantforge/dsl/tests/ -v  # 35个测试
-```
-
-## 回测数据基础设施
-
-### 本地数据缓存与多源验证
-
-`quantforge/backtest/data/database.py` 提供 SQLite 缓存层：
-- **KlineDatabase**: 存储 OHLCV 数据至 `~/.quantforge/data/klines.db`
-- API: `save()`, `load()`, `has_data()`, `get_gaps()`, `stats()`
-
-`quantforge/backtest/data/cached_provider.py` 提供智能缓存 + 验证：
-- **CachedDataProvider**: `fetch()` 先查缓存，仅拉取缺失区间
-- **ValidatedData**: `fetch_and_validate()` 跨交易所对比数据
-
-### 蒙特卡洛模拟与压力测试
-
-`quantforge/backtest/simulation/` 子模块提供策略稳健性评估的统计模拟功能：
+### 蒙特卡洛 & 压力测试 — `quantforge/backtest/simulation/`
 
 | 模块 | 类 | 用途 |
-|------|-----|------|
-| `bootstrap.py` | `BlockBootstrap` | 分块自助法重采样 |
-| `monte_carlo.py` | `GBMGenerator` | 几何布朗运动路径生成 |
+|---|---|---|
+| `bootstrap.py` | `BlockBootstrap` | 对数收益的块自助 |
+| `monte_carlo.py` | `GBMGenerator` | 几何布朗运动路径 |
 | `monte_carlo.py` | `JumpDiffusionGenerator` | Merton 跳跃扩散 |
-| `stress_test.py` | `StressTestGenerator` | 崩盘、暴涨、波动率放大情景 |
-| `report.py` | `SimulationReport` | 分布统计、置信区间 |
+| `stress_test.py` | `StressTestGenerator` | 崩盘 / 暴涨 / 波动率情景 |
+| `report.py` | `SimulationReport` | 分布统计 + 绘图 |
 
-### 支持的交易所
+## 支持的交易所
 
-| 交易所 | CCXT ID | Maker 费率 | Taker 费率 |
-|--------|---------|-----------|-----------|
+| Exchange | ccxt id | Maker | Taker |
+|---|---|---|---|
 | Bitget | `bitget` | 0.02% | 0.05% |
 | Binance | `binance` | 0.02% | 0.04% |
 | OKX | `okx` | 0.02% | 0.05% |
 | Bybit | `bybit` | 0.02% | 0.05% |
 | Hyperliquid | `hyperliquid` | 0.02% | 0.05% |
 
+## Secrets 配置
+
+API key 存在 **`.keys/.secrets.toml`**（gitignored），通过 dynaconf 在
+`quantforge/constants.py` 中加载。import 时 `_check_secrets_file_perms()`
+会校验权限为 `0600`，否则自动 chmod 并发警告。文件结构：
+
+```toml
+[BITGET.LIVE]
+API_KEY = "..."
+SECRET = "..."
+PASSPHRASE = "..."
+
+[OKX.LIVE.ACCOUNT1]
+API_KEY = "..."
+SECRET = "..."
+PASSPHRASE = "..."
+
+[BINANCE.TESTNET]
+API_KEY = "..."
+SECRET = "..."
+```
+
+每个交易所的 key 读取逻辑在
+`quantforge/pine/live/connector.py::_create_exchange()` —— 一次读出，
+应用到 `ccxt.<id>({apiKey, secret, password})`。
+
+## Symbol 格式
+
+`{base}{quote}-{instrument_type}.{exchange}`，如
+`BTCUSDT-PERP.BINANCE`。CLI / API 也直接接受 ccxt 各交易所的格式
+（`BTC/USDT:USDT`）。
+
 ## 统一 CLI (`quantforge-cli`)
 
-`quantforge-cli` 是 Click 命令组，把每个 web route 都映射成 CLI 子命令。无状态操作直接读文件系统（不需要 server）；有状态操作走 `$QF_API_URL`（默认 `http://127.0.0.1:8000`）的 web API。
+Click 命令组，每个 Web 路由都有对应的 CLI 子命令。无状态操作直接读盘，
+有状态的打到 `$QF_API_URL`（默认 `http://127.0.0.1:8000/api`）。
 
 | 命令 | Web 对应 | 模式 |
 |---|---|---|
-| `strategies list` / `show <n>` / `source <n>` / `rename <old> <new>` | `/strategies*` | 文件系统 |
+| `strategies list / show <n> / source <n> / rename <old> <new>` | `/strategies*` | 文件系统 |
 | `exchanges list` | `/exchanges` | 静态 |
-| `engines list [--via-server]` | `/live/engines` | 持久化文件 或 HTTP |
+| `engines list [--via-server]` | `/live/engines` | 文件 或 HTTP |
 | `engines start <pine> [--via-server]` | `/live/start` | 前台 或 HTTP |
-| `engines stop <id>` | `/live/stop/{id}` | 仅 HTTP |
-| `engines performance [strategy]` | `/live/performance` | 持久化文件 |
+| `engines stop <id>` | `/live/stop/{id}` | HTTP |
+| `engines performance [strategy]` | `/live/performance` | 文件 |
 | `agent skills` | `/agent/skills` | 文件系统 |
 | `agent run --skill X --strategy Y [--via-server]` | `/agent/run` | 前台子进程 或 HTTP |
-| `agent status <id>` / `stop <id>` | `/agent/{id}*` | 仅 HTTP |
-| `backtest <pine>` / `optimize <pine>` / `live <pine>` | `/backtest/run`, `/optimize/run`, `/live/start` | 委托 `quantforge.pine.cli` |
+| `agent status <id>` / `stop <id>` | `/agent/{id}*` | HTTP |
+| `backtest <pine>` / `optimize <pine>` / `live <pine>` | `/backtest/run`、`/optimize/run`、`/live/start` | 包装 `quantforge.pine.cli` |
 
-所有 list 类命令支持 `--json`；Pine 名字自动从 `quantforge/pine/strategies/` 解析。代码在 `quantforge/cli/commands/{strategies,exchanges,engines,agent,pine}_cmd.py`，HTTP 客户端在 `_http.py`。
+所有列出类命令支持 `--json`。Pine 名字会从 `quantforge/pine/strategies/`
+自动解析。源码在
+`quantforge/cli/commands/{strategies,exchanges,engines,agent,pine}_cmd.py`，
+HTTP 客户端在 `_http.py`。
 
-## TiMi 优化器 A/B 评测框架 (`eval/optimizer_ab/`)
+## AI Optimizer Skill (`.claude/skills/quantforge-optimizer/`)
 
-针对 LLM 优化器（`~/.openclaw/skills/quantforge-optimizer`）的 air-gap 评测框架。每个 trial = (method, strategy, regime, seed)：`runner.py` 在隔离的 staged skill dir 里只在 train window 上调 Claude Code，再由独立进程 `holdout_eval.py` 在该 regime 的 holdout window 上跑优化后的 .pine——agent 永远看不到 OOS 数据。
+Web UI "AI Optimize" 模式调用的项目级 Claude skill。实现 TiMi 风格的
+闭环数学反思：先回测、再用数学约束反推参数、再回测，迭代收敛。在仓库
+内维护，方便迭代后做 A/B 评估。
 
-| 文件 | 作用 |
+## TiMi 优化器 A/B 框架 (`eval/optimizer_ab/`)
+
+气隙评估框架，用来比较优化器 skill 的不同变体。每个 trial =
+`(method, strategy, regime, seed)`；`runner.py` 在隔离 staged skill 目录
+里只用 *train* 窗口跑 Claude Code，然后 `holdout_eval.py` 把优化产出的
+`.pine` 在 regime 的 *holdout* 窗口跑一遍，agent 始终看不到 OOS 数据。
+
+| 文件 | 角色 |
 |---|---|
-| `test_set.yaml` | 冻结的 3 层策略切分（dev/test/holdout）× 3 regime × seeds |
-| `methods/<name>/SKILL.md` | 每个待测方法一份；`baseline/SKILL.md` 是 canonical skill 的快照 |
-| `runner.py` | 单 trial：staging skill、调 `claude --print --stream-json`、抓 `FINAL_OUTPUT:` sentinel |
-| `holdout_eval.py` | 跑 train + holdout 双回测；**按 bar 时间戳过滤 equity_curve 和 trades，warmup 不污染 OOS metrics** |
-| `orchestrate.py` | 矩阵循环；resume key 用 `cell_id + "__"`，避免 seed=1 是 seed=10 的 prefix。结果追加到 `results/matrix.csv` |
-| `analyze.py` | per-method 聚合 + paired Wilcoxon + bootstrap 95% CI |
-| `rebuild_csv.py` | 改完 metric 计算后从 trial JSON 重建 CSV，不需要花钱重跑 runner |
+| `test_set.yaml` | 冻结的 3 档策略划分 × regime × seed |
+| `methods/<name>/SKILL.md` | 每个待测方法一份 |
+| `runner.py` | 单个 trial：staged skill、调 Claude、捕获 `FINAL_OUTPUT:` |
+| `holdout_eval.py` | 按 bar 时间戳过滤 equity/trades；warmup 段不计入 |
+| `orchestrate.py` | 矩阵循环；resume key 是 `cell_id + "__"`（防止 seed=1 是 seed=10 的前缀） |
+| `analyze.py` | 各方法的聚合 + 配对 Wilcoxon + bootstrap 95% CI |
+| `rebuild_csv.py` | 从 trial JSON 重建 CSV，不重跑 runner |
+| `cross_review.py` | 跨模型评审变体 |
 
-Air-gap 不变量：agent prompt 钉死 `--start --end` 到 train window；`stage_skill` 把 SKILL.md / scripts / references 里所有硬编码 `--start YYYY-MM-DD --end YYYY-MM-DD` 都改写成本次 trial 的训练窗口，agent 复制示例时不会跑出框；OOS metrics 只算 `time >= start_unix` 的 bars；每 trial 的 `optimization_log.jsonl` 清空，跨 run 学习不污染 baseline。
+**气隙不变式**：agent prompt 把 `--start --end` 钉在 train 窗口；
+`stage_skill` 把 SKILL.md / scripts / references 里的硬编码日期重写到
+本次 trial 的训练窗口；OOS 指标只在 `time >= start_unix` 的 bar 上算；
+每个 trial 的 `optimization_log.jsonl` 被清掉，避免跨 run 学习。
 
-已知限制：Claude CLI 没有 `--seed`，`seeds: [1, 2, 3]` 是*重复采样编号*而非可重现随机种子——报告应给 median ± bootstrap CI，不是单点估计。
+**已知局限**：Claude CLI 没暴露 `--seed`，所以 `seeds: [1, 2, 3]` 是
+*replicate 编号*，不是可复现的随机种子 — 用 seed 的 median ± bootstrap
+CI 来报告，不要给单点估计。
 
-## Claude Code 记忆
+## 约定
 
-### 工作规范
-- 每次代码变更后同步更新 CLAUDE.md 和 CLAUDE_CN.md，然后 commit 并 push 到 dev 分支
+- **import 路径**：一律绝对（`from quantforge.pine ...`），不用相对。
+- **策略写在 `.pine` 文件里**，不要写到 `.py`。DSL 只用来做原型。
+- **不要写单交易所手写连接器代码** — 走 ccxt 统一接口。如果功能缺，
+  monkey-patch ccxt 实例，不要平行写另一套 adapter。
 
-### CLI 使用注意事项
-- 不要在 Claude Code 中运行 quantforge-cli moniter
+## 工作流规则
 
-### Ruff 使用
-- 使用 `uvx ruff check` 检查当前目录所有文件
-- 使用 `uvx ruff format` 格式化当前目录所有文件
+- 每次代码改动之后：更新 `CLAUDE.md` 和 `CLAUDE_CN.md`，commit 并 push
+  到 `dev` 分支。
+
+## CLI 使用注意
+
+- 不要在 Claude Code 里执行 `quantforge-cli monitor`（会阻塞 + TUI 风格）。
+
+## Ruff 用法
+
+- Lint：`uvx ruff check`
+- Format：`uvx ruff format`

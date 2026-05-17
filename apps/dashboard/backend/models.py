@@ -312,6 +312,10 @@ class HeatmapResultOut(BaseModel):
 class OptimizeProgress(BaseModel):
     completed: int
     total: int
+    # Average wall-clock seconds per evaluated combination so far.
+    # Frontend computes ETA = (total - completed) * avg_secs_per_combo.
+    avg_secs_per_combo: Optional[float] = None
+    elapsed_secs: Optional[float] = None
 
 
 class OptimizeJobStatusOut(BaseModel):

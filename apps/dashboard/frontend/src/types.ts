@@ -251,6 +251,8 @@ export interface HeatmapResult {
 export interface OptimizeProgress {
   completed: number
   total: number
+  avg_secs_per_combo?: number | null
+  elapsed_secs?: number | null
 }
 
 export interface OptimizeJobStatus {

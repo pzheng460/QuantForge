@@ -1031,11 +1031,28 @@ def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridS
 
     # Seed the progress so the frontend immediately knows the total combo count.
     if job_id and job_id in _jobs:
-        _jobs[job_id]["progress"] = {"completed": 0, "total": len(grid)}
+        _jobs[job_id]["progress"] = {
+            "completed": 0,
+            "total": len(grid),
+            "avg_secs_per_combo": None,
+            "elapsed_secs": 0.0,
+        }
+
+    # Capture wall-clock start so the progress callback can report ETA.
+    import time as _time
+    grid_start = _time.monotonic()
 
     def _on_progress(completed: int, total: int) -> None:
-        if job_id and job_id in _jobs:
-            _jobs[job_id]["progress"] = {"completed": completed, "total": total}
+        if not (job_id and job_id in _jobs):
+            return
+        elapsed = _time.monotonic() - grid_start
+        avg = elapsed / completed if completed > 0 else None
+        _jobs[job_id]["progress"] = {
+            "completed": completed,
+            "total": total,
+            "avg_secs_per_combo": avg,
+            "elapsed_secs": elapsed,
+        }
 
     start_str, end_str = _resolve_date_range(req.period, req.start_date, req.end_date)
     symbol = req.symbol or _DEFAULT_SYMBOLS.get(req.exchange, "BTC/USDT:USDT")

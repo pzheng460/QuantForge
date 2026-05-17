@@ -195,6 +195,11 @@ class AgentJobManager:
             req_dict = request.dict()
         else:
             req_dict = dict(request) if request else None
+        # Capture the subprocess PID (not the Popen handle, which doesn't
+        # survive reload). On startup we'll SIGTERM it so the orphan doesn't
+        # keep burning CPU after the backend reloaded.
+        process = job.get("process")
+        pid = getattr(process, "pid", None) if process is not None else job.get("pid")
         return {
             "id": job["id"],
             "status": job["status"],
@@ -202,6 +207,7 @@ class AgentJobManager:
             "events": job.get("events", []),
             "started_at": job.get("started_at"),
             "error": job.get("error"),
+            "pid": pid,
         }
 
     def _persist(self, job_id: str):
@@ -243,12 +249,26 @@ class AgentJobManager:
         if not job_id:
             return
         # Subprocess handle is lost across restarts — mark any still-active
-        # job as failed-interrupted so the frontend stops polling.
+        # job as failed-interrupted so the frontend stops polling, and
+        # SIGTERM any orphan child PID we captured so it doesn't keep
+        # burning CPU forever after backend reload.
         if data.get("status") in {"pending", "running"}:
+            pid = data.get("pid")
+            killed_note = ""
+            if pid:
+                try:
+                    import os as _os, signal as _signal
+                    _os.kill(pid, _signal.SIGTERM)
+                    killed_note = f" Sent SIGTERM to orphan PID {pid}."
+                except ProcessLookupError:
+                    killed_note = f" Orphan PID {pid} already exited."
+                except OSError as e:
+                    killed_note = f" Failed to SIGTERM orphan PID {pid}: {e}."
             prev = data.get("error") or ""
             data["status"] = "failed"
             data["error"] = (prev + "\n" if prev else "") + (
-                "Backend restarted while job was running; subprocess output may be truncated."
+                "Backend restarted while job was running; subprocess output truncated."
+                + killed_note
             )
         data["process"] = None
         self.jobs[job_id] = data

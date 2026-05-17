@@ -24,7 +24,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Sidebar,
   SidebarContent,
@@ -46,7 +45,16 @@ import type {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const PERIODS = ['1m', '3m', '6m', '1y', '2y', '3y', '5y']
+const PERIODS: { value: string; label: string }[] = [
+  { value: '1w', label: '1 week' },
+  { value: '1m', label: '1 month' },
+  { value: '3m', label: '3 months' },
+  { value: '6m', label: '6 months' },
+  { value: '1y', label: '1 year' },
+  { value: '2y', label: '2 years' },
+  { value: '3y', label: '3 years' },
+  { value: '5y', label: '5 years' },
+]
 const MODES = [
   { value: 'grid', label: 'Grid Search', desc: 'Python-based parameter grid optimization' },
   { value: 'ai', label: 'AI Optimize', desc: 'Claude Code-driven iterative optimization' },
@@ -78,6 +86,16 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Grid Search Results ──────────────────────────────────────────────────────
 
+function formatDuration(secs: number): string {
+  if (!isFinite(secs) || secs < 0) return '—'
+  if (secs < 60) return `${Math.round(secs)}s`
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs - m * 60)
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m - h * 60}m`
+}
+
 function GridProgressPanel({
   progress,
   status,
@@ -88,6 +106,11 @@ function GridProgressPanel({
   const total = progress?.total ?? 0
   const completed = progress?.completed ?? 0
   const pctVal = total > 0 ? Math.min(100, (completed / total) * 100) : 0
+  const avgSecs = progress?.avg_secs_per_combo ?? null
+  const elapsedSecs = progress?.elapsed_secs ?? null
+  const remainingCombos = Math.max(0, total - completed)
+  const etaSecs = avgSecs && remainingCombos > 0 ? avgSecs * remainingCombos : null
+
   const phase = !progress
     ? (status === 'pending' ? 'Queued…' : 'Fetching market data…')
     : completed === 0
@@ -125,6 +148,17 @@ function GridProgressPanel({
               </span>
             )}
           </div>
+          {(etaSecs !== null || elapsedSecs !== null) && (
+            <div className="flex items-baseline justify-between text-[10px] text-muted-foreground/80 font-mono tabular-nums pt-0.5">
+              {elapsedSecs !== null ? <span>elapsed {formatDuration(elapsedSecs)}</span> : <span />}
+              {etaSecs !== null && (
+                <span>
+                  ≈ {formatDuration(etaSecs)} remaining
+                  {avgSecs ? ` · ${avgSecs.toFixed(2)}s / combo` : ''}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -231,7 +265,6 @@ export default function OptimizerPage() {
     strategy, setStrategy,
     exchange, setExchange,
     symbol, setSymbol,
-    useDateRange, setUseDateRange,
     period, setPeriod,
     startDate, setStartDate,
     endDate, setEndDate,
@@ -392,9 +425,10 @@ export default function OptimizerPage() {
       symbol: data.symbol || undefined,
       leverage: data.leverage, mode: 'grid', n_jobs: nJobs,
     }
-    if (useDateRange) {
-      req.start_date = startDate || undefined
-      req.end_date = endDate || undefined
+    // Custom dates override Quick Period when both filled in.
+    if (startDate && endDate) {
+      req.start_date = startDate
+      req.end_date = endDate
     } else {
       req.period = period
     }
@@ -404,7 +438,7 @@ export default function OptimizerPage() {
       onError: (e) => { setError(String(e)); setLoading(false) },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nJobs, useDateRange, period, startDate, endDate])
+  }, [nJobs, period, startDate, endDate])
 
   const onValidAIRun = useCallback((data: OptimizeFormData) => {
     if (!selectedSkill) return
@@ -554,37 +588,50 @@ export default function OptimizerPage() {
             <SidebarGroup>
               <SidebarGroupLabel>Period</SidebarGroupLabel>
               <SidebarGroupContent className="space-y-2">
-                <label className="flex items-center gap-2">
-                  <Checkbox
-                    checked={useDateRange}
-                    onCheckedChange={(c) => setUseDateRange(c === true)}
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Lookback is used <span className="font-medium text-foreground">unless both dates below are filled</span>{' '}
+                  (then dates override).
+                </p>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs">Lookback (from today)</Label>
+                  <Select value={period} onValueChange={setPeriod}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Select lookback" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PERIODS.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 py-0.5">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">or pick exact dates (overrides)</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs">Start Date</Label>
+                  <Input
+                    type="date"
+                    className="text-xs h-8"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
                   />
-                  <span className="text-xs text-muted-foreground">Custom date range</span>
-                </label>
-
-                {!useDateRange ? (
-                  <div className="flex flex-col gap-1">
-                    <Label className="text-xs">Period</Label>
-                    <Select value={period} onValueChange={setPeriod}>
-                      <SelectTrigger className="text-xs h-8">
-                        <SelectValue placeholder="Select period" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PERIODS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex flex-col gap-1">
-                      <Label className="text-xs">Start Date</Label>
-                      <Input type="date" className="text-xs h-8" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <Label className="text-xs">End Date</Label>
-                      <Input type="date" className="text-xs h-8" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                    </div>
-                  </>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs">End Date</Label>
+                  <Input
+                    type="date"
+                    className="text-xs h-8"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </div>
+                {startDate && endDate && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Using <span className="font-mono text-foreground">{startDate} → {endDate}</span> (overrides period)
+                  </p>
                 )}
 
                 <div className="flex flex-col gap-1">
