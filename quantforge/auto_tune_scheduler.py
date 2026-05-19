@@ -54,7 +54,12 @@ class AutoTuneJob:
     history: str = "eval/optimizer_ab/results/auto_tune_history.jsonl"
     lock: str = "eval/optimizer_ab/results/auto_tune.lock"
     heartbeat: str = "eval/optimizer_ab/results/auto_tune_heartbeat.json"
-    control_state: str = "eval/optimizer_ab/results/trading_control.json"
+    # IMPORTANT: must match the path that PineLiveEngine.start() reads from
+    # (quantforge.trading_control.TradingControl default) so that auto-tune
+    # decisions actually reach the live engine. The eval/ A/B harness invokes
+    # `eval.auto_tune` directly with its own --control-state arg, so this
+    # default only affects the production bot_cycle path.
+    control_state: str = str(Path.home() / ".quantforge" / "trading_control.json")
     state: str = "eval/optimizer_ab/results/auto_tune_jobs_state.json"
     runs_dir: str = "eval/optimizer_ab/results/auto_tune_runs"
     failed_dir: str = "eval/optimizer_ab/results/auto_tune_failed"

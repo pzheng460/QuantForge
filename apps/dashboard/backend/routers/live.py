@@ -114,6 +114,27 @@ async def start_live(req: LiveStartRequest) -> LiveEngineOut:
     """Start a new PineLiveEngine as an asyncio task."""
     from apps.dashboard.backend.live_engines import list_engines, start_engine
 
+    # ── LIVE-mode safety gate ────────────────────────────────────────────────
+    # When demo=false the user is about to risk real money. The frontend's
+    # confirmation modal asks them to type the strategy name; we re-check
+    # that here so a stripped-frontend / curl caller can't bypass the prompt.
+    if not req.demo:
+        expected = (req.strategy or "").strip()
+        if not expected:
+            raise HTTPException(
+                status_code=400,
+                detail="LIVE mode requires a named strategy (cannot be raw pine_source).",
+            )
+        if (req.confirm_live or "").strip() != expected:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"LIVE mode confirmation required: set confirm_live='{expected}' "
+                    "in the request body. The dashboard UI does this for you via "
+                    "the safety modal."
+                ),
+            )
+
     # Prevent duplicate engines for the same strategy
     for eng in list_engines():
         if (

@@ -13,6 +13,7 @@ import type {
 } from '../types'
 import StrategyTester from '../components/StrategyTester'
 import TradingChart from '../components/charts/TradingChart'
+import { LiveSafetyModal } from '../components/LiveSafetyModal'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
 import type { EquityPoint, TradeRecord } from '../types'
 import { liveStartSchema, type LiveStartFormData } from '@/lib/schemas'
@@ -388,6 +389,14 @@ export default function DashboardPage() {
     setPineParams((prev) => prev.map((p) => p.name === paramName ? { ...p, value: newValue } : p))
   }, [])
 
+  // Pending LIVE submission — populated when user clicks Start with demo=off
+  // and is consumed when they confirm in LiveSafetyModal.
+  const [pendingLiveReq, setPendingLiveReq] = useState<LiveStartRequest | null>(null)
+
+  const submitLiveReq = useCallback((req: LiveStartRequest) => {
+    startLiveMutation.mutate(req, { onError: (e) => setStartError(String(e)) })
+  }, [startLiveMutation])
+
   const onValidStart = useCallback((data: LiveStartFormData) => {
     // Sync validated form data to Zustand
     setExchange(data.exchange)
@@ -410,9 +419,19 @@ export default function DashboardPage() {
       demo: data.demo,
     }
     if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) req.strategy = selectedStrategy
-    startLiveMutation.mutate(req, { onError: (e) => setStartError(String(e)) })
+
+    // LIVE mode → defer to the safety modal. Demo mode → submit immediately.
+    if (!data.demo) {
+      if (!req.strategy) {
+        setStartError('LIVE mode requires a named strategy (cannot use custom inline Pine).')
+        return
+      }
+      setPendingLiveReq(req)
+      return
+    }
+    submitLiveReq(req)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, selectedStrategy, startLiveMutation])
+  }, [source, selectedStrategy, submitLiveReq])
 
   const handleStop = useCallback((engineId: string) => {
     stopLiveMutation.mutate(engineId, { onError: (e) => setStartError(String(e)) })
@@ -543,12 +562,20 @@ export default function DashboardPage() {
                     name="demo"
                     control={control}
                     render={({ field }) => (
-                      <div className="flex items-center gap-2 py-1">
-                        <Checkbox id="demo-toggle" checked={field.value}
-                          onCheckedChange={(c) => { const v = !!c; field.onChange(v); setDemo(v) }}
-                          disabled={!!activeEngine} />
-                        <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
-                      </div>
+                      <>
+                        <div className="flex items-center gap-2 py-1">
+                          <Checkbox id="demo-toggle" checked={field.value}
+                            onCheckedChange={(c) => { const v = !!c; field.onChange(v); setDemo(v) }}
+                            disabled={!!activeEngine} />
+                          <Label htmlFor="demo-toggle" className="text-[10px] cursor-pointer">Demo Mode (Sandbox)</Label>
+                        </div>
+                        {!field.value && (
+                          <div className="mt-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive leading-snug">
+                            <span className="font-semibold">⚠ LIVE mode</span> — Start will place real orders.
+                            You'll be asked to confirm by typing the strategy name.
+                          </div>
+                        )}
+                      </>
                     )}
                   />
                 </div>
@@ -597,6 +624,23 @@ export default function DashboardPage() {
         <SidebarInset className="flex flex-col min-w-0">
           <LiveReportPanel activeEngine={activeEngine} />
         </SidebarInset>
+
+        {/* LIVE-mode safety modal — only opens when user submits with demo=off */}
+        <LiveSafetyModal
+          open={!!pendingLiveReq}
+          strategy={pendingLiveReq?.strategy ?? ''}
+          exchange={pendingLiveReq?.exchange ?? ''}
+          symbol={pendingLiveReq?.symbol ?? ''}
+          positionSize={pendingLiveReq?.position_size_usdt ?? 0}
+          leverage={pendingLiveReq?.leverage ?? 1}
+          onCancel={() => setPendingLiveReq(null)}
+          onConfirm={() => {
+            if (!pendingLiveReq) return
+            const req = { ...pendingLiveReq, confirm_live: pendingLiveReq.strategy }
+            setPendingLiveReq(null)
+            submitLiveReq(req)
+          }}
+        />
     </ResizableSidebarShell>
   )
 }

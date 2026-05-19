@@ -8,6 +8,7 @@ const BacktestPage = lazy(() => import('./pages/Backtest'))
 const OptimizerPage = lazy(() => import('./pages/Optimizer'))
 import { TimezoneProvider, useTimezone } from './hooks/useTimezone'
 import { Input } from '@/components/ui/input'
+import { EvolvingBadge } from './components/EvolvingBadge'
 import { cn } from '@/lib/utils'
 
 const COMMON_TZ = [
@@ -182,6 +183,7 @@ function TopBar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <EvolvingBadge />
           <TimezoneSelector />
           <span className="hidden md:inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono text-muted-foreground border border-border bg-card">
             <span className="status-dot" />

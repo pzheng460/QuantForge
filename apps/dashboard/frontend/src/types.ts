@@ -320,6 +320,8 @@ export interface LiveStartRequest {
   symbol?: string
   timeframe?: string
   demo: boolean
+  /** Required when demo=false. Must equal `strategy` for the backend to accept. */
+  confirm_live?: string
   position_size_usdt: number
   leverage: number
   warmup_bars: number

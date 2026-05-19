@@ -109,9 +109,55 @@ class PineLiveEngine:
     async def start(self) -> None:
         """Start the live trading loop.
 
-        1. Fetch warmup klines and build indicator state.
-        2. Poll for new confirmed klines and feed them to the interpreter.
+        1. Honour Evolving Mode's ``trading_control.json`` (pause/reduce).
+        2. Fetch warmup klines and build indicator state.
+        3. Poll for new confirmed klines and feed them to the interpreter.
         """
+        # ── Evolving Mode gate ──────────────────────────────────────────────
+        # If this strategy is under Evolving Mode control, the autonomous bot
+        # subsystem may have flipped its trading_control action. We respect:
+        #   - "pause"  → refuse to start (the risk gate caught something)
+        #   - "reduce" → cut position_size_usdt in half before starting
+        # When Evolving Mode is OFF (default), this is a no-op.
+        from quantforge import evolving
+
+        # Sanity: warn if strategy_name doesn't match any known .pine file.
+        # This catches the "ema_crossover" vs "EMA Cross" silent mismatch
+        # where evolving + trading_control are keyed by a name that nobody
+        # else recognises, so the gate silently never fires.
+        known = evolving.known_strategy_names()
+        if known and self.strategy_name not in known:
+            logger.warning(
+                "strategy_name '%s' does not match any .pine file in %s. "
+                "Evolving Mode gates keyed by this name will not fire. "
+                "Known: %s",
+                self.strategy_name,
+                evolving.PINE_STRATEGIES_DIR,
+                ", ".join(known[:5]) + ("…" if len(known) > 5 else ""),
+            )
+
+        if evolving.is_enabled(self.strategy_name):
+            from quantforge.trading_control import TradingControl
+            ctrl = TradingControl().get_action(self.strategy_name)
+            action = ctrl.get("action", "resume")
+            reasons = ctrl.get("reasons", [])
+            if action == "pause":
+                logger.error(
+                    "Refusing to start: trading_control says PAUSE for %s. Reasons: %s",
+                    self.strategy_name, reasons,
+                )
+                raise RuntimeError(
+                    f"Pine engine paused by Evolving Mode for '{self.strategy_name}': "
+                    + ("; ".join(reasons) if reasons else "no reason given")
+                )
+            if action == "reduce":
+                old = self.position_size_usdt
+                self.position_size_usdt = old / 2
+                logger.warning(
+                    "Evolving Mode REDUCE — position size %.2f → %.2f for %s. Reasons: %s",
+                    old, self.position_size_usdt, self.strategy_name, reasons,
+                )
+
         logger.info(
             "Starting Pine live engine | symbol=%s exchange=%s tf=%s demo=%s",
             self.symbol,

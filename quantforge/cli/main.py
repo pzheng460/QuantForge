@@ -12,6 +12,7 @@ from quantforge.cli.commands.agent_cmd import agent_group
 from quantforge.cli.commands.api_cmd import api_group
 from quantforge.cli.commands.audit_cmd import audit_group
 from quantforge.cli.commands.auto_tune_cmd import auto_tune_group
+from quantforge.cli.commands.bot_cmd import bot_group
 from quantforge.cli.commands.control_cmd import control_group
 from quantforge.cli.commands.deployment_cmd import deployment_group
 from quantforge.cli.commands.dsl_cmd import dsl_cmd
@@ -41,6 +42,7 @@ cli.add_command(exchanges_group)
 cli.add_command(engines_group)
 cli.add_command(agent_group)
 cli.add_command(auto_tune_group)
+cli.add_command(bot_group)
 cli.add_command(control_group)
 cli.add_command(deployment_group)
 cli.add_command(audit_group)

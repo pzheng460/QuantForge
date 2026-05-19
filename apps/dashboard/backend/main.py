@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from apps.dashboard.backend.routers import strategies, backtest, optimize, live, agent
+from apps.dashboard.backend.routers import strategies, backtest, optimize, live, agent, bot
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ app.include_router(backtest.router, prefix="/api")
 app.include_router(optimize.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")
+app.include_router(bot.router, prefix="/api")
 
 
 @app.get("/api/health")

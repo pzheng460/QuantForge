@@ -392,6 +392,11 @@ class LiveStartRequest(BaseModel):
     symbol: Optional[str] = None
     timeframe: str = "1h"
     demo: bool = True
+    # Safety gate for LIVE mode (demo=false). The frontend modal asks the
+    # user to type the strategy name to confirm; the backend re-checks here.
+    # If demo=false and confirm_live is anything other than the strategy
+    # name, /live/start refuses with 400.
+    confirm_live: Optional[str] = None
     position_size_usdt: float = 100.0
     leverage: int = 1
     warmup_bars: int = 500

@@ -151,6 +151,85 @@ state change to `~/.quantforge/dashboard/agent_jobs/{job_id}.json`.
   the Optimizer page auto-calls `resetAgent()` so the UI doesn't get stuck
   on a phantom job.
 
+### Evolving Mode — autonomous strategy auto-tune-and-deploy loop
+
+A closed-loop subsystem that periodically re-optimises strategies, runs
+shadow/paper comparisons against the promoted baseline, and writes a
+`pause`/`reduce` control state that the Pine live engine respects on
+startup. **OFF by default.**
+
+```
+news_collector       RSS / exchange-status events
+   ↓
+bot_preflight        sanity checks on the job + registry + policy
+   ↓
+auto_tune_scheduler → eval/auto_tune    re-optimise; produce candidate .pine + metrics
+   ↓
+deployment_pipeline  register candidate; PAPER → SHADOW state machine
+   ↓
+paper_shadow_runner + paper_ledger      track paper vs shadow vs promoted PnL
+   ↓
+risk_control         daily-loss / drawdown / consecutive-losses gates
+   ↓
+trading_control      writes ~/.quantforge/trading_control.json action
+   ↓
+PineLiveEngine.start() reads trading_control → pause/reduce/resume
+   ↓
+audit_report         merges all evidence to JSON + Markdown
+   ↓
+alerts               webhook / JSONL on cycle failure or risk action
+```
+
+**Master switch**: `~/.quantforge/evolving.json` —
+`{ enabled: bool, strategies: [str], updated_at }`. Managed by
+`quantforge/evolving.py`. The CLI and Web UI both gate behind
+`evolving.is_enabled(strategy)`.
+
+**Enabling**:
+```bash
+quantforge-cli bot evolving status                       # check
+quantforge-cli bot evolving enable --strategy ema_crossover
+quantforge-cli bot cycle ema_crossover                   # one cycle
+quantforge-cli bot status ema_crossover                  # snapshot
+quantforge-cli bot evolving disable                      # back to safe default
+```
+
+**Web API**: `GET/POST /api/bot/evolving`, `GET /api/bot/status`,
+`GET /api/bot/cycle/{strategy_id}`. The top-bar `EvolvingBadge` widget
+shows the master switch and offers a one-click toggle.
+
+**Pine live engine integration**: `quantforge/pine/live/engine.py::PineLiveEngine.start()`
+calls `evolving.is_enabled(strategy_name)` first. When ON, it reads
+`TradingControl().get_action(strategy_name)`:
+- `pause` → raises `RuntimeError`, engine refuses to launch.
+- `reduce` → halves `position_size_usdt` before warmup.
+- `resume` / `observe` → no-op.
+
+When OFF, the control file is ignored entirely.
+
+**Cron is auto-managed**: `bot evolving enable` installs a marker-bracketed
+block in the user's crontab; `bot evolving disable` removes it. Opt-outs:
+`--no-cron` on enable, `--keep-cron` on disable. Manual control:
+`bot cron {install, uninstall, status}`.
+
+The block looks like:
+```cron
+# >>> quantforge-evolving-cron (managed; do not edit) >>>
+*/30 * * * * cd /repo && /venv/bin/quantforge-cli bot cycle ema_crossover --ops-dir ~/.quantforge/ops >> ~/.quantforge/ops/cron.log 2>&1
+# <<< quantforge-evolving-cron <<<
+```
+Only lines between the markers are managed; the rest of the user's crontab
+is left untouched. Implementation: `quantforge/cron_helper.py`.
+
+**Persistence layout** (`~/.quantforge/`):
+- `evolving.json` — master switch
+- `trading_control.json` — per-strategy {action, reasons, score, updated_at}
+- `ops/auto_tune_jobs.json` — job definitions
+- `ops/deployments.json` — version registry (promoted/paper/shadow)
+- `ops/paper_ledger.{json,sqlite}` — paper/shadow position book
+- `ops/{cycle,status,audit,risk}.json` — last-cycle artifacts
+- `ops/alerts.jsonl` — append-only alert log
+
 ### Grid Search progress
 
 `quantforge/pine/optimize.py::run_optimization()` accepts `progress_cb`.

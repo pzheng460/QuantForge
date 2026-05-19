@@ -141,6 +141,85 @@ capture-phase 的监听器**（`document.addEventListener('pointermove', ..., tr
 - **前端 404 自愈**：`useAgentStatus` 收到 404 后停止轮询，Optimizer
   页面自动调 `resetAgent()`，UI 不会卡在一个不存在的任务上。
 
+### Evolving Mode — 自主策略调优 → 部署闭环
+
+一套子系统，按周期自动 re-optimise 策略、跑 shadow/paper 对比、把 `pause`/
+`reduce` 写到一个 control 文件里，Pine 实盘引擎启动时读取并执行。**默认
+关闭。**
+
+```
+news_collector       拉 RSS / 交易所状态事件
+   ↓
+bot_preflight        起飞前体检：job 文件、注册表、policy
+   ↓
+auto_tune_scheduler → eval/auto_tune    重优化、产出候选 .pine + 指标
+   ↓
+deployment_pipeline  注册候选；PAPER → SHADOW 状态机
+   ↓
+paper_shadow_runner + paper_ledger      记录 paper vs shadow vs promoted 的 PnL
+   ↓
+risk_control         日内亏损 / drawdown / 连亏 闸门
+   ↓
+trading_control      写 ~/.quantforge/trading_control.json action
+   ↓
+PineLiveEngine.start() 读 trading_control → pause/reduce/resume
+   ↓
+audit_report         汇总所有证据为 JSON + Markdown
+   ↓
+alerts               cycle 失败或风控动作时 webhook / JSONL 推送
+```
+
+**主开关**：`~/.quantforge/evolving.json` ——
+`{ enabled: bool, strategies: [str], updated_at }`。由
+`quantforge/evolving.py` 管理。CLI 和 Web UI 都通过
+`evolving.is_enabled(strategy)` 做闸门。
+
+**启用方式**：
+```bash
+quantforge-cli bot evolving status                       # 查看
+quantforge-cli bot evolving enable --strategy ema_crossover
+quantforge-cli bot cycle ema_crossover                   # 跑一轮 cycle
+quantforge-cli bot status ema_crossover                  # 快照
+quantforge-cli bot evolving disable                      # 关闭，回到默认安全状态
+```
+
+**Web API**：`GET/POST /api/bot/evolving`、`GET /api/bot/status`、
+`GET /api/bot/cycle/{strategy_id}`。顶栏的 `EvolvingBadge` 组件显示
+主开关 + 一键切换。
+
+**Pine 实盘引擎集成**：
+`quantforge/pine/live/engine.py::PineLiveEngine.start()` 先调
+`evolving.is_enabled(strategy_name)`。打开时读
+`TradingControl().get_action(strategy_name)`：
+- `pause` → 抛 `RuntimeError`，拒绝启动。
+- `reduce` → 启动前 `position_size_usdt` 减半。
+- `resume` / `observe` → 不做事。
+
+主开关关闭时，整段 control 文件被忽略。
+
+**Cron 自动托管**：`bot evolving enable` 会在 crontab 里加一段带标记的
+块；`bot evolving disable` 会撤掉。要跳过自动托管：enable 加 `--no-cron`、
+disable 加 `--keep-cron`。也可独立用 `bot cron {install, uninstall, status}`
+明确管理。
+
+托管的块长这样：
+```cron
+# >>> quantforge-evolving-cron (managed; do not edit) >>>
+*/30 * * * * cd /repo && /venv/bin/quantforge-cli bot cycle ema_crossover --ops-dir ~/.quantforge/ops >> ~/.quantforge/ops/cron.log 2>&1
+# <<< quantforge-evolving-cron <<<
+```
+只有两个 marker 之间的行受管理，crontab 里你自己写的其他行不会被动。
+实现：`quantforge/cron_helper.py`。
+
+**持久化布局**（`~/.quantforge/`）：
+- `evolving.json` — 主开关
+- `trading_control.json` — 按策略：`{action, reasons, score, updated_at}`
+- `ops/auto_tune_jobs.json` — job 定义
+- `ops/deployments.json` — 版本注册表（promoted/paper/shadow）
+- `ops/paper_ledger.{json,sqlite}` — paper/shadow 仓位簿
+- `ops/{cycle,status,audit,risk}.json` — 最近一次 cycle 的产出
+- `ops/alerts.jsonl` — 追加式告警日志
+
 ### Grid Search 进度
 
 `quantforge/pine/optimize.py::run_optimization()` 接受 `progress_cb`。
