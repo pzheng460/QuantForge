@@ -103,3 +103,56 @@ def test_live_engines_list_returns_list(client):
     r = client.get("/api/live/engines")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+def test_live_engine_delete_404_on_unknown(client):
+    r = client.delete("/api/live/engines/does-not-exist-zzz")
+    assert r.status_code == 404
+
+
+def test_live_engine_delete_409_on_active(client, monkeypatch):
+    """Refuse to delete a running/warmup engine — operator must stop it first."""
+    import apps.dashboard.backend.live_engines as le
+
+    monkeypatch.setitem(
+        le._engines,
+        "fake-active-eid",
+        {
+            "engine": None, "task": None, "status": "running",
+            "strategy": "s", "exchange": "bitget", "symbol": "BTC/USDT",
+            "timeframe": "1h", "demo": True, "leverage": 1,
+            "position_size_usdt": 10.0, "warmup_bars": 50,
+            "created_at": "2026-05-19T00:00:00+00:00",
+            "stopped_at": None, "error": None,
+        },
+    )
+    try:
+        r = client.delete("/api/live/engines/fake-active-eid")
+        assert r.status_code == 409
+        assert "still" in r.json()["detail"].lower()
+    finally:
+        le._engines.pop("fake-active-eid", None)
+
+
+def test_live_engine_delete_200_on_archived(client, monkeypatch):
+    """Archived (stopped) engines can be deleted."""
+    import apps.dashboard.backend.live_engines as le
+
+    # Avoid actually writing to disk during the test.
+    monkeypatch.setattr(le, "_save_state", lambda: None)
+    monkeypatch.setitem(
+        le._engines,
+        "fake-archived-eid",
+        {
+            "engine": None, "task": None, "status": "stopped",
+            "strategy": "s", "exchange": "bitget", "symbol": "BTC/USDT",
+            "timeframe": "1h", "demo": True, "leverage": 1,
+            "position_size_usdt": 10.0, "warmup_bars": 50,
+            "created_at": "2026-05-19T00:00:00+00:00",
+            "stopped_at": "2026-05-19T01:00:00+00:00", "error": None,
+        },
+    )
+    r = client.delete("/api/live/engines/fake-archived-eid")
+    assert r.status_code == 200
+    assert r.json()["deleted"] is True
+    assert "fake-archived-eid" not in le._engines

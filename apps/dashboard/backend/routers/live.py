@@ -240,7 +240,24 @@ async def stop_live(engine_id: str) -> LiveEngineOut:
 
 @router.get("/live/engines", response_model=List[LiveEngineOut])
 def get_live_engines() -> List[LiveEngineOut]:
-    """List all engines with their current status and performance."""
+    """List all engines — active (running/warmup) + archived (stopped/failed)."""
     from apps.dashboard.backend.live_engines import list_engines
 
     return [LiveEngineOut(**eng) for eng in list_engines()]
+
+
+@router.delete("/live/engines/{engine_id}")
+def delete_live_engine(engine_id: str):
+    """Permanently remove an archived engine from the history list.
+
+    Refuses with 409 if the engine is still warmup/running — stop it first.
+    """
+    from apps.dashboard.backend.live_engines import delete_engine
+
+    try:
+        delete_engine(engine_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Engine {engine_id} not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"engine_id": engine_id, "deleted": True}

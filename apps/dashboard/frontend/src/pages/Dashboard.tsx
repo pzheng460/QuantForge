@@ -5,7 +5,7 @@ import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
-import { useLiveEngines, useStartLive, useStopLive } from '../hooks/use-queries'
+import { useLiveEngines, useStartLive, useStopLive, useDeleteLive } from '../hooks/use-queries'
 import type {
   LiveEngineOut,
   LiveStartRequest,
@@ -336,6 +336,7 @@ export default function DashboardPage() {
   const { data: engines = [] } = useLiveEngines()
   const startLiveMutation = useStartLive()
   const stopLiveMutation = useStopLive()
+  const deleteLiveMutation = useDeleteLive()
 
   // React Hook Form with Zod validation for settings fields
   const {
@@ -582,24 +583,67 @@ export default function DashboardPage() {
               </SidebarGroupContent>
             </SidebarGroup>
 
-            {engines.length > 0 && (
-              <SidebarGroup>
-                <SidebarGroupLabel>{`Engines (${engines.length})`}</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <div className="space-y-1">
-                    {engines.map((eng) => (
-                      <div key={eng.engine_id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[11px] text-foreground truncate">{eng.strategy}</div>
-                          <div className="text-[9px] text-muted-foreground">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
+            {engines.length > 0 && (() => {
+              const active = engines.filter((e) => e.status === 'warmup' || e.status === 'running')
+              const archived = engines.filter((e) => e.status === 'stopped' || e.status === 'failed')
+              return (
+                <>
+                  {active.length > 0 && (
+                    <SidebarGroup>
+                      <SidebarGroupLabel>{`Active (${active.length})`}</SidebarGroupLabel>
+                      <SidebarGroupContent>
+                        <div className="space-y-1">
+                          {active.map((eng) => (
+                            <div key={eng.engine_id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] text-foreground truncate">{eng.strategy}</div>
+                                <div className="text-[9px] text-muted-foreground">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
+                              </div>
+                              <StatusBadge status={eng.status} />
+                            </div>
+                          ))}
                         </div>
-                        <StatusBadge status={eng.status} />
-                      </div>
-                    ))}
-                  </div>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            )}
+                      </SidebarGroupContent>
+                    </SidebarGroup>
+                  )}
+                  {archived.length > 0 && (
+                    <SidebarGroup>
+                      <SidebarGroupLabel>{`History (${archived.length})`}</SidebarGroupLabel>
+                      <SidebarGroupContent>
+                        <div className="space-y-1">
+                          {archived.map((eng) => (
+                            <div key={eng.engine_id} className="group flex items-center justify-between py-1 px-1 rounded hover:bg-muted/50">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] text-muted-foreground truncate">{eng.strategy}</div>
+                                <div className="text-[9px] text-muted-foreground/70">{eng.symbol} {eng.timeframe} {eng.demo ? 'DEMO' : 'LIVE'}</div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <StatusBadge status={eng.status} />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete ${eng.strategy} (${eng.engine_id.slice(0, 8)}) from history?`)) {
+                                      deleteLiveMutation.mutate(eng.engine_id)
+                                    }
+                                  }}
+                                  title="Delete from history"
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive p-0.5"
+                                  disabled={deleteLiveMutation.isPending}
+                                >
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/>
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </SidebarGroupContent>
+                    </SidebarGroup>
+                  )}
+                </>
+              )
+            })()}
           </SidebarContent>
 
           <SidebarFooter className="px-3 py-2 border-t border-border">

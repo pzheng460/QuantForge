@@ -54,6 +54,12 @@ async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promi
   return res.json()
 }
 
+async function del<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', signal })
+  if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res))
+  return res.json()
+}
+
 export const api = {
   strategies: (): Promise<StrategySchema[]> => get('/strategies'),
   strategySource: (name: string): Promise<{ source: string }> =>
@@ -84,6 +90,9 @@ export const api = {
     post('/live/start', req),
   stopLive: (engineId: string): Promise<LiveEngineOut> =>
     post(`/live/stop/${engineId}`, {}),
+  /** Permanently delete an archived engine from the history list. */
+  deleteLive: (engineId: string): Promise<{ engine_id: string; deleted: boolean }> =>
+    del(`/live/engines/${engineId}`),
   liveEngines: (): Promise<LiveEngineOut[]> => get('/live/engines'),
 
   // Agent workflow management

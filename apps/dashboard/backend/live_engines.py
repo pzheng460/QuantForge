@@ -34,11 +34,14 @@ _restored = False  # guard against double-restore
 
 
 def _save_state() -> None:
-    """Persist all non-stopped engine configs to disk."""
+    """Persist EVERY engine entry to disk — running, stopped, failed, archived.
+
+    Running/warmup entries are re-launched on backend startup; stopped /
+    failed entries are kept as history rows (visible in the UI, no task
+    relaunched). Users can delete archived entries via the API.
+    """
     configs = []
     for eid, entry in _engines.items():
-        if entry["status"] in ("stopped", "failed"):
-            continue
         configs.append({
             "engine_id": eid,
             "strategy": entry["strategy"],
@@ -51,6 +54,10 @@ def _save_state() -> None:
             "position_size_usdt": entry.get("position_size_usdt", 100.0),
             "warmup_bars": entry.get("warmup_bars", 500),
             "created_at": entry["created_at"],
+            # History fields — present iff the engine has been stopped/failed.
+            "status": entry.get("status"),
+            "stopped_at": entry.get("stopped_at"),
+            "error": entry.get("error"),
         })
     _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PERSIST_FILE.write_text(json.dumps(configs, indent=2))
@@ -69,7 +76,13 @@ def _load_state() -> list[dict]:
 
 
 async def restore_engines() -> int:
-    """Restore persisted engines after uvicorn reload. Returns count restored."""
+    """Restore persisted engines after uvicorn reload.
+
+    Active engines (status in {warmup, running, None}) are re-launched as
+    asyncio tasks. Archived ones (status in {stopped, failed}) are loaded
+    as metadata-only entries so they show up in the UI's history list but
+    don't run. Returns count of *actively re-launched* engines.
+    """
     global _restored
     if _restored:
         return 0
@@ -81,8 +94,34 @@ async def restore_engines() -> int:
 
     count = 0
     for cfg in configs:
+        status = cfg.get("status")
+        is_archived = status in ("stopped", "failed")
+
+        if is_archived:
+            # History-only entry. Inject into _engines without launching a task.
+            eid = cfg.get("engine_id") or str(uuid.uuid4())
+            _engines[eid] = {
+                "engine": None,
+                "task": None,
+                "status": status,
+                "strategy": cfg["strategy"],
+                "pine_source": cfg.get("pine_source"),
+                "exchange": cfg["exchange"],
+                "symbol": cfg["symbol"],
+                "timeframe": cfg["timeframe"],
+                "demo": cfg["demo"],
+                "leverage": cfg["leverage"],
+                "position_size_usdt": cfg.get("position_size_usdt", 100.0),
+                "warmup_bars": cfg.get("warmup_bars", 500),
+                "created_at": cfg["created_at"],
+                "stopped_at": cfg.get("stopped_at"),
+                "error": cfg.get("error"),
+            }
+            continue
+
         try:
-            # Skip if already running (shouldn't happen, but be safe)
+            # Avoid double-launching if another in-memory entry is already running
+            # for this strategy (shouldn't happen but defensive).
             for entry in _engines.values():
                 if (
                     entry["strategy"] == cfg["strategy"]
@@ -195,15 +234,16 @@ async def start_engine(
 
 
 async def stop_engine(engine_id: str) -> None:
-    """Stop a running engine gracefully."""
+    """Stop a running engine gracefully. Entry stays in history as 'stopped'."""
     entry = _engines.get(engine_id)
     if entry is None:
         raise KeyError(f"Engine {engine_id} not found")
 
-    engine: PineLiveEngine = entry["engine"]
-    task: asyncio.Task = entry["task"]
+    engine: PineLiveEngine | None = entry.get("engine")
+    task: asyncio.Task | None = entry.get("task")
 
-    await engine.stop()
+    if engine is not None:
+        await engine.stop()
     if task and not task.done():
         task.cancel()
         try:
@@ -212,6 +252,25 @@ async def stop_engine(engine_id: str) -> None:
             pass
 
     entry["status"] = "stopped"
+    entry["stopped_at"] = datetime.now(timezone.utc).isoformat()
+    _save_state()
+
+
+def delete_engine(engine_id: str) -> None:
+    """Permanently remove a history entry. Refuses if engine is still active.
+
+    Use this to prune the archive list shown in the UI. Live performance
+    files under ~/.quantforge/live/<strategy>/ are left untouched (other
+    engines for the same strategy may still reference them).
+    """
+    entry = _engines.get(engine_id)
+    if entry is None:
+        raise KeyError(f"Engine {engine_id} not found")
+    if entry.get("status") in ("warmup", "running"):
+        raise ValueError(
+            f"Engine {engine_id} is still {entry['status']} — stop it first."
+        )
+    del _engines[engine_id]
     _save_state()
 
 
@@ -234,7 +293,8 @@ def list_engines() -> list[dict[str, Any]]:
             "demo": entry["demo"],
             "leverage": entry["leverage"],
             "created_at": entry["created_at"],
-            "error": entry["error"],
+            "stopped_at": entry.get("stopped_at"),
+            "error": entry.get("error"),
             "performance": perf,
         })
     return result

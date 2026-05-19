@@ -53,6 +53,16 @@ export function useStopLive() {
   })
 }
 
+export function useDeleteLive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteLive(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['live-engines'] })
+    },
+  })
+}
+
 // ─── Backtest queries ───────────────────────────────────────────────────────
 
 export function useBacktestStatus(jobId: string | null, enabled: boolean) {

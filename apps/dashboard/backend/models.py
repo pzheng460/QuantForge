@@ -413,6 +413,8 @@ class LiveEngineOut(BaseModel):
     demo: bool = True
     leverage: int = 1
     created_at: str = ""
+    # Populated when engine transitions to stopped (history entry).
+    stopped_at: Optional[str] = None
     error: Optional[str] = None
     performance: Optional[LivePerformanceOut] = None
 
