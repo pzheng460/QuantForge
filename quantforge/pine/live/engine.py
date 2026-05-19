@@ -180,22 +180,58 @@ class PineLiveEngine:
                 mode = "DEMO (sandbox)" if self.demo else "LIVE"
                 logger.info("CcxtConnector initialised — %s order submission", mode)
 
-                # Set leverage before trading starts
-                if self.leverage > 0:
-                    try:
-                        connector._exchange.set_leverage(
-                            self.leverage, self.symbol
-                        )
-                        logger.info(
-                            "Leverage set to %dx for %s", self.leverage, self.symbol
-                        )
-                    except Exception:
-                        logger.exception("Failed to set leverage")
+                # Set leverage before trading starts.
+                #
+                # Bitget UTA quirks:
+                #   - Spot UTA has no leverage concept → skip cleanly.
+                #   - Futures UTA needs the v3 set-leverage endpoint;
+                #     ccxt's generic set_leverage routes through the Classic
+                #     mix endpoint which UTA rejects with 40085.
+                is_bitget_uta = getattr(connector, "is_bitget_uta", False)
+                is_spot_uta = is_bitget_uta and ":USDT" not in self.symbol
+                if self.leverage > 0 and not is_spot_uta:
+                    if is_bitget_uta:
+                        try:
+                            bg_symbol = self.symbol.split(":")[0].replace("/", "")
+                            category = (
+                                "USDC-FUTURES" if ":USDC" in self.symbol
+                                else "USDT-FUTURES"
+                            )
+                            margin_coin = "USDC" if ":USDC" in self.symbol else "USDT"
+                            resp = connector._exchange.privateUtaPostV3AccountSetLeverage({
+                                "symbol": bg_symbol,
+                                "category": category,
+                                "leverage": str(self.leverage),
+                                "marginCoin": margin_coin,
+                            })
+                            if resp.get("code") == "00000":
+                                logger.info(
+                                    "Leverage set to %dx for %s (UTA %s)",
+                                    self.leverage, self.symbol, category,
+                                )
+                            else:
+                                logger.warning("UTA set leverage non-OK: %s", resp)
+                        except Exception:
+                            logger.exception("Failed to set leverage (UTA path)")
+                    else:
+                        try:
+                            connector._exchange.set_leverage(
+                                self.leverage, self.symbol
+                            )
+                            logger.info(
+                                "Leverage set to %dx for %s", self.leverage, self.symbol
+                            )
+                        except Exception:
+                            logger.exception("Failed to set leverage")
 
-                    # Verify actual leverage from exchange
+                    # Verify actual leverage from exchange. Skip on Bitget UTA
+                    # — ccxt's fetch_positions routes through Classic v2 mix
+                    # which UTA rejects with 40085. We just set it via the UTA
+                    # endpoint above, so trust the API success response there.
                     try:
-                        positions = connector._exchange.fetch_positions(
-                            [self.symbol]
+                        positions = (
+                            [] if is_bitget_uta
+                            else connector._exchange.fetch_positions([self.symbol])
                         )
                         actual_leverage = None
                         for p in positions:
@@ -391,14 +427,20 @@ class PineLiveEngine:
         """
         exchange_pos = None
 
-        # Try to read exchange position (works for both live and demo/sandbox)
+        # Try to read exchange position (works for live and demo/sandbox).
+        # For Bitget UTA SPOT, fetch_positions is unsupported — connector
+        # returns None via get_position() and we fall through to Pine state.
         if connector is not None:
             try:
-                positions = connector._exchange.fetch_positions([self.symbol])
-                for p in positions:
-                    if float(p.get("contracts", 0)) > 0:
-                        exchange_pos = p
-                        break
+                pos = connector.get_position()
+                if pos:
+                    # Re-shape get_position() output to the dict shape
+                    # the rest of this method expects.
+                    exchange_pos = {
+                        "side": pos["side"],
+                        "contracts": pos["contracts"],
+                        "entryPrice": pos["entryPrice"],
+                    }
             except Exception:
                 logger.exception("Failed to fetch exchange positions")
 
@@ -422,26 +464,60 @@ class PineLiveEngine:
                 logger.info("Pine StrategyContext synced to exchange position")
             return
 
-        # Fallback: sync from Pine StrategyContext (dry-run or no exchange position)
+        # Exchange returned no open position.
+        #
+        # LIVE / DEMO with a live connector: exchange is the ground truth.
+        # If Pine still thinks it's long/short (e.g. warmup simulation ended
+        # in a position, or a phantom carried over from a previous run),
+        # we MUST reset Pine + OrderBridge to FLAT. Trusting Pine here is
+        # how the engine ends up sending a "close" order that actually
+        # opens a fresh reverse position.
+        #
+        # DRY-RUN only: no exchange, so Pine state is all we have.
+        is_live_with_exchange = connector is not None and not self.dry_run
+        if is_live_with_exchange:
+            self._bridge.sync_position(None, 0.0, 0.0)
+            # Also reset Pine StrategyContext to match.
+            if self._runtime and self._runtime.strategy_ctx:
+                ctx = self._runtime.strategy_ctx
+                if not ctx.position.is_flat:
+                    # Expected on first start: Pine simulates strategy.entry/exit
+                    # over the warmup bars and naturally ends in some position
+                    # if the last historical signal was an entry. We reset to
+                    # match exchange (FLAT) since live trades only fire on
+                    # future signals. INFO, not WARNING — this is by-design.
+                    logger.info(
+                        "Pine ended warmup in %s qty=%.6f (simulated). "
+                        "Exchange is FLAT — resetting Pine to match. "
+                        "Real orders will only fire on signals after this point.",
+                        ctx.position.direction.value if ctx.position.direction else "?",
+                        ctx.position.qty,
+                    )
+                    ctx.position.direction = None  # None ⇒ is_flat == True
+                    ctx.position.qty = 0.0
+                    ctx.position.entry_price = 0.0
+            logger.info("Exchange position is FLAT — synced.")
+            return
+
+        # Dry-run: trust Pine StrategyContext.
         if self._runtime and self._runtime.strategy_ctx:
             pine_pos = self._runtime.strategy_ctx.position
             if not pine_pos.is_flat:
-                side = pine_pos.direction.value  # "long" or "short"
+                side = pine_pos.direction.value
                 entry = pine_pos.entry_price
                 qty = pine_pos.qty
-                # Convert Pine qty to actual base-currency qty
                 if entry > 0 and self.position_size_usdt > 0:
                     actual_qty = (self.position_size_usdt * self.leverage) / entry
                 else:
                     actual_qty = qty
                 self._bridge.sync_position(side, actual_qty, entry)
                 logger.info(
-                    "Synced position from Pine state: %s qty=%.6f entry=%.2f",
+                    "(dry-run) Synced position from Pine state: %s qty=%.6f entry=%.2f",
                     side, actual_qty, entry,
                 )
             else:
                 self._bridge.sync_position(None, 0.0, 0.0)
-                logger.info("Pine state is FLAT — no position to sync")
+                logger.info("(dry-run) Pine state is FLAT — no position to sync")
 
     async def _run_warmup(self) -> None:
         """Fetch historical bars and feed them to the interpreter."""

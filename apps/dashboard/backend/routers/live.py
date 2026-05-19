@@ -31,12 +31,33 @@ _LIVE_DIR = Path.home() / ".quantforge" / "live"
 
 
 def _find_perf_files() -> dict[str, Path]:
-    """Return mapping of strategy_name -> performance JSON path."""
-    result: dict[str, Path] = {}
+    """Return ``{strategy_name: perf_json_path}`` for **currently-running** engines only.
+
+    Previously this returned every ``*/live_performance.json`` under
+    ``~/.quantforge/live/``, including stale files from past sessions. When
+    the dashboard polled, it cycled between live + stale balances and the
+    UI's top-bar balance jumped between values like 47116.25 (a 5-day-old
+    bb_squeeze backtest) and 10000.0 (a stopped ema_crossover) while the
+    actual running engine sat at 9.94.
+
+    Filter by the in-memory engine list so callers only ever see fresh data.
+    """
+    # Read _engines dict directly to avoid recursion through list_engines
+    # (live_engines.list_engines itself calls _find_perf_files).
+    from apps.dashboard.backend.live_engines import _engines
+
     if not _LIVE_DIR.exists():
-        return result
+        return {}
+    running = {
+        entry["strategy"]
+        for entry in _engines.values()
+        if entry.get("status") in ("warmup", "running")
+    }
+    result: dict[str, Path] = {}
     for p in _LIVE_DIR.glob("*/live_performance.json"):
-        result[p.parent.name] = p
+        name = p.parent.name
+        if name in running:
+            result[name] = p
     return result
 
 

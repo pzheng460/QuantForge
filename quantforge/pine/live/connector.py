@@ -144,9 +144,10 @@ class CcxtConnector:
                     # Bitget UTA demo uses paptrading header (not sandbox URLs)
                     config["headers"] = {"paptrading": "1"}
                 else:
-                    config["apiKey"] = settings.BITGET.API_KEY
-                    config["secret"] = settings.BITGET.SECRET
-                    config["password"] = settings.BITGET.PASSPHRASE
+                    # Matches .keys/.secrets.toml layout: [BITGET.LIVE].
+                    config["apiKey"] = settings.BITGET.LIVE.API_KEY
+                    config["secret"] = settings.BITGET.LIVE.SECRET
+                    config["password"] = settings.BITGET.LIVE.PASSPHRASE
             elif self.exchange_id == "binance":
                 if self.demo:
                     config["apiKey"] = settings.BINANCE.TESTNET.API_KEY
@@ -170,12 +171,23 @@ class CcxtConnector:
                 else:
                     config["apiKey"] = settings.BYBIT.API_KEY
                     config["secret"] = settings.BYBIT.SECRET
-        except (AttributeError, KeyError):
-            logger.warning(
-                "API keys not found for %s (demo=%s) — order submission will fail",
-                self.exchange_id,
-                self.demo,
-            )
+        except (AttributeError, KeyError) as exc:
+            # In demo: warn and continue — user may be experimenting with no keys.
+            # In LIVE: refuse to construct the exchange — silently swallowing
+            # missing creds and letting ccxt explode on the first call is the
+            # pattern that just burned us with the 'requires "apiKey"' crash.
+            if self.demo:
+                logger.warning(
+                    "API keys not found for %s (demo=True) — order submission will fail. (%s)",
+                    self.exchange_id,
+                    exc,
+                )
+            else:
+                raise RuntimeError(
+                    f"Cannot start LIVE engine for {self.exchange_id}: "
+                    f"API keys missing in .keys/.secrets.toml (looked up "
+                    f"settings.{self.exchange_id.upper()}.LIVE.*; got: {exc})"
+                ) from exc
 
         exchange = exchange_cls(config)
 
@@ -186,6 +198,87 @@ class CcxtConnector:
 
         exchange.load_markets()
         return exchange
+
+    # ─── Bitget UTA helpers ──────────────────────────────────────────────────
+
+    @property
+    def is_bitget_uta(self) -> bool:
+        """True if this connector is talking to a Bitget Unified Trading Account.
+
+        Detected lazily on first access by probing the UTA balance endpoint;
+        accounts in classic mode return a 40085 error and we mark them as
+        non-UTA so subsequent calls go through ccxt's generic Classic path.
+        """
+        if self.exchange_id != "bitget":
+            return False
+        cached = getattr(self, "_uta_cached", None)
+        if cached is not None:
+            return cached
+        try:
+            self._exchange.privateUtaGetV3AccountAssets()
+            self._uta_cached = True
+        except Exception as exc:  # noqa: BLE001 — any failure means "not UTA"
+            logger.debug("Bitget UTA probe failed (%s) — treating as classic", exc)
+            self._uta_cached = False
+        return self._uta_cached
+
+    def _bitget_uta_category(self) -> str:
+        """Map ccxt symbol (e.g. 'BTC/USDT:USDT') to Bitget UTA category."""
+        if ":USDT" in self.symbol:
+            return "USDT-FUTURES"
+        if ":USDC" in self.symbol:
+            return "USDC-FUTURES"
+        return "SPOT"
+
+    def _bitget_uta_symbol(self) -> str:
+        """Convert ccxt-style 'BTC/USDT' or 'BTC/USDT:USDT' to Bitget 'BTCUSDT'."""
+        base = self.symbol.split(":")[0]
+        return base.replace("/", "")
+
+    def _bitget_uta_place_order(
+        self,
+        side: str,
+        qty: float,
+        order_type: str = "market",
+        price: float | None = None,
+        reduce_only: bool = False,
+    ) -> dict:
+        """Submit via Bitget's UTA v3 place-order endpoint.
+
+        Returns a dict in the same shape ccxt's create_order would, with
+        ``id`` and ``status`` keys so callers don't care about the path.
+        """
+        import time as _time
+
+        params: dict = {
+            "symbol": self._bitget_uta_symbol(),
+            "category": self._bitget_uta_category(),
+            "side": side.upper(),  # Bitget UTA wants BUY / SELL
+            "orderType": order_type,
+            "qty": str(qty),
+            "clientOid": f"qf-{int(_time.time() * 1000)}",
+        }
+        if order_type == "limit":
+            if price is None:
+                raise ValueError("limit order requires price")
+            params["price"] = str(price)
+        if reduce_only and params["category"] != "SPOT":
+            params["reduceOnly"] = "YES"
+
+        logger.info(
+            "Bitget UTA placeOrder: %s",
+            {k: v for k, v in params.items() if k != "clientOid"},
+        )
+        resp = self._exchange.privateUtaPostV3TradePlaceOrder(params)
+        data = resp.get("data") or {}
+        return {
+            "id": data.get("orderId"),
+            "clientOrderId": data.get("clientOid"),
+            "status": "submitted",
+            "raw": resp,
+        }
+
+    # ─── Public API ──────────────────────────────────────────────────────────
 
     def submit_market_order(
         self, side: str, qty: float, reduce_only: bool = False
@@ -201,24 +294,25 @@ class CcxtConnector:
         reduce_only : bool
             If ``True``, only reduce existing position.
         """
-        params: dict = {}
-        if reduce_only:
-            params["reduceOnly"] = True
-        # Bitget UTA requires uta=True to use v3 unified account API
-        if self.exchange_id == "bitget":
-            params["uta"] = True
-
         logger.info(
-            "Submitting %s %s %.6f %s (reduce_only=%s)",
-            "MARKET",
+            "Submitting MARKET %s %.6f %s (reduce_only=%s)",
             side.upper(),
             qty,
             self.symbol,
             reduce_only,
         )
-        result = self._exchange.create_order(
-            self.symbol, "market", side, qty, params=params
-        )
+        # Bitget UTA: ccxt's generic create_order routes through the Classic
+        # spot endpoint which rejects UTA accounts with 40085. Route directly
+        # to the UTA place-order endpoint instead.
+        if self.is_bitget_uta:
+            result = self._bitget_uta_place_order(
+                side=side, qty=qty, order_type="market", reduce_only=reduce_only
+            )
+        else:
+            params: dict = {"reduceOnly": True} if reduce_only else {}
+            result = self._exchange.create_order(
+                self.symbol, "market", side, qty, params=params
+            )
         logger.info(
             "Order result: id=%s status=%s", result.get("id"), result.get("status")
         )
@@ -228,12 +322,6 @@ class CcxtConnector:
         self, side: str, qty: float, price: float, reduce_only: bool = False
     ) -> dict:
         """Submit a limit order."""
-        params: dict = {}
-        if reduce_only:
-            params["reduceOnly"] = True
-        if self.exchange_id == "bitget":
-            params["uta"] = True
-
         logger.info(
             "Submitting LIMIT %s %.6f @ %.2f %s",
             side.upper(),
@@ -241,9 +329,16 @@ class CcxtConnector:
             price,
             self.symbol,
         )
-        result = self._exchange.create_order(
-            self.symbol, "limit", side, qty, price, params=params
-        )
+        if self.is_bitget_uta:
+            result = self._bitget_uta_place_order(
+                side=side, qty=qty, order_type="limit", price=price,
+                reduce_only=reduce_only,
+            )
+        else:
+            params: dict = {"reduceOnly": True} if reduce_only else {}
+            result = self._exchange.create_order(
+                self.symbol, "limit", side, qty, price, params=params
+            )
         logger.info(
             "Order result: id=%s status=%s", result.get("id"), result.get("status")
         )
@@ -253,9 +348,54 @@ class CcxtConnector:
         """Get current position for the symbol.
 
         Returns a dict with ``side``, ``contracts``, ``entryPrice``, or
-        ``None`` if flat.
+        ``None`` if flat. For Bitget UTA SPOT we always return None (spot
+        accounts don't track positions — holdings are queried via balance).
+        For Bitget UTA FUTURES we route to the UTA position endpoint.
         """
-        positions = self._exchange.fetch_positions([self.symbol])
+        if self.is_bitget_uta:
+            category = self._bitget_uta_category()
+            if category == "SPOT":
+                return None
+            # Futures on UTA: ccxt's fetch_positions routes through Classic
+            # v2 mix which UTA rejects with 40085. Call UTA endpoint directly.
+            try:
+                resp = self._exchange.privateUtaGetV3PositionCurrentPosition({
+                    "symbol": self._bitget_uta_symbol(),
+                    "category": category,
+                })
+                data = resp.get("data") or {}
+                # Bitget UTA returns either a list under data.list / data or
+                # a single object — be defensive about shape.
+                positions = data.get("list") if isinstance(data, dict) else data
+                if not positions:
+                    return None
+                if isinstance(positions, dict):
+                    positions = [positions]
+                for p in positions:
+                    qty = float(p.get("total") or p.get("size") or p.get("contracts") or 0)
+                    if qty > 0:
+                        # holdSide: long/short on Bitget; entryPrice / openPriceAvg
+                        side = p.get("holdSide") or p.get("side")
+                        entry = float(
+                            p.get("openPriceAvg") or p.get("entryPrice") or 0
+                        )
+                        upnl = float(p.get("unrealisedPL") or p.get("unrealizedPnl") or 0)
+                        return {
+                            "side": side,
+                            "contracts": qty,
+                            "entryPrice": entry,
+                            "unrealizedPnl": upnl,
+                        }
+                return None
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("UTA fetch_position failed (%s) — assuming flat", exc)
+                return None
+        # Non-bitget / non-UTA path
+        try:
+            positions = self._exchange.fetch_positions([self.symbol])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("fetch_positions failed (%s) — assuming flat", exc)
+            return None
         for pos in positions:
             contracts = float(pos.get("contracts", 0))
             if contracts > 0:

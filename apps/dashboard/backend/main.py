@@ -1,6 +1,7 @@
 """FastAPI application — QuantForge Web Backend."""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,24 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+# ─── Logging: capture INFO from quantforge.* loggers ─────────────────────────
+# Without this, all `logging.getLogger("quantforge.pine.live.engine")` INFO
+# calls (warmup progress, order submission, leverage set, etc.) get dropped
+# silently because uvicorn only configures its own logger. In live trading
+# this means we have ZERO observability into what the engine is doing.
+_root = logging.getLogger()
+if not any(isinstance(h, logging.StreamHandler) and h.stream is sys.stderr for h in _root.handlers):
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+    ))
+    _root.addHandler(_h)
+_root.setLevel(logging.INFO)
+# Quiet down very-chatty libraries so the engine log stays readable.
+for noisy in ("ccxt.base.exchange", "urllib3", "asyncio"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 from apps.dashboard.backend.routers import strategies, backtest, optimize, live, agent, bot
 
