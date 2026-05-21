@@ -47,7 +47,7 @@ uv run python -m quantforge.pine.cli optimize my.pine \
 ### CLI Defaults & Notes
 - `--timeframe` defaults to 15m but **BTC must use 1h** (15m → all negative Sharpe)
 - `--exchange` defaults to bitget
-- `--warmup-days` defaults to 60
+- `--warmup-bars` defaults to 500 (same unit as `live --warmup-bars` — backtest and live now strictly aligned)
 
 ## ═══ THE CLOSED LOOP ═══
 

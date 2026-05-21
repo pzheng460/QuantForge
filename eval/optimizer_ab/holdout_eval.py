@@ -32,7 +32,7 @@ def backtest(pine_path, symbol, exchange, timeframe, start, end):
     from quantforge.pine.parser.parser import parse
 
     raw = _fetch_ohlcv(symbol=symbol, exchange_id=exchange, timeframe=timeframe,
-                       start=start, end=end, warmup_days=60)
+                       start=start, end=end, warmup_bars=500)
     bars = [BarData(open=b[1], high=b[2], low=b[3], close=b[4],
                     volume=b[5], time=int(b[0]) // 1000) for b in raw]
     ast = parse(pine_path.read_text())

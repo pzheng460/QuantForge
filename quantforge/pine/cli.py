@@ -20,10 +20,17 @@ def _fetch_ohlcv(
     timeframe: str,
     start: str,
     end: str,
-    warmup_days: int,
+    warmup_bars: int,
 ) -> list:
-    """Fetch OHLCV data from exchange via ccxt, including warmup period."""
+    """Fetch OHLCV data from exchange via ccxt, including warmup period.
+
+    ``warmup_bars`` is the number of bars at this timeframe to prepend before
+    ``start`` so indicators are converged when the strategy window begins.
+    Same unit and semantics as the live engine's ``warmup_bars``.
+    """
     import ccxt
+
+    from quantforge.pine.live.connector import timeframe_to_seconds
 
     exchange_cls = getattr(ccxt, exchange_id, None)
     if exchange_cls is None:
@@ -38,7 +45,8 @@ def _fetch_ohlcv(
 
     from datetime import timedelta
 
-    warmup_start = start_dt - timedelta(days=warmup_days)
+    warmup_seconds = timeframe_to_seconds(timeframe) * warmup_bars
+    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
@@ -90,14 +98,14 @@ def _run_backtest(args: argparse.Namespace) -> None:
         timeframe=args.timeframe,
         start=args.start,
         end=args.end,
-        warmup_days=args.warmup_days,
+        warmup_bars=args.warmup_bars,
     )
 
     if not ohlcv:
         print("Error: no OHLCV data returned")
         sys.exit(1)
 
-    print(f"Loaded {len(ohlcv)} bars")
+    print(f"Loaded {len(ohlcv)} bars ({args.warmup_bars} warmup + run window)")
 
     bars = [
         BarData(
@@ -311,14 +319,14 @@ def _run_optimize(args: argparse.Namespace) -> None:
         timeframe=args.timeframe,
         start=args.start,
         end=args.end,
-        warmup_days=args.warmup_days,
+        warmup_bars=args.warmup_bars,
     )
 
     if not ohlcv:
         print("Error: no OHLCV data returned")
         sys.exit(1)
 
-    print(f"Loaded {len(ohlcv)} bars")
+    print(f"Loaded {len(ohlcv)} bars ({args.warmup_bars} warmup + run window)")
 
     bars = [
         BarData(
@@ -445,10 +453,10 @@ def main() -> None:
     bt.add_argument("--start", default="2026-01-01", help="Start date YYYY-MM-DD")
     bt.add_argument("--end", default="2026-03-12", help="End date YYYY-MM-DD")
     bt.add_argument(
-        "--warmup-days",
+        "--warmup-bars",
         type=int,
-        default=60,
-        help="Warmup period in days (default: 60)",
+        default=500,
+        help="Warmup bar count (default: 500). Same unit as `live --warmup-bars`.",
     )
 
     # live subcommand
@@ -529,10 +537,10 @@ def main() -> None:
     op.add_argument("--start", default="2026-01-01", help="Start date YYYY-MM-DD")
     op.add_argument("--end", default="2026-03-12", help="End date YYYY-MM-DD")
     op.add_argument(
-        "--warmup-days",
+        "--warmup-bars",
         type=int,
-        default=60,
-        help="Warmup period in days (default: 60)",
+        default=500,
+        help="Warmup bar count (default: 500). Same unit as `live --warmup-bars`.",
     )
     op.add_argument(
         "--metric",

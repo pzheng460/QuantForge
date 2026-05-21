@@ -252,7 +252,7 @@ AI 优化产出的 `.pine` 文件存放在 `quantforge/pine/strategies/optimized
 
 ```bash
 # Backtest
-python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
+python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-bars 500
 
 # Grid 优化（对 input.int / input.float 的范围做网格搜索）
 python -m quantforge.pine.cli optimize my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json

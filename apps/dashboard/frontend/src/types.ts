@@ -128,7 +128,7 @@ export interface BacktestRequest {
   start_date?: string
   end_date?: string
   leverage?: number
-  warmup_days?: number
+  warmup_bars?: number
   mesa_index?: number
   config_override?: Record<string, number | string | boolean>
   filter_override?: Record<string, number | string | boolean>
@@ -146,7 +146,7 @@ export interface OptimizeRequest {
   start_date?: string
   end_date?: string
   leverage?: number
-  warmup_days?: number
+  warmup_bars?: number
   metric?: string
   mode: 'grid' | 'wfo' | 'full' | 'heatmap'
   n_jobs?: number

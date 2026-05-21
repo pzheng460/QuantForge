@@ -12,7 +12,7 @@ defaults:
   symbol: BTC/USDT:USDT
   timeframe: 1h
   exchange: bitget
-  warmup_days: 60
+  warmup_bars: 500
 
 # ── Strategy split ────────────────────────────────────────────────────────────
 strategies:

@@ -20,7 +20,7 @@ class BacktestRequest(BaseModel):
     start_date: Optional[str] = None  # YYYY-MM-DD
     end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
-    warmup_days: int = 60
+    warmup_bars: int = 500
     mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
     filter_override: Optional[Dict[str, Any]] = None
@@ -162,7 +162,7 @@ class OptimizeRequest(BaseModel):
     start_date: Optional[str] = None  # YYYY-MM-DD
     end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
-    warmup_days: int = 60
+    warmup_bars: int = 500
     metric: str = "sharpe"
     mode: str = "grid"  # grid | wfo | full | heatmap
     n_jobs: int = 1

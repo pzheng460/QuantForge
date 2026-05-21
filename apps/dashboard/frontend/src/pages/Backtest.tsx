@@ -133,7 +133,7 @@ export default function BacktestPage() {
     timeframe, setTimeframe,
     startDate, setStartDate,
     endDate, setEndDate,
-    warmupDays, setWarmupDays,
+    warmupBars, setWarmupBars,
     jobId, setJobId,
     status, setStatus,
     result, setResult,
@@ -176,7 +176,7 @@ export default function BacktestPage() {
       timeframe,
       startDate,
       endDate,
-      warmupDays,
+      warmupBars,
     },
   })
 
@@ -239,7 +239,7 @@ export default function BacktestPage() {
     setTimeframe(data.timeframe)
     setStartDate(data.startDate)
     setEndDate(data.endDate)
-    setWarmupDays(data.warmupDays)
+    setWarmupBars(data.warmupBars)
 
     setLoading(true)
     setResult(null)
@@ -252,7 +252,7 @@ export default function BacktestPage() {
       timeframe: data.timeframe,
       start_date: data.startDate,
       end_date: data.endDate,
-      warmup_days: data.warmupDays,
+      warmup_bars: data.warmupBars,
     }
     runBacktestMutation.mutate(req, {
       onSuccess: (job) => setJobId(job.job_id),
@@ -434,15 +434,15 @@ export default function BacktestPage() {
                   </FormField>
                 </div>
 
-                <FormField label="Warmup Days" error={formErrors.warmupDays?.message}>
+                <FormField label="Warmup Bars" error={formErrors.warmupBars?.message}>
                   <Input
                     type="number"
                     className="text-xs h-8"
                     min={0}
-                    max={365}
-                    {...register('warmupDays', {
+                    max={10000}
+                    {...register('warmupBars', {
                       valueAsNumber: true,
-                      onChange: (e) => setWarmupDays(Number(e.target.value)),
+                      onChange: (e) => setWarmupBars(Number(e.target.value)),
                     })}
                   />
                 </FormField>

@@ -21,7 +21,7 @@ interface BacktestState {
   timeframe: string
   startDate: string
   endDate: string
-  warmupDays: number
+  warmupBars: number
 
   // Job
   jobId: string | null
@@ -39,7 +39,7 @@ interface BacktestState {
   setTimeframe: (v: string) => void
   setStartDate: (v: string) => void
   setEndDate: (v: string) => void
-  setWarmupDays: (v: number) => void
+  setWarmupBars: (v: number) => void
   setJobId: (v: string | null) => void
   setStatus: (v: string) => void
   setResult: (v: BacktestResult | null) => void
@@ -74,7 +74,7 @@ export const useBacktestStore = create<BacktestState>((set) => ({
   timeframe: '1h',
   startDate: '2026-01-01',
   endDate: '2026-03-12',
-  warmupDays: 60,
+  warmupBars: 500,
 
   jobId: null,
   status: '',
@@ -97,7 +97,7 @@ export const useBacktestStore = create<BacktestState>((set) => ({
   setTimeframe: (v) => set({ timeframe: v }),
   setStartDate: (v) => set({ startDate: v }),
   setEndDate: (v) => set({ endDate: v }),
-  setWarmupDays: (v) => set({ warmupDays: v }),
+  setWarmupBars: (v) => set({ warmupBars: v }),
   setJobId: (v) => set({ jobId: v }),
   setStatus: (v) => set({ status: v }),
   setResult: (v) => set({ result: v }),

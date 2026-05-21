@@ -24,6 +24,7 @@ from apps.dashboard.backend.models import (
     HeatmapMesaOut,
     HeatmapResultOut,
 )
+from quantforge.pine.live.connector import timeframe_to_seconds
 
 # In-memory job store (process-scoped; resets on server restart)
 _jobs: Dict[str, Dict[str, Any]] = {}
@@ -280,7 +281,8 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
 
     start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    warmup_start = start_dt - timedelta(days=req.warmup_days)
+    warmup_seconds = timeframe_to_seconds(req.timeframe) * req.warmup_bars
+    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
@@ -545,7 +547,8 @@ def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
 
     start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    warmup_start = start_dt - timedelta(days=req.warmup_days)
+    warmup_seconds = timeframe_to_seconds(req.timeframe) * req.warmup_bars
+    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
@@ -714,7 +717,8 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
 
     start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    warmup_start = start_dt - timedelta(days=req.warmup_days)
+    warmup_seconds = timeframe_to_seconds(req.timeframe) * req.warmup_bars
+    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
@@ -915,7 +919,8 @@ def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
 
     start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    warmup_start = start_dt - timedelta(days=req.warmup_days)
+    warmup_seconds = timeframe_to_seconds(req.timeframe) * req.warmup_bars
+    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
@@ -1059,7 +1064,8 @@ def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridS
 
     start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    warmup_start = start_dt - timedelta(days=req.warmup_days)
+    warmup_seconds = timeframe_to_seconds(req.timeframe) * req.warmup_bars
+    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 

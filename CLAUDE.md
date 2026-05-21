@@ -263,7 +263,7 @@ Test fixtures in `quantforge/pine/tests/fixtures/`:
 
 ```bash
 # Backtest
-python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-days 60
+python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --warmup-bars 500
 
 # Grid optimize (over input.int / input.float ranges)
 python -m quantforge.pine.cli optimize my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
