@@ -211,20 +211,14 @@ def _resolve_date_range(
     return start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
 
 
-_TF_MS = {
-    "1m": 60_000,
-    "3m": 180_000,
-    "5m": 300_000,
-    "15m": 900_000,
-    "30m": 1_800_000,
-    "1h": 3_600_000,
-    "2h": 7_200_000,
-    "4h": 14_400_000,
-    "6h": 21_600_000,
-    "12h": 43_200_000,
-    "1d": 86_400_000,
-    "1w": 604_800_000,
-}
+# Derived from quantforge.pine.live.connector._TF_SECONDS so the live
+# engine and the backend's WFO/heatmap window math never disagree on
+# which timeframes exist or how long they are.
+def _build_tf_ms() -> dict[str, int]:
+    from quantforge.pine.live.connector import _TF_SECONDS
+    return {tf: secs * 1000 for tf, secs in _TF_SECONDS.items()}
+
+_TF_MS = _build_tf_ms()
 
 
 def _fetch_ohlcv(

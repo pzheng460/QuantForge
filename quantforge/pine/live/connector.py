@@ -14,7 +14,10 @@ from quantforge.pine.interpreter.context import BarData
 
 logger = logging.getLogger(__name__)
 
-# Timeframe → seconds mapping (subset)
+# Timeframe → seconds mapping. Single source of truth for the whole
+# codebase — anywhere else that needs bar duration (window math in
+# apps/dashboard/backend/jobs.py, sleep cycles in the live engine,
+# warmup window in cli.py) should derive from this.
 _TF_SECONDS = {
     "1m": 60,
     "3m": 180,
@@ -24,7 +27,10 @@ _TF_SECONDS = {
     "1h": 3600,
     "2h": 7200,
     "4h": 14400,
+    "6h": 21600,
+    "12h": 43200,
     "1d": 86400,
+    "1w": 604800,
 }
 
 
