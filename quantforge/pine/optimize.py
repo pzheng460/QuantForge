@@ -314,6 +314,8 @@ def run_optimization(
     warmup_count: int = 0,
     metric: str = "sharpe",
     progress_cb: Callable[[int, int], None] | None = None,
+    position_size_usdt: float | None = None,
+    leverage: float = 1.0,
 ) -> list[OptResult]:
     """Run grid search optimisation over a Pine script.
 
@@ -329,6 +331,11 @@ def run_optimization(
         Number of leading bars that are warmup-only (not counted in metrics).
     metric : str
         Metric to sort by: ``"sharpe"`` (default), ``"return"``, ``"profit_factor"``.
+    position_size_usdt, leverage : float | None
+        When ``position_size_usdt`` is set, every grid cell runs with the
+        same sizing override the live engine uses (``default_qty_type=cash``,
+        notional = ``size * leverage``). This is what makes optimize-search
+        outcomes comparable to live behaviour.
 
     Returns
     -------
@@ -339,10 +346,22 @@ def run_optimization(
     total = len(grid)
 
     for i, params in enumerate(grid):
-        ctx = ExecutionContext(bars=list(bars))
+        ctx = ExecutionContext()
         ctx.inputs = dict(params)  # Override input values
         runtime = PineRuntime(ctx)
-        result = runtime.run(ast)
+        # Incremental flow so we can inject the sizing override after init
+        # but before any bars are processed — same pattern as live engine.
+        runtime.init_incremental(ast)
+        if position_size_usdt and position_size_usdt > 0:
+            sc = runtime.strategy_ctx
+            if sc is not None:
+                sc.default_qty_type = sc.QTY_CASH
+                sc.default_qty = float(position_size_usdt * leverage)
+                sc.initial_capital = float(position_size_usdt)
+                sc.equity = sc.initial_capital
+        for bar in bars:
+            runtime.process_bar(bar)
+        result = runtime.finalize()
 
         eq = result.equity_curve
         trades = result.trades

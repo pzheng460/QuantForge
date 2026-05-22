@@ -22,6 +22,9 @@ interface BacktestState {
   startDate: string
   endDate: string
   warmupBars: number
+  /** Optional USDT notional per trade. undefined ⇒ use Pine defaults
+   *  (TV-compatible). Set ⇒ live-aligned sizing for the backtest. */
+  positionSizeUsdt: number | undefined
 
   // Job
   jobId: string | null
@@ -40,6 +43,7 @@ interface BacktestState {
   setStartDate: (v: string) => void
   setEndDate: (v: string) => void
   setWarmupBars: (v: number) => void
+  setPositionSizeUsdt: (v: number | undefined) => void
   setJobId: (v: string | null) => void
   setStatus: (v: string) => void
   setResult: (v: BacktestResult | null) => void
@@ -75,6 +79,7 @@ export const useBacktestStore = create<BacktestState>((set) => ({
   startDate: '2026-01-01',
   endDate: '2026-03-12',
   warmupBars: 500,
+  positionSizeUsdt: undefined,
 
   jobId: null,
   status: '',
@@ -98,6 +103,7 @@ export const useBacktestStore = create<BacktestState>((set) => ({
   setStartDate: (v) => set({ startDate: v }),
   setEndDate: (v) => set({ endDate: v }),
   setWarmupBars: (v) => set({ warmupBars: v }),
+  setPositionSizeUsdt: (v) => set({ positionSizeUsdt: v }),
   setJobId: (v) => set({ jobId: v }),
   setStatus: (v) => set({ status: v }),
   setResult: (v) => set({ result: v }),

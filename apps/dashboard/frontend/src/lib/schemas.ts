@@ -18,6 +18,7 @@ export const backtestSchema = z.object({
   startDate: z.string().min(1, 'Start date required'),
   endDate: z.string().min(1, 'End date required'),
   warmupBars: z.number().int().min(0).max(10000),
+  positionSizeUsdt: z.number().positive().optional(),
 })
 
 export const optimizeSchema = z.object({

@@ -33,6 +33,38 @@ _cancel_flags: Dict[str, threading.Event] = {}
 _JOB_TTL = timedelta(hours=1)
 
 
+def _apply_sizing_override(
+    runtime, position_size_usdt: Optional[float], leverage: float
+) -> None:
+    """Make Pine's default qty calc match the live engine's sizing.
+
+    The live engine sizes every trade as ``position_size_usdt * leverage``
+    (USDT notional), independent of Pine's ``default_qty_type``. When the
+    backtest request supplies ``position_size_usdt``, we apply the same
+    override here so a backtest's trade ledger matches what the live engine
+    would have produced on the same signal stream. When ``position_size_usdt``
+    is ``None`` we leave Pine's declared defaults alone (TV-compatible mode).
+
+    Must be called *after* ``init_incremental`` so ``strategy_ctx`` exists,
+    and *before* any ``process_bar`` so the override is in effect from
+    bar 0.
+    """
+    if not position_size_usdt or position_size_usdt <= 0:
+        return
+    sc = runtime.strategy_ctx
+    if sc is None:
+        return
+    sc.default_qty_type = sc.QTY_CASH
+    sc.default_qty = float(position_size_usdt * leverage)
+    sc.initial_capital = float(position_size_usdt)
+    sc.equity = sc.initial_capital
+    # Zero Pine's commission so backtest mirrors live, where Pine commission
+    # would double-count alongside the real exchange's maker/taker charges.
+    # Users who want a fee model should subtract realistic per-trade fees
+    # at the analysis layer, not via Pine's internal commission_value.
+    sc.commission = 0.0
+
+
 class JobCancelled(Exception):
     """Raised when a job is cancelled via the cancel flag."""
 
@@ -202,52 +234,21 @@ def _fetch_ohlcv(
     since_ms: int,
     end_ms: int,
 ) -> list[list]:
-    """Fetch OHLCV bars from an exchange via ccxt.
+    """Fetch OHLCV bars — delegates to the shared :func:`fetch_klines`.
 
-    Uses fixed-window pagination to avoid gaps with exchanges (like Bitget)
-    that return limited results per request.
+    Both backtest and live engines use the same pager so they agree on
+    which bars belong to a given time range (no off-by-one or dedup
+    discrepancies at boundaries).
     """
-    import ccxt
+    from quantforge.pine.live.connector import fetch_klines
 
-    exchange_cls = getattr(ccxt, exchange_id, None)
-    if exchange_cls is None:
-        raise ValueError(f"Exchange '{exchange_id}' not found in ccxt")
-
-    exchange = exchange_cls({"enableRateLimit": True})
-    exchange.load_markets()
-
-    bar_ms = _TF_MS.get(timeframe, 3_600_000)
-    batch_size = 200  # conservative; most exchanges return 200-1000
-    window_ms = bar_ms * batch_size  # time span per request
-
-    seen: set[int] = set()
-    all_ohlcv: list[list] = []
-    current = since_ms
-
-    while current < end_ms:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=current, limit=batch_size)
-        if not ohlcv:
-            # No data for this window — advance by window size
-            current += window_ms
-            continue
-
-        for bar in ohlcv:
-            ts = bar[0]
-            if ts not in seen and ts <= end_ms:
-                seen.add(ts)
-                all_ohlcv.append(bar)
-
-        last_ts = ohlcv[-1][0]
-        if last_ts <= current:
-            # Exchange returned stale data — advance by window size
-            current += window_ms
-        else:
-            current = last_ts + 1
-
-    all_ohlcv.sort(key=lambda b: b[0])
-    if not all_ohlcv:
+    rows = fetch_klines(
+        symbol=symbol, exchange_id=exchange_id, timeframe=timeframe,
+        since_ms=since_ms, end_ms=end_ms, page_limit=200,
+    )
+    if not rows:
         raise ValueError("No OHLCV data returned from exchange")
-    return all_ohlcv
+    return rows
 
 
 def _ohlcv_to_bars(all_ohlcv: list[list]) -> list:
@@ -297,10 +298,16 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
             break
         warmup_bar_count += 1
 
-    # Run backtest
-    ctx = ExecutionContext(bars=bars)
+    # Run backtest in incremental mode so we can override Pine's default
+    # qty/equity *after* init but *before* any bars are processed — this is
+    # how the live engine aligns sizing too (see PineLiveEngine.start).
+    ctx = ExecutionContext()
     runtime = PineRuntime(ctx)
-    result = runtime.run(ast)
+    runtime.init_incremental(ast)
+    _apply_sizing_override(runtime, req.position_size_usdt, req.leverage)
+    for bar in bars:
+        runtime.process_bar(bar)
+    result = runtime.finalize()
 
     # Filter out trades from warmup period
     all_trades = result.trades
@@ -608,7 +615,8 @@ def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
         # Train period
         train_bars = period_bars[w["train_start_idx"] : w["train_end_idx"]]
         train_optimization = run_optimization(
-            ast=ast, bars=train_bars, grid=grid, metric=req.metric
+            ast=ast, bars=train_bars, grid=grid, metric=req.metric,
+            position_size_usdt=req.position_size_usdt, leverage=req.leverage,
         )
         best_params = train_optimization[0].params if train_optimization else {}
         train_sharpe = (
@@ -623,7 +631,8 @@ def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
         # Test period with best params
         test_bars = period_bars[w["test_start_idx"] : w["test_end_idx"]]
         test_optimization = run_optimization(
-            ast=ast, bars=test_bars, grid=[best_params], metric=req.metric
+            ast=ast, bars=test_bars, grid=[best_params], metric=req.metric,
+            position_size_usdt=req.position_size_usdt, leverage=req.leverage,
         )
         test_sharpe = (
             _safe_float(test_optimization[0].sharpe) if test_optimization else 0.0
@@ -744,7 +753,8 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
     # Stage 1: In-sample optimization
     s1_bars = period_bars[:s1_end]
     s1_optimization = run_optimization(
-        ast=ast, bars=s1_bars, grid=grid, metric=req.metric
+        ast=ast, bars=s1_bars, grid=grid, metric=req.metric,
+        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
     )
     best_params = s1_optimization[0].params if s1_optimization else {}
     s1_return = (
@@ -783,7 +793,8 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
         test_bars = s2_bars[test_start:test_end]
 
         test_results = run_optimization(
-            ast=ast, bars=test_bars, grid=[best_params], metric=req.metric
+            ast=ast, bars=test_bars, grid=[best_params], metric=req.metric,
+            position_size_usdt=req.position_size_usdt, leverage=req.leverage,
         )
         test_return = (
             _safe_float(test_results[0].return_pct * 100) if test_results else 0.0
@@ -802,7 +813,8 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
     # Stage 3: Final holdout test (80-100% data)
     s3_bars = period_bars[s2_end:]
     s3_optimization = run_optimization(
-        ast=ast, bars=s3_bars, grid=[best_params], metric=req.metric
+        ast=ast, bars=s3_bars, grid=[best_params], metric=req.metric,
+        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
     )
     s3_return = (
         _safe_float(s3_optimization[0].return_pct * 100) if s3_optimization else 0.0
@@ -966,7 +978,10 @@ def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
             grid_2d.append(params)
 
     # Run optimization
-    results = run_optimization(ast=ast, bars=bars, grid=grid_2d, metric="sharpe")
+    results = run_optimization(
+        ast=ast, bars=bars, grid=grid_2d, metric="sharpe",
+        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+    )
 
     # Build result grids
     sharpe_grid = [[None for _ in y_values] for _ in x_values]
@@ -1073,7 +1088,8 @@ def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridS
     bars = _ohlcv_to_bars(all_ohlcv)
 
     results = run_optimization(
-        ast=ast, bars=bars, grid=grid, metric=req.metric, progress_cb=_on_progress
+        ast=ast, bars=bars, grid=grid, metric=req.metric, progress_cb=_on_progress,
+        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
     )
 
     rows = []

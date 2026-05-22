@@ -134,6 +134,7 @@ export default function BacktestPage() {
     startDate, setStartDate,
     endDate, setEndDate,
     warmupBars, setWarmupBars,
+    positionSizeUsdt, setPositionSizeUsdt,
     jobId, setJobId,
     status, setStatus,
     result, setResult,
@@ -177,6 +178,7 @@ export default function BacktestPage() {
       startDate,
       endDate,
       warmupBars,
+      positionSizeUsdt,
     },
   })
 
@@ -240,6 +242,7 @@ export default function BacktestPage() {
     setStartDate(data.startDate)
     setEndDate(data.endDate)
     setWarmupBars(data.warmupBars)
+    setPositionSizeUsdt(data.positionSizeUsdt)
 
     setLoading(true)
     setResult(null)
@@ -253,6 +256,7 @@ export default function BacktestPage() {
       start_date: data.startDate,
       end_date: data.endDate,
       warmup_bars: data.warmupBars,
+      position_size_usdt: data.positionSizeUsdt,
     }
     runBacktestMutation.mutate(req, {
       onSuccess: (job) => setJobId(job.job_id),
@@ -443,6 +447,31 @@ export default function BacktestPage() {
                     {...register('warmupBars', {
                       valueAsNumber: true,
                       onChange: (e) => setWarmupBars(Number(e.target.value)),
+                    })}
+                  />
+                </FormField>
+
+                <FormField
+                  label="Position Size (USDT, optional)"
+                  error={formErrors.positionSizeUsdt?.message}
+                >
+                  <Input
+                    type="number"
+                    className="text-xs h-8"
+                    min={0}
+                    step="any"
+                    placeholder="leave empty for Pine defaults"
+                    {...register('positionSizeUsdt', {
+                      setValueAs: (v) =>
+                        v === '' || v === undefined || v === null
+                          ? undefined
+                          : Number(v),
+                      onChange: (e) =>
+                        setPositionSizeUsdt(
+                          e.target.value === ''
+                            ? undefined
+                            : Number(e.target.value),
+                        ),
                     })}
                   />
                 </FormField>

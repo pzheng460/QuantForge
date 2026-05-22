@@ -21,6 +21,11 @@ class BacktestRequest(BaseModel):
     end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
     warmup_bars: int = 500
+    # Optional sizing override — when set, Pine's default_qty calc is
+    # replaced with CASH mode using ``position_size_usdt * leverage`` notional
+    # per trade, matching the live engine. ``None`` keeps Pine's own
+    # default_qty_type/value (TV-compatible behavior).
+    position_size_usdt: Optional[float] = None
     mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
     filter_override: Optional[Dict[str, Any]] = None
@@ -163,6 +168,8 @@ class OptimizeRequest(BaseModel):
     end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
     warmup_bars: int = 500
+    # Optional sizing override — see BacktestRequest for semantics.
+    position_size_usdt: Optional[float] = None
     metric: str = "sharpe"
     mode: str = "grid"  # grid | wfo | full | heatmap
     n_jobs: int = 1

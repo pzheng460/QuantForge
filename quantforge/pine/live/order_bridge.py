@@ -169,7 +169,7 @@ class DemoTracker:
 
         total = realized + unrealized
         lines = [
-            f"📊 Demo P&L Summary",
+            "📊 Demo P&L Summary",
             f"  Realized:   ${realized:+,.2f} ({self.total_trades} trades, "
             f"WR {self.win_rate:.0%})",
             f"  Unrealized: ${unrealized:+,.2f} "
@@ -302,18 +302,25 @@ class DemoTracker:
 
 
 class OrderBridge:
-    """Converts Pine strategy.entry/close/exit calls into exchange orders.
+    """Converts Pine strategy fills into real exchange orders.
 
-    In *demo* mode orders are only logged.  In *live* mode they are submitted
-    to the exchange via ``_submit_order``.
+    Pine has two callback phases for each order:
 
-    Parameters
-    ----------
-    demo : bool
-        If ``True`` (default) only log signals, don't submit real orders.
-    position_size_usdt : float
-        Notional position size in USDT.  Used to compute quantity when the
-        Pine script uses ``default_qty_value`` of 1 contract.
+    * **Queue-time** (``on_entry`` / ``on_close`` / ``on_exit``): fires
+      when ``strategy.entry/close/exit`` is called in the script. We
+      record it as a SignalRecord for the web dashboard but do NOT
+      submit anything — for entries the actual fill happens at the next
+      bar's open, and for conditional exits possibly many bars later.
+
+    * **Fill-time** (``on_entry_fill`` / ``on_close_fill``): fires from
+      Pine's ``_execute_entry`` / ``_close_position`` when the order
+      actually fills. We submit a real market order to the exchange here
+      so the timing matches what the backtest sees. Pyramiding is
+      handled correctly because every distinct entry fill flows through
+      ``on_entry_fill`` with the qty Pine added.
+
+    In ``demo=True`` (dry-run) mode the exchange path is skipped but the
+    DemoTracker still records the virtual fills for web display.
     """
 
     def __init__(
@@ -329,24 +336,37 @@ class OrderBridge:
         self.position_size_usdt = position_size_usdt
         self.leverage = leverage
 
-        # Accumulated signal history
+        # Accumulated signal history (queue-time, for the dashboard).
         self.signals: list[SignalRecord] = []
 
         # CcxtConnector instance for real order submission
         self._connector = connector
 
-        # External order submitter — set by the live engine / connector layer.
-        # Signature: async submit(symbol, side, qty, order_type, price=None)
+        # External order submitter — legacy hook; signature:
+        #   submit(symbol, side, qty, order_type, price=None)
         self._submit_fn = None
 
-        # Current position tracking (mirrors Pine StrategyContext)
-        self._position_side: str | None = None  # "long" / "short" / None
+        # Current position view (mirrors Pine ``StrategyContext.position``
+        # qty + direction). Updated by ``on_entry_fill`` / ``on_close_fill``.
+        self._position_side: str | None = None
         self._position_qty: float = 0.0
 
-        # Dedup: prevent same signal from submitting multiple exchange orders
-        # within the same bar (e.g. Pine script evaluates strategy.entry twice)
-        self._dedup_bar: int = -1
-        self._dedup_entry_ids: set[str] = set()
+        # Set of order ids already submitted to the exchange at queue-time.
+        # When the matching fill callback fires later, the bridge skips
+        # re-submission and only updates the local tracker. This is what
+        # closes the 1-bar slippage gap for unconditional orders: Pine
+        # queues at bar N close → bridge submits immediately at bar N
+        # close + 5s → exchange fills at ~bar N+1 open, matching Pine's
+        # backtest fill at execute_pending(bar=N+1).
+        self._submitted_ids: set[str] = set()
+
+        # Gate that turns off exchange submission while indicator state
+        # is being backfilled (poll loop fell behind, replaying past
+        # bars). Pine still runs through those bars to keep its internal
+        # state current; we just don't send the "what should have fired"
+        # orders to the exchange at wall-clock-stale prices. The engine
+        # reconciles position with the exchange after backfill.
+        self._submission_enabled: bool = True
 
         # P&L tracking (always enabled for web dashboard visibility)
         capital = initial_capital if initial_capital is not None else 10_000.0
@@ -377,167 +397,226 @@ class OrderBridge:
             (side or "FLAT").upper(), qty, entry_price,
         )
 
-    # --- Callbacks wired into StrategyContext ---
+    # ─── Queue-time callbacks ─────────────────────────────────────────
+    #
+    # Pine calls these from inside ``process_bar`` when the script invokes
+    # ``strategy.entry/close/exit``. For UNCONDITIONAL orders (no stop /
+    # limit / trail) we submit to the exchange IMMEDIATELY — that lands at
+    # ~next-bar-open in market terms, matching backtest's
+    # ``execute_pending(bar=N+1).fill_price = N+1.open``. The matching
+    # fill-time callback later sees the id in ``_submitted_ids`` and skips
+    # re-submission, only updating the local tracker.
+    #
+    # For CONDITIONAL exits (stop / limit / trail) we don't submit now —
+    # Pine evaluates the trigger over many bars, and the fill-time
+    # callback submits the market order when Pine actually fills.
 
-    def _submit_order(
-        self,
-        side: str,
-        qty: float,
-        action: str,
-        limit: float | None = None,
-        stop: float | None = None,
-    ) -> dict | None:
-        """Submit an order via the connector or legacy _submit_fn.
+    def _is_conditional(self, order: Order) -> bool:
+        return (
+            order.limit is not None
+            or order.stop is not None
+            or order.trail_points is not None
+        )
 
-        Returns the ccxt order result dict, or ``None`` for demo/dry-run.
+    def _entry_qty_estimate(self, order: Order) -> float:
+        """Estimate the resolved BTC qty for an entry at queue-time.
 
-        The Pine interpreter computes *qty* in its own units (e.g. percent
-        of equity).  For real exchange submission we convert to an actual
-        base-currency quantity using ``position_size_usdt / current_price``.
+        In live the strategy_ctx is configured with ``default_qty_type=cash``
+        and ``default_qty = position_size_usdt * leverage`` (see
+        ``PineLiveEngine.start``), so the canonical sizing is
+        ``notional / price``. Pine recomputes this at fill-time against
+        the actual fill price; we use ``_last_price`` (≈ bar N close) as
+        a proxy for bar N+1 open, accepting a tiny qty drift.
         """
+        notional = self.position_size_usdt * self.leverage
+        if self._last_price > 0:
+            return notional / self._last_price
+        # Without a price reference, fall back to the raw order qty (no-op).
+        return order.qty or 0.0
+
+    def on_entry(self, order: Order) -> None:
+        """Pine queued a strategy.entry()."""
+        self.signals.append(self._record(order))
+        logger.info(
+            "QUEUED ENTRY %s | id=%s%s%s%s",
+            order.direction.value.upper(), order.id,
+            f" limit={order.limit}" if order.limit else "",
+            f" stop={order.stop}" if order.stop else "",
+            f" trail={order.trail_points}" if order.trail_points else "",
+        )
+        if self._is_conditional(order):
+            return  # exchange submission deferred to fill-time
+
+        direction = order.direction.value
+        new_qty = self._entry_qty_estimate(order)
+        if new_qty <= 0:
+            return
+
+        # Reversal: in one-way mode the exchange handles {close + open} as
+        # a single net market order. We submit qty = current + new and let
+        # the exchange flip direction in one fill. Pine's internal ledger
+        # still records two events (close + open) and the matching fill
+        # callbacks update DemoTracker accordingly — both ids are marked
+        # submitted so neither fires a second exchange order.
+        if self._position_side and self._position_side != direction:
+            total = self._position_qty + new_qty
+            side = "buy" if direction == "long" else "sell"
+            self._submit_market(side, total, action="reverse")
+            self._submitted_ids.add(f"{order.id}__reverse")  # the close half
+            self._submitted_ids.add(order.id)  # the new entry
+            return
+
+        side = "buy" if direction == "long" else "sell"
+        self._submit_market(side, new_qty, action="entry")
+        self._submitted_ids.add(order.id)
+
+    def on_close(self, order: Order) -> None:
+        """Pine queued a strategy.close() — always unconditional."""
+        self.signals.append(self._record(order))
+        logger.info(
+            "QUEUED CLOSE %s | id=%s",
+            self._position_side or "FLAT", order.id,
+        )
+        if not self._position_side or self._position_qty <= 0:
+            return  # nothing to close
+        side = "sell" if self._position_side == "long" else "buy"
+        self._submit_market(side, self._position_qty, action="close")
+        self._submitted_ids.add(order.id)
+
+    def on_exit(self, order: Order) -> None:
+        """Pine queued a strategy.exit() — always conditional."""
+        self.signals.append(self._record(order))
+        logger.info(
+            "QUEUED EXIT %s | id=%s stop=%s limit=%s trail=%s",
+            self._position_side or "FLAT", order.id,
+            order.stop, order.limit, order.trail_points,
+        )
+        # Conditional — wait for Pine to fire the fill callback when bar
+        # range crosses the trigger. No submission here.
+
+    # ─── Fill-time callbacks (real exchange submission) ─────────────────
+    #
+    # Pine calls these from ``_execute_entry`` / ``_close_position`` —
+    # at the moment the order actually fills in Pine's ledger. We mirror
+    # the fill to the real exchange via a market order. Pyramiding is
+    # supported because each Pine-side entry fill flows through here
+    # with the incremental qty (Pine averages internally).
+
+    def on_entry_fill(
+        self, direction: str, price: float, qty: float, order_id: str = "",
+    ) -> None:
+        """Pine filled an entry. Submit only if not pre-submitted at queue-time."""
+        if qty <= 0:
+            return
+        if price > 0:
+            self._last_price = price
+
+        # Pyramiding-aware position view (matches Pine internal averaging).
+        if self._position_side == direction:
+            self._position_qty += qty
+        else:
+            self._position_side = direction
+            self._position_qty = qty
+
+        already = order_id in self._submitted_ids
+        if already:
+            self._submitted_ids.discard(order_id)
+            # Already submitted at queue-time; just record into DemoTracker.
+            fill = price
+        else:
+            # Conditional entry that wasn't pre-submitted — submit now.
+            side = "buy" if direction == "long" else "sell"
+            result = self._submit_market(side, qty, action="entry")
+            fill = self._extract_fill_price(result) or price
+
+        if self._demo_tracker:
+            if self._demo_tracker._position_side == direction:
+                # accumulate qty + recompute avg entry
+                old_qty = self._demo_tracker._position_qty
+                old_entry = self._demo_tracker._entry_price
+                new_total = old_qty + qty
+                if new_total > 0:
+                    self._demo_tracker._position_qty = new_total
+                    self._demo_tracker._entry_price = (
+                        (old_entry * old_qty + fill * qty) / new_total
+                    )
+            else:
+                self._demo_tracker.on_entry(direction, fill)
+                # Override qty DemoTracker would have estimated — Pine's
+                # qty (the resolved one from execute_pending) is authoritative.
+                self._demo_tracker._position_qty = qty
+
+    def on_close_fill(
+        self, direction: str, price: float, qty: float, order_id: str = "",
+    ) -> None:
+        """Pine filled a close. Submit only if not pre-submitted at queue-time."""
+        if qty <= 0:
+            return
+        if price > 0:
+            self._last_price = price
+
+        # Update OrderBridge's view BEFORE submitting so a reversal's
+        # subsequent entry sees flat state.
+        self._position_qty = max(0.0, self._position_qty - qty)
+        if self._position_qty <= 0:
+            self._position_side = None
+
+        already = order_id in self._submitted_ids
+        if already:
+            self._submitted_ids.discard(order_id)
+            fill = price
+        else:
+            # Conditional exit fired by Pine — submit close now.
+            side = "sell" if direction == "long" else "buy"
+            result = self._submit_market(side, qty, action="close")
+            fill = self._extract_fill_price(result) or price
+
+        if self._demo_tracker and self._position_qty <= 0:
+            self._demo_tracker.on_close(fill)
+
+    # ─── Exchange submission helper ────────────────────────────────────
+
+    def _submit_market(self, side: str, qty: float, action: str) -> dict | None:
+        """Submit a market order to the exchange.
+
+        Pine has already produced the correct ``qty`` (the live engine
+        injects ``default_qty_type='cash'`` so Pine computes notional/price
+        directly — see ``PineLiveEngine.start``). The connector handles
+        reduce_only for closes.
+        """
+        if not self._submission_enabled:
+            logger.debug(
+                "Submission suppressed (backfill mode): %s %s qty=%.6f",
+                action, side, qty,
+            )
+            return None
         if self.demo:
             return None
-
-        # Legacy callback path
         if self._submit_fn:
-            self._submit_fn(side=side, qty=qty, action=action, limit=limit, stop=stop)
+            self._submit_fn(
+                side=side, qty=qty, action=action, limit=None, stop=None,
+            )
             return None
-
-        # CcxtConnector path
         if self._connector is None:
-            logger.warning("No connector configured — order not submitted")
+            logger.warning("No connector configured — %s order not submitted", action)
             return None
-
-        # Convert Pine qty → exchange qty based on position size and price
-        exchange_qty = qty
-        if self._last_price > 0 and self.position_size_usdt > 0:
-            exchange_qty = round(self.position_size_usdt / self._last_price, 6)
-
+        if qty <= 0:
+            logger.warning("Refusing to submit qty<=0 (%s %s)", action, side)
+            return None
         try:
             reduce_only = action in ("close", "exit")
             logger.info(
-                "Exchange order: %s %s qty=%.6f (pine_qty=%.2f, usdt=%.0f, price=%.2f)",
-                action, side, exchange_qty, qty, self.position_size_usdt, self._last_price,
+                "Exchange order: %s %s qty=%.6f reduce_only=%s",
+                action, side, qty, reduce_only,
             )
-            if limit:
-                result = self._connector.submit_limit_order(
-                    side=side, qty=exchange_qty, price=limit, reduce_only=reduce_only
-                )
-            else:
-                result = self._connector.submit_market_order(
-                    side=side, qty=exchange_qty, reduce_only=reduce_only
-                )
-            return result
+            return self._connector.submit_market_order(
+                side=side, qty=qty, reduce_only=reduce_only,
+            )
         except Exception:
             logger.exception(
-                "Order submission failed: %s %s qty=%.6f", action, side, exchange_qty
+                "Order submission failed: %s %s qty=%.6f", action, side, qty
             )
             return None
-
-    def on_entry(self, order: Order) -> None:
-        """Called when Pine interpreter places a strategy.entry() order."""
-        # --- Dedup guard: skip if same entry ID already processed this bar ---
-        if order.bar_index != self._dedup_bar:
-            self._dedup_bar = order.bar_index
-            self._dedup_entry_ids.clear()
-        if order.id in self._dedup_entry_ids:
-            logger.debug(
-                "Duplicate entry skipped: id=%s bar=%d", order.id, order.bar_index
-            )
-            return
-        self._dedup_entry_ids.add(order.id)
-
-        rec = self._record(order)
-        self.signals.append(rec)
-
-        direction = order.direction.value  # "long" or "short"
-
-        # If reversing position, close first
-        if self._position_side and self._position_side != direction:
-            logger.info(
-                "CLOSE %s position (reversal) | qty=%.6f",
-                self._position_side.upper(),
-                self._position_qty,
-            )
-            close_result = self._submit_order(
-                side="sell" if self._position_side == "long" else "buy",
-                qty=self._position_qty,
-                action="close",
-            )
-            close_fill = self._extract_fill_price(close_result)
-            if self._demo_tracker:
-                self._demo_tracker.on_close(close_fill)
-            self._position_side = None
-            self._position_qty = 0.0
-
-        logger.info(
-            "ENTRY %s | id=%s qty=%.6f%s%s",
-            direction.upper(),
-            order.id,
-            order.qty or 0,
-            f" limit={order.limit}" if order.limit else "",
-            f" stop={order.stop}" if order.stop else "",
-        )
-
-        self._position_side = direction
-        self._position_qty = order.qty or 0.0
-
-        entry_result = self._submit_order(
-            side="buy" if direction == "long" else "sell",
-            qty=order.qty or 0.0,
-            action="entry",
-            limit=order.limit,
-            stop=order.stop,
-        )
-        entry_fill = self._extract_fill_price(entry_result)
-        if self._demo_tracker:
-            self._demo_tracker.on_entry(direction, entry_fill)
-
-    def on_close(self, order: Order) -> None:
-        """Called when Pine interpreter places a strategy.close() order."""
-        rec = self._record(order)
-        self.signals.append(rec)
-
-        logger.info(
-            "CLOSE %s | id=%s",
-            self._position_side or "FLAT",
-            order.id,
-        )
-
-        if self._position_side:
-            close_result = self._submit_order(
-                side="sell" if self._position_side == "long" else "buy",
-                qty=self._position_qty,
-                action="close",
-            )
-            close_fill = self._extract_fill_price(close_result)
-            if self._demo_tracker:
-                self._demo_tracker.on_close(close_fill)
-
-        self._position_side = None
-        self._position_qty = 0.0
-
-    def on_exit(self, order: Order) -> None:
-        """Called when Pine interpreter places a strategy.exit() order."""
-        rec = self._record(order)
-        self.signals.append(rec)
-
-        logger.info(
-            "EXIT %s | id=%s stop=%s limit=%s",
-            self._position_side or "FLAT",
-            order.id,
-            order.stop,
-            order.limit,
-        )
-
-        if self._position_side:
-            self._submit_order(
-                side="sell" if self._position_side == "long" else "buy",
-                qty=order.qty or self._position_qty,
-                action="exit",
-                limit=order.limit,
-                stop=order.stop,
-            )
 
     # --- Helpers ---
 

@@ -22,53 +22,31 @@ def _fetch_ohlcv(
     end: str,
     warmup_bars: int,
 ) -> list:
-    """Fetch OHLCV data from exchange via ccxt, including warmup period.
+    """Fetch OHLCV data from exchange via ccxt, including a warmup prefix.
 
-    ``warmup_bars`` is the number of bars at this timeframe to prepend before
-    ``start`` so indicators are converged when the strategy window begins.
-    Same unit and semantics as the live engine's ``warmup_bars``.
+    Delegates to :func:`quantforge.pine.live.connector.fetch_klines` —
+    the same canonical pager the live engine uses. This way backtest
+    and live agree on the exact set of bars for any time range.
+
+    ``warmup_bars`` is the number of bars at this timeframe to prepend
+    before ``start`` so indicators are converged when the strategy
+    window begins. Same unit and semantics as ``live --warmup-bars``.
     """
-    import ccxt
+    from datetime import timedelta
 
-    from quantforge.pine.live.connector import timeframe_to_seconds
-
-    exchange_cls = getattr(ccxt, exchange_id, None)
-    if exchange_cls is None:
-        print(f"Error: exchange '{exchange_id}' not found in ccxt")
-        sys.exit(1)
-
-    exchange = exchange_cls({"enableRateLimit": True})
-    exchange.load_markets()
+    from quantforge.pine.live.connector import fetch_klines, timeframe_to_seconds
 
     start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
-    from datetime import timedelta
-
     warmup_seconds = timeframe_to_seconds(timeframe) * warmup_bars
-    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
-    since_ms = int(warmup_start.timestamp() * 1000)
+    since_ms = int((start_dt - timedelta(seconds=warmup_seconds)).timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
-    all_ohlcv = []
-    current_since = since_ms
-    limit = 1000
-
-    while current_since < end_ms:
-        ohlcv = exchange.fetch_ohlcv(
-            symbol, timeframe, since=current_since, limit=limit
-        )
-        if not ohlcv:
-            break
-        all_ohlcv.extend(ohlcv)
-        last_ts = ohlcv[-1][0]
-        if last_ts <= current_since:
-            break
-        current_since = last_ts + 1
-
-    # Filter to end date
-    all_ohlcv = [bar for bar in all_ohlcv if bar[0] <= end_ms]
-    return all_ohlcv
+    return fetch_klines(
+        symbol=symbol, exchange_id=exchange_id, timeframe=timeframe,
+        since_ms=since_ms, end_ms=end_ms,
+    )
 
 
 def _run_backtest(args: argparse.Namespace) -> None:
@@ -119,9 +97,26 @@ def _run_backtest(args: argparse.Namespace) -> None:
         for bar in ohlcv
     ]
 
-    ctx = ExecutionContext(bars=bars)
+    # Incremental flow so we can apply the live-aligned sizing override
+    # (default_qty_type=cash, notional=position_size*leverage) after init
+    # but before any bars process.
+    ctx = ExecutionContext()
     runtime = PineRuntime(ctx)
-    result = runtime.run(ast)
+    runtime.init_incremental(ast)
+    if args.position_size and args.position_size > 0:
+        sc = runtime.strategy_ctx
+        if sc is not None:
+            sc.default_qty_type = sc.QTY_CASH
+            sc.default_qty = float(args.position_size * args.leverage)
+            sc.initial_capital = float(args.position_size)
+            sc.equity = sc.initial_capital
+            print(
+                f"Sizing override: cash notional=${sc.default_qty:.2f} "
+                f"initial_capital=${sc.initial_capital:.2f}"
+            )
+    for bar in bars:
+        runtime.process_bar(bar)
+    result = runtime.finalize()
 
     # Calculate metrics
     total_pnl = result.net_profit
@@ -347,6 +342,8 @@ def _run_optimize(args: argparse.Namespace) -> None:
         bars=bars,
         grid=grid,
         metric=args.metric,
+        position_size_usdt=args.position_size,
+        leverage=args.leverage,
     )
 
     # Print top results
@@ -458,6 +455,22 @@ def main() -> None:
         default=500,
         help="Warmup bar count (default: 500). Same unit as `live --warmup-bars`.",
     )
+    bt.add_argument(
+        "--position-size",
+        type=float,
+        default=None,
+        help=(
+            "USDT notional per trade. When set, overrides Pine's default_qty"
+            " with CASH mode using `size * leverage` — same sizing path as"
+            " `live --position-size`. Leave unset for TV-compatible behavior."
+        ),
+    )
+    bt.add_argument(
+        "--leverage",
+        type=float,
+        default=1.0,
+        help="Leverage multiplier applied to --position-size (default: 1.0).",
+    )
 
     # live subcommand
     lv = sub.add_parser("live", help="Run Pine Script as a live trading engine")
@@ -541,6 +554,21 @@ def main() -> None:
         type=int,
         default=500,
         help="Warmup bar count (default: 500). Same unit as `live --warmup-bars`.",
+    )
+    op.add_argument(
+        "--position-size",
+        type=float,
+        default=None,
+        help=(
+            "USDT notional per trade — same semantics as `backtest --position-size`."
+            " Sets sizing identical to live engine for each grid cell."
+        ),
+    )
+    op.add_argument(
+        "--leverage",
+        type=float,
+        default=1.0,
+        help="Leverage multiplier applied to --position-size (default: 1.0).",
     )
     op.add_argument(
         "--metric",

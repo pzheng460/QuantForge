@@ -308,6 +308,33 @@ class PineLiveEngine:
         self._runtime = PineRuntime(ctx)
         self._runtime.init_incremental(self.ast)
 
+        # ── Backtest ↔ live alignment overrides ──────────────────────────
+        # 1. Sizing: force Pine to compute qty as `position_size * leverage / price`
+        #    by switching default_qty_type to CASH. Same override is applied in
+        #    backtest when the request specifies position_size_usdt (see
+        #    apps/dashboard/backend/jobs.py::_apply_sizing_override).
+        # 2. Commission: zero out Pine's commission so we don't double-count
+        #    fees on top of the real exchange's maker/taker charges.
+        sc = self._runtime.strategy_ctx
+        if sc is not None and self.position_size_usdt > 0:
+            sc.default_qty_type = sc.QTY_CASH
+            sc.default_qty = float(self.position_size_usdt * self.leverage)
+            sc.initial_capital = (
+                initial_capital if initial_capital is not None
+                else float(self.position_size_usdt)
+            )
+            sc.equity = sc.initial_capital
+            logger.info(
+                "Pine sizing aligned to live: qty_type=cash notional=$%.2f "
+                "initial_capital=$%.2f",
+                sc.default_qty, sc.initial_capital,
+            )
+        if sc is not None:
+            sc.commission = 0.0
+            logger.info(
+                "Pine commission zeroed — real exchange fees apply at fill time"
+            )
+
         # NOTE: Do NOT wire signal callbacks until warmup is complete.
         # During warmup we replay historical bars to build indicator state.
         # Signals from historical bars must be silently discarded.
@@ -321,12 +348,34 @@ class PineLiveEngine:
         # the first real signal is handled correctly (e.g. reversal close).
         await self._sync_position_state(connector)
 
-        # Wire signal callbacks AFTER warmup + position sync
+        # Warmup ran the script over historical bars and Pine internally
+        # filled imaginary entry/close orders, accumulating a `trades` ledger
+        # and walking `equity` away from initial_capital. Reset that ledger
+        # so the live phase starts from a clean slate — indicators / series
+        # state (the actual point of warmup) stay intact because they live
+        # on the ExecutionContext, not on the StrategyContext.
+        if sc is not None:
+            sc.trades.clear()
+            sc.pending_orders.clear()
+            sc._equity_curve.clear()
+            sc.equity = sc.initial_capital
+            sc._entry_count = 0
+        # Keep DemoTracker's view aligned: its trade ledger was repopulated
+        # from disk by ``_restore_trade_history`` (for cross-session continuity).
+        # We DO NOT clear that, since the user wants to see cumulative live P&L
+        # across restarts. The asymmetry (Pine sees 0, tracker sees N) is fine
+        # because Pine doesn't reference past trades and tracker only feeds
+        # the dashboard, not the strategy.
+
+        # Wire signal callbacks AFTER warmup + position sync.
+        # Queue-time → SignalRecord history; fill-time → exchange submission.
         if self._runtime.strategy_ctx:
             self._runtime.strategy_ctx.set_signal_callbacks(
                 on_entry=self._bridge.on_entry,
                 on_close=self._bridge.on_close,
                 on_exit=self._bridge.on_exit,
+                on_entry_fill=self._bridge.on_entry_fill,
+                on_close_fill=self._bridge.on_close_fill,
             )
 
         # --- Live loop ---
@@ -395,16 +444,15 @@ class PineLiveEngine:
                 logger.exception("Failed to archive old performance file")
             return
 
-        # Fingerprint matches — safe to restore
-        trades = data.get("trades", [])
-        if trades and self._bridge and self._bridge.demo_tracker:
-            self._bridge.demo_tracker.restore_trades(trades)
-            logger.info(
-                "Restored %d trades from %s (fingerprint=%s)",
-                len(trades), perf_path, current_fp,
-            )
-
-        # Restore open position as fallback (exchange sync will override later)
+        # Fingerprint matches — restore only the open position as a fallback
+        # (the upcoming exchange-sync step will override if connected). We
+        # deliberately do NOT restore the trades history: after warmup,
+        # Pine clears its own ctx.trades for a clean live phase, so we keep
+        # DemoTracker symmetrical to avoid a strategy that reads
+        # `strategy.closedtrades` seeing values the live session never
+        # produced. Trades that count toward dashboard P&L will accumulate
+        # from this session forward; the previous session's totals live in
+        # the archived ``live_performance_*.json`` files for audit.
         open_pos = data.get("open_position")
         if open_pos and self._bridge:
             side = open_pos.get("side")
@@ -547,15 +595,25 @@ class PineLiveEngine:
         )
 
     async def _poll_loop(self) -> None:
-        """Poll for new confirmed klines via ccxt.
+        """Poll for confirmed klines, backfilling any bars we fell behind on.
 
-        Calculates the exact time until the next bar closes, sleeps until
-        then + a small buffer, and fetches only the latest confirmed bar.
+        Each iteration:
+          1. Sleep until the next bar's close + a small buffer.
+          2. Fetch every confirmed bar with ``ts > _last_bar_time``
+             (limit sized to the gap, so a brief network outage doesn't
+             desync indicators from backtest).
+          3. Process them in order. If more than one bar arrived, treat
+             as a backfill: suppress exchange submission while replaying
+             so Pine can rebuild indicator state without firing stale
+             market orders. The reconcile step afterwards corrects any
+             resulting position drift.
+          4. Reconcile Pine's expected position against the exchange.
 
-        In a production deployment this would be replaced with a WebSocket
-        kline subscription from the QuantForge connector layer.
+        In production this loop would be replaced with a websocket kline
+        subscription from the connector layer.
         """
         import time
+        import math
 
         import ccxt
 
@@ -564,63 +622,161 @@ class PineLiveEngine:
         exchange.load_markets()
 
         tf_sec = timeframe_to_seconds(self.timeframe)
+        tf_ms = tf_sec * 1000
         buffer_sec = 5  # seconds after bar close before fetching
 
         while self._running:
-            # Calculate exact sleep until next bar close + buffer
+            # Sleep until next bar close + buffer
             now = time.time()
             next_bar_close = ((now // tf_sec) + 1) * tf_sec
             wait_time = max(1, next_bar_close - now + buffer_sec)
-
             logger.debug(
                 "Sleeping %.1fs until next bar close (tf=%ss, buffer=%ss)",
-                wait_time,
-                tf_sec,
-                buffer_sec,
+                wait_time, tf_sec, buffer_sec,
             )
             await asyncio.sleep(wait_time)
 
             try:
-                # Fetch last 2 bars — second-to-last is the confirmed bar
-                ohlcv = exchange.fetch_ohlcv(self.symbol, self.timeframe, limit=2)
-                if ohlcv and len(ohlcv) >= 2:
-                    confirmed = ohlcv[-2]
+                # ── Pull every bar we haven't seen ─────────────────────
+                # since_ms = first millisecond AFTER the last bar we processed
+                since_ms = (self._last_bar_time + 1) * 1000 if self._last_bar_time else None
+                now_ms = int(time.time() * 1000)
+                current_bar_open_ms = (now_ms // tf_ms) * tf_ms
+                missing = (
+                    max(2, math.ceil((now_ms - since_ms) / tf_ms) + 2)
+                    if since_ms else 2
+                )
+                limit = min(missing, 500)
+                ohlcv = (
+                    exchange.fetch_ohlcv(self.symbol, self.timeframe, since=since_ms, limit=limit)
+                    if since_ms is not None
+                    else exchange.fetch_ohlcv(self.symbol, self.timeframe, limit=limit)
+                )
+                if not ohlcv:
+                    continue
+
+                # Confirmed bars only — exclude the bar currently in progress.
+                new_bars = [
+                    b for b in ohlcv
+                    if b[0] < current_bar_open_ms and (b[0] // 1000) > self._last_bar_time
+                ]
+                if not new_bars:
+                    continue
+
+                # ── Backfill suppression ──────────────────────────────
+                is_backfill = len(new_bars) > 1
+                if is_backfill:
+                    logger.warning(
+                        "Falling behind: backfilling %d bars (last_bar_time=%d, "
+                        "now=%d). Exchange submission suppressed during replay; "
+                        "reconcile runs after.",
+                        len(new_bars), self._last_bar_time, now_ms // 1000,
+                    )
+                    self._bridge._submission_enabled = False
+
+                for confirmed in new_bars:
                     bar_ts = confirmed[0] // 1000
+                    bar = BarData(
+                        open=confirmed[1], high=confirmed[2], low=confirmed[3],
+                        close=confirmed[4], volume=confirmed[5], time=bar_ts,
+                    )
+                    self._bridge.update_price(bar.open)
+                    new_orders = self._runtime.process_bar(bar)
+                    self._bridge.update_price(bar.close)
+                    self._bars_processed += 1
+                    self._last_bar_time = bar_ts
 
-                    if bar_ts > self._last_bar_time:
-                        bar = BarData(
-                            open=confirmed[1],
-                            high=confirmed[2],
-                            low=confirmed[3],
-                            close=confirmed[4],
-                            volume=confirmed[5],
-                            time=bar_ts,
-                        )
-                        # Update price before processing (for P&L tracking)
-                        self._bridge.update_price(bar.close)
+                    logger.info(
+                        "Bar %d | open=%.2f close=%.2f | new_queue=%d | pos=%s qty=%.6f%s",
+                        self._bars_processed, bar.open, bar.close,
+                        len(new_orders),
+                        self._bridge._position_side or "flat",
+                        self._bridge._position_qty,
+                        " [backfill]" if is_backfill else "",
+                    )
 
-                        new_orders = self._runtime.process_bar(bar)
-                        self._bars_processed += 1
-                        self._last_bar_time = bar_ts
+                if is_backfill:
+                    self._bridge._submission_enabled = True
 
-                        logger.info(
-                            "Bar %d | close=%.2f | orders=%d | pos=%s",
-                            self._bars_processed,
-                            bar.close,
-                            len(new_orders),
-                            self._bridge._position_side or "flat",
-                        )
+                # ── Reconcile every poll iteration ─────────────────────
+                await self._reconcile_position()
 
-                        # Flush performance JSON for web dashboard
-                        self._flush_performance(bar.close)
+                # Flush performance JSON for the dashboard
+                self._flush_performance(new_bars[-1][4])
 
-                        # Print demo P&L summary every 6 bars (6h for 1h tf)
-                        tracker = self._bridge.demo_tracker
-                        if tracker and self._bars_processed % 6 == 0:
-                            logger.info("\n%s", tracker.summary(bar.close))
+                # Demo P&L summary periodically
+                tracker = self._bridge.demo_tracker
+                if tracker and self._bars_processed % 6 == 0:
+                    logger.info("\n%s", tracker.summary(new_bars[-1][4]))
 
             except Exception:
                 logger.exception("Error in poll loop")
+
+    async def _reconcile_position(self) -> None:
+        """Verify the bridge's position view matches the exchange.
+
+        Drift can creep in from:
+          - Exchange rejecting a submitted order (insufficient margin, etc.)
+          - Sub-bar slippage between queue-time estimate qty and Pine's
+            resolved qty
+          - Backfilled bars that fired Pine signals without exchange sends
+          - Partial fills
+
+        When the relative qty diff exceeds 0.5% (or side mismatches) we
+        log + treat the exchange as ground truth: re-sync the bridge and
+        Pine's StrategyContext to whatever the exchange reports. This
+        prevents long-term divergence even when individual order
+        submissions fail.
+        """
+        if self.dry_run:
+            return
+        connector = getattr(self._bridge, "_connector", None)
+        if connector is None:
+            return
+        try:
+            pos = connector.get_position()
+        except Exception:
+            logger.exception("Reconcile: failed to fetch exchange position")
+            return
+
+        if pos:
+            exch_side = pos.get("side")
+            exch_qty = float(pos.get("contracts", 0))
+            exch_entry = float(pos.get("entryPrice", 0))
+        else:
+            exch_side = None
+            exch_qty = 0.0
+            exch_entry = 0.0
+
+        bridge_side = self._bridge._position_side
+        bridge_qty = self._bridge._position_qty
+
+        side_drift = bridge_side != exch_side
+        qty_drift = abs(bridge_qty - exch_qty)
+        rel_drift = (qty_drift / bridge_qty) if bridge_qty > 0 else qty_drift
+
+        if not (side_drift or rel_drift > 0.005):
+            return
+
+        logger.warning(
+            "POSITION DRIFT detected — bridge=%s qty=%.6f, exchange=%s qty=%.6f. "
+            "Treating exchange as ground truth and re-syncing Pine.",
+            bridge_side or "flat", bridge_qty, exch_side or "flat", exch_qty,
+        )
+        self._bridge.sync_position(exch_side, exch_qty, exch_entry)
+        if self._runtime and self._runtime.strategy_ctx:
+            from quantforge.pine.interpreter.builtins.strategy import Direction
+            ctx = self._runtime.strategy_ctx
+            if exch_side:
+                ctx.position.direction = (
+                    Direction.LONG if exch_side == "long" else Direction.SHORT
+                )
+                ctx.position.qty = exch_qty
+                ctx.position.entry_price = exch_entry
+            else:
+                ctx.position.direction = None
+                ctx.position.qty = 0.0
+                ctx.position.entry_price = 0.0
 
     def feed_bar(self, bar: BarData) -> list:
         """Manually feed a bar (for testing or WebSocket integration).

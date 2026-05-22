@@ -35,15 +35,25 @@ def timeframe_to_seconds(tf: str) -> int:
     raise ValueError(f"Unsupported timeframe: {tf}")
 
 
-def fetch_warmup_bars(
+def fetch_klines(
     symbol: str,
     exchange_id: str,
     timeframe: str,
-    num_bars: int = 500,
-) -> list[BarData]:
-    """Fetch historical bars for indicator warmup via ccxt.
+    since_ms: int,
+    end_ms: int,
+    page_limit: int = 1000,
+) -> list[list]:
+    """Canonical OHLCV fetcher used by both backtest and live engines.
 
-    Returns a list of ``BarData`` sorted oldest-first.
+    Pages through ccxt's ``fetch_ohlcv`` from ``since_ms`` until ``end_ms``,
+    dedups by timestamp, sorts ascending. Returns the raw ccxt OHLCV
+    rows (``[ts, open, high, low, close, volume]``). Callers that need
+    ``BarData`` should map over the result.
+
+    Centralising this prevents drift between backtest's old
+    ``cli._fetch_ohlcv`` and live's old ``fetch_warmup_bars``, which
+    paginated and de-duped slightly differently and could disagree on
+    edge bars.
     """
     import ccxt
 
@@ -54,50 +64,67 @@ def fetch_warmup_bars(
     exchange = exchange_cls({"enableRateLimit": True})
     exchange.load_markets()
 
+    bar_ms = timeframe_to_seconds(timeframe) * 1000
+    window_ms = bar_ms * page_limit  # span covered per request
+
+    seen: set[int] = set()
+    unique: list[list] = []
+    current = since_ms
+    while current < end_ms:
+        chunk = exchange.fetch_ohlcv(
+            symbol, timeframe, since=current, limit=page_limit,
+        )
+        if not chunk:
+            # Sparse exchange / no data here. Skip forward by a window so
+            # we don't loop forever on dead ranges. Same fallback the
+            # backend's historical pager uses.
+            current += window_ms
+            continue
+        for bar in chunk:
+            ts = bar[0]
+            if ts > end_ms or ts in seen:
+                continue
+            seen.add(ts)
+            unique.append(bar)
+        last_ts = chunk[-1][0]
+        if last_ts <= current:
+            current += window_ms
+        else:
+            current = last_ts + 1
+
+    unique.sort(key=lambda b: b[0])
+    return unique
+
+
+def fetch_warmup_bars(
+    symbol: str,
+    exchange_id: str,
+    timeframe: str,
+    num_bars: int = 500,
+) -> list[BarData]:
+    """Fetch the last ``num_bars`` historical bars for indicator warmup.
+
+    Thin wrapper around :func:`fetch_klines` that anchors to "now" and
+    converts to ``BarData``.
+    """
     tf_sec = timeframe_to_seconds(timeframe)
     now = datetime.now(timezone.utc)
     since_dt = now - timedelta(seconds=tf_sec * num_bars)
     since_ms = int(since_dt.timestamp() * 1000)
+    end_ms = int(now.timestamp() * 1000)
 
-    all_ohlcv: list[list] = []
-    current_since = since_ms
-    limit = 1000
+    raw = fetch_klines(
+        symbol=symbol, exchange_id=exchange_id, timeframe=timeframe,
+        since_ms=since_ms, end_ms=end_ms,
+    )
 
-    while len(all_ohlcv) < num_bars:
-        ohlcv = exchange.fetch_ohlcv(
-            symbol, timeframe, since=current_since, limit=limit
-        )
-        if not ohlcv:
-            break
-        all_ohlcv.extend(ohlcv)
-        last_ts = ohlcv[-1][0]
-        if last_ts <= current_since:
-            break
-        current_since = last_ts + 1
-
-    # De-dup by timestamp and sort
-    seen: set[int] = set()
-    unique: list[list] = []
-    for bar in all_ohlcv:
-        ts = bar[0]
-        if ts not in seen:
-            seen.add(ts)
-            unique.append(bar)
-    unique.sort(key=lambda b: b[0])
-
-    # Convert to BarData
     bars = [
         BarData(
-            open=bar[1],
-            high=bar[2],
-            low=bar[3],
-            close=bar[4],
-            volume=bar[5],
-            time=bar[0] // 1000,
+            open=b[1], high=b[2], low=b[3], close=b[4],
+            volume=b[5], time=b[0] // 1000,
         )
-        for bar in unique[-num_bars:]
+        for b in raw[-num_bars:]
     ]
-
     logger.info("Fetched %d warmup bars for %s (%s)", len(bars), symbol, exchange_id)
     return bars
 

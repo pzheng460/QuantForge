@@ -84,10 +84,12 @@ class PineRuntime:
 
         # Bar-by-bar execution
         while self.ctx.advance_bar():
-            # Execute pending orders at this bar's open
+            # Execute pending orders at this bar's open. Pass the full
+            # BarData so conditional triggers (stop / limit / trail) can
+            # check bar.high and bar.low — not just bar.open.
             if self.strategy_ctx and self.ctx.bar_index > 0:
                 bar = self.ctx.current_bar
-                self.strategy_ctx.execute_pending(bar.open, self.ctx.bar_index)
+                self.strategy_ctx.execute_pending(bar, self.ctx.bar_index)
 
             # Execute script body
             for stmt in script.body:
@@ -141,9 +143,11 @@ class PineRuntime:
         # 1. Push the bar into context
         self.ctx.push_bar(bar)
 
-        # 2. Execute pending orders from PREVIOUS bar at this bar's open
+        # 2. Execute pending orders from PREVIOUS bar against THIS bar.
+        # Full BarData enables conditional-trigger checks against
+        # bar.high / bar.low — see StrategyContext.execute_pending.
         if self.strategy_ctx and self.ctx.bar_index > 0:
-            self.strategy_ctx.execute_pending(bar.open, self.ctx.bar_index)
+            self.strategy_ctx.execute_pending(bar, self.ctx.bar_index)
 
         # 3. Snapshot pending orders *before* script body to detect new ones
         pending_before = (
@@ -733,12 +737,16 @@ class PineRuntime:
             from_entry = args[1] if len(args) > 1 else kwargs.get("from_entry", "")
             limit = kwargs.get("limit", None)
             stop = kwargs.get("stop", None)
+            trail_points = kwargs.get("trail_points", None)
             comment = kwargs.get("comment", "")
             self.strategy_ctx.place_exit(
                 id=str(exit_id),
                 from_entry=str(from_entry),
                 limit=float(limit) if limit else None,
                 stop=float(stop) if stop else None,
+                trail_points=(
+                    float(trail_points) if trail_points else None
+                ),
                 comment=str(comment),
                 bar_index=self.ctx.bar_index,
             )
@@ -752,6 +760,21 @@ class PineRuntime:
                 comment=str(comment),
                 bar_index=self.ctx.bar_index,
             )
+            return None
+
+        elif func_name == "strategy.cancel":
+            if not self.strategy_ctx:
+                return None
+            order_id = args[0] if args else kwargs.get("id")
+            self.strategy_ctx.cancel_pending(
+                order_id=str(order_id) if order_id is not None else None
+            )
+            return None
+
+        elif func_name == "strategy.cancel_all":
+            if not self.strategy_ctx:
+                return None
+            self.strategy_ctx.cancel_pending(order_id=None)
             return None
 
         # --- input.* ---
