@@ -501,15 +501,7 @@ class PineLiveEngine:
                 "Synced position from exchange: %s %.6f @ %.2f",
                 side, contracts, entry_price,
             )
-            # Also sync Pine StrategyContext to match exchange
-            if self._runtime and self._runtime.strategy_ctx:
-                from quantforge.pine.interpreter.builtins.strategy import Direction
-                pine_dir = Direction.LONG if side == "long" else Direction.SHORT
-                ctx = self._runtime.strategy_ctx
-                ctx.position.direction = pine_dir
-                ctx.position.qty = contracts
-                ctx.position.entry_price = entry_price
-                logger.info("Pine StrategyContext synced to exchange position")
+            self._apply_synced_pine_position(side, contracts, entry_price)
             return
 
         # Exchange returned no open position.
@@ -525,15 +517,9 @@ class PineLiveEngine:
         is_live_with_exchange = connector is not None and not self.dry_run
         if is_live_with_exchange:
             self._bridge.sync_position(None, 0.0, 0.0)
-            # Also reset Pine StrategyContext to match.
             if self._runtime and self._runtime.strategy_ctx:
                 ctx = self._runtime.strategy_ctx
                 if not ctx.position.is_flat:
-                    # Expected on first start: Pine simulates strategy.entry/exit
-                    # over the warmup bars and naturally ends in some position
-                    # if the last historical signal was an entry. We reset to
-                    # match exchange (FLAT) since live trades only fire on
-                    # future signals. INFO, not WARNING — this is by-design.
                     logger.info(
                         "Pine ended warmup in %s qty=%.6f (simulated). "
                         "Exchange is FLAT — resetting Pine to match. "
@@ -541,9 +527,7 @@ class PineLiveEngine:
                         ctx.position.direction.value if ctx.position.direction else "?",
                         ctx.position.qty,
                     )
-                    ctx.position.direction = None  # None ⇒ is_flat == True
-                    ctx.position.qty = 0.0
-                    ctx.position.entry_price = 0.0
+                self._apply_synced_pine_position(None, 0.0, 0.0)
             logger.info("Exchange position is FLAT — synced.")
             return
 
@@ -764,19 +748,53 @@ class PineLiveEngine:
             bridge_side or "flat", bridge_qty, exch_side or "flat", exch_qty,
         )
         self._bridge.sync_position(exch_side, exch_qty, exch_entry)
-        if self._runtime and self._runtime.strategy_ctx:
-            from quantforge.pine.interpreter.builtins.strategy import Direction
-            ctx = self._runtime.strategy_ctx
-            if exch_side:
-                ctx.position.direction = (
-                    Direction.LONG if exch_side == "long" else Direction.SHORT
-                )
-                ctx.position.qty = exch_qty
-                ctx.position.entry_price = exch_entry
-            else:
-                ctx.position.direction = None
-                ctx.position.qty = 0.0
-                ctx.position.entry_price = 0.0
+        self._apply_synced_pine_position(exch_side, exch_qty, exch_entry)
+
+    def _apply_synced_pine_position(
+        self, side: str | None, qty: float, entry_price: float,
+    ) -> None:
+        """Push an externally-resolved position into Pine's StrategyContext.
+
+        Used by both the post-warmup ``_sync_position_state`` (exchange is
+        ground truth) and the per-bar ``_reconcile_position`` (drift
+        correction). Beyond direction/qty/entry_price, this resets the
+        bookkeeping fields that strategies query so they don't see stale
+        warmup values:
+
+        * ``entry_bar`` ← current ``ctx.bar_index`` (so
+          ``bar_index - position.entry_bar`` measures "bars since we
+          observed this position", not "bars since the warmup
+          simulation imagined entering").
+        * ``_mfe`` / ``_mae`` ← 0 (we have no real intra-position
+          excursion history for a synced position).
+        * ``_entry_count`` ← 1 if synced into a position, else 0
+          (pyramiding count restarts from this single observation).
+        """
+        if not self._runtime or not self._runtime.strategy_ctx:
+            return
+        from quantforge.pine.interpreter.builtins.strategy import Direction
+        sc = self._runtime.strategy_ctx
+        current_bar_index = self._runtime.ctx.bar_index
+        if side:
+            sc.position.direction = (
+                Direction.LONG if side == "long" else Direction.SHORT
+            )
+            sc.position.qty = float(qty)
+            sc.position.entry_price = float(entry_price)
+            sc.position.entry_bar = current_bar_index
+            sc.position.comment = ""
+            sc.position._mfe = 0.0
+            sc.position._mae = 0.0
+            sc._entry_count = 1
+        else:
+            sc.position.direction = None
+            sc.position.qty = 0.0
+            sc.position.entry_price = 0.0
+            sc.position.entry_bar = 0
+            sc.position.comment = ""
+            sc.position._mfe = 0.0
+            sc.position._mae = 0.0
+            sc._entry_count = 0
 
     def feed_bar(self, bar: BarData) -> list:
         """Manually feed a bar (for testing or WebSocket integration).

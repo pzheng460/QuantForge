@@ -360,6 +360,17 @@ class OrderBridge:
         # backtest fill at execute_pending(bar=N+1).
         self._submitted_ids: set[str] = set()
 
+        # Per-bar dedup of queue-time submissions by id. Pine's
+        # ``place_entry``/``place_close`` append blindly, so a script that
+        # calls ``strategy.entry("L", ...)`` twice in the same bar (e.g.
+        # across two branches) would queue two orders — but pyramiding=1
+        # means only the first fills in Pine. Without dedup, OrderBridge
+        # would submit two exchange orders and double the position;
+        # similarly for back-to-back ``strategy.close("L")``. We clear
+        # the set when ``bar_index`` advances.
+        self._dedup_bar: int = -1
+        self._dedup_submission_ids: set[str] = set()
+
         # Gate that turns off exchange submission while indicator state
         # is being backfilled (poll loop fell behind, replaying past
         # bars). Pine still runs through those bars to keep its internal
@@ -434,8 +445,24 @@ class OrderBridge:
         # Without a price reference, fall back to the raw order qty (no-op).
         return order.qty or 0.0
 
+    def _check_dedup(self, order: Order) -> bool:
+        """Return True if this (id, bar) is a duplicate submission to skip."""
+        if order.bar_index != self._dedup_bar:
+            self._dedup_bar = order.bar_index
+            self._dedup_submission_ids.clear()
+        if order.id in self._dedup_submission_ids:
+            return True
+        self._dedup_submission_ids.add(order.id)
+        return False
+
     def on_entry(self, order: Order) -> None:
         """Pine queued a strategy.entry()."""
+        if self._check_dedup(order):
+            logger.debug(
+                "Duplicate entry skipped: id=%s bar=%d", order.id, order.bar_index
+            )
+            return
+
         self.signals.append(self._record(order))
         logger.info(
             "QUEUED ENTRY %s | id=%s%s%s%s",
@@ -472,6 +499,11 @@ class OrderBridge:
 
     def on_close(self, order: Order) -> None:
         """Pine queued a strategy.close() — always unconditional."""
+        if self._check_dedup(order):
+            logger.debug(
+                "Duplicate close skipped: id=%s bar=%d", order.id, order.bar_index
+            )
+            return
         self.signals.append(self._record(order))
         logger.info(
             "QUEUED CLOSE %s | id=%s",

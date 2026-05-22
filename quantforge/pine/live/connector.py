@@ -64,8 +64,20 @@ def fetch_klines(
     exchange = exchange_cls({"enableRateLimit": True})
     exchange.load_markets()
 
+    import time as _time
+
     bar_ms = timeframe_to_seconds(timeframe) * 1000
     window_ms = bar_ms * page_limit  # span covered per request
+
+    # Drop the currently-in-progress bar — exchanges typically return it
+    # as the last row of fetch_ohlcv with partial OHLC. If we let it
+    # through, warmup would seed indicators with a half-baked candle
+    # and the live poll would re-process that same bar once it closes
+    # (with completely different OHLC). Backtest never sees a partial
+    # bar, so this is a backtest-vs-live divergence we need to kill.
+    now_ms = int(_time.time() * 1000)
+    last_closed_start_ms = ((now_ms // bar_ms) - 1) * bar_ms
+    effective_end_ms = min(end_ms, last_closed_start_ms)
 
     seen: set[int] = set()
     unique: list[list] = []
@@ -82,7 +94,7 @@ def fetch_klines(
             continue
         for bar in chunk:
             ts = bar[0]
-            if ts > end_ms or ts in seen:
+            if ts > effective_end_ms or ts in seen:
                 continue
             seen.add(ts)
             unique.append(bar)
