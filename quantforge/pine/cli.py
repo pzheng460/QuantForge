@@ -99,17 +99,14 @@ def _run_backtest(args: argparse.Namespace) -> None:
 
     # Incremental flow so we can apply the live-aligned sizing override
     # (default_qty_type=cash, notional=position_size*leverage) after init
-    # but before any bars process.
+    # but before any bars process. Same helper the live engine uses.
     ctx = ExecutionContext()
     runtime = PineRuntime(ctx)
     runtime.init_incremental(ast)
     if args.position_size and args.position_size > 0:
+        runtime.apply_sizing_override(args.position_size, args.leverage)
         sc = runtime.strategy_ctx
         if sc is not None:
-            sc.default_qty_type = sc.QTY_CASH
-            sc.default_qty = float(args.position_size * args.leverage)
-            sc.initial_capital = float(args.position_size)
-            sc.equity = sc.initial_capital
             print(
                 f"Sizing override: cash notional=${sc.default_qty:.2f} "
                 f"initial_capital=${sc.initial_capital:.2f}"

@@ -308,31 +308,25 @@ class PineLiveEngine:
         self._runtime = PineRuntime(ctx)
         self._runtime.init_incremental(self.ast)
 
-        # ── Backtest ↔ live alignment overrides ──────────────────────────
-        # 1. Sizing: force Pine to compute qty as `position_size * leverage / price`
-        #    by switching default_qty_type to CASH. Same override is applied in
-        #    backtest when the request specifies position_size_usdt (see
-        #    apps/dashboard/backend/jobs.py::_apply_sizing_override).
-        # 2. Commission: zero out Pine's commission so we don't double-count
-        #    fees on top of the real exchange's maker/taker charges.
+        # Backtest ↔ live alignment override (single helper used by every
+        # entry point — backtest, optimize, CLI, live). The live engine
+        # always has a position_size_usdt so this always runs.
+        self._runtime.apply_sizing_override(
+            self.position_size_usdt, self.leverage,
+        )
         sc = self._runtime.strategy_ctx
         if sc is not None and self.position_size_usdt > 0:
-            sc.default_qty_type = sc.QTY_CASH
-            sc.default_qty = float(self.position_size_usdt * self.leverage)
-            sc.initial_capital = (
-                initial_capital if initial_capital is not None
-                else float(self.position_size_usdt)
-            )
-            sc.equity = sc.initial_capital
+            # When we have a real wallet balance, prefer it as initial_capital
+            # for the DemoTracker's reporting baseline. The sizing math above
+            # already used position_size_usdt; this just changes the equity
+            # number shown in the dashboard.
+            if initial_capital is not None:
+                sc.initial_capital = float(initial_capital)
+                sc.equity = sc.initial_capital
             logger.info(
                 "Pine sizing aligned to live: qty_type=cash notional=$%.2f "
-                "initial_capital=$%.2f",
+                "initial_capital=$%.2f commission=0",
                 sc.default_qty, sc.initial_capital,
-            )
-        if sc is not None:
-            sc.commission = 0.0
-            logger.info(
-                "Pine commission zeroed — real exchange fees apply at fill time"
             )
 
         # NOTE: Do NOT wire signal callbacks until warmup is complete.

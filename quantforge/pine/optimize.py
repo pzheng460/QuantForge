@@ -350,15 +350,11 @@ def run_optimization(
         ctx.inputs = dict(params)  # Override input values
         runtime = PineRuntime(ctx)
         # Incremental flow so we can inject the sizing override after init
-        # but before any bars are processed — same pattern as live engine.
+        # but before any bars are processed — same helper the live engine
+        # and `_run_pine_backtest` use, so optimize and backtest produce
+        # identical trade ledgers for identical params.
         runtime.init_incremental(ast)
-        if position_size_usdt and position_size_usdt > 0:
-            sc = runtime.strategy_ctx
-            if sc is not None:
-                sc.default_qty_type = sc.QTY_CASH
-                sc.default_qty = float(position_size_usdt * leverage)
-                sc.initial_capital = float(position_size_usdt)
-                sc.equity = sc.initial_capital
+        runtime.apply_sizing_override(position_size_usdt, leverage)
         for bar in bars:
             runtime.process_bar(bar)
         result = runtime.finalize()

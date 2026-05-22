@@ -114,6 +114,39 @@ class PineRuntime:
     # Incremental (live / streaming) execution API
     # ------------------------------------------------------------------
 
+    def apply_sizing_override(
+        self,
+        position_size_usdt: float | None,
+        leverage: float = 1.0,
+    ) -> None:
+        """Replace Pine's default sizing with the live engine's cash model.
+
+        Single source of truth for the override applied by every backtest,
+        optimize and live entry point — guarantees they all produce the
+        same trades for the same params. When ``position_size_usdt`` is
+        falsy, leave Pine's declared defaults alone (TV-compatible mode).
+
+        Effects (idempotent within a run):
+          - ``default_qty_type`` → CASH so resolved qty = notional / price
+          - ``default_qty`` → ``position_size_usdt * leverage`` (USDT)
+          - ``initial_capital`` / ``equity`` → ``position_size_usdt``
+          - ``commission`` → 0.0 (real exchange fees apply in live; backtest
+            mirrors so reported P&L scales identically across both)
+
+        Must be called after ``init_incremental`` so ``strategy_ctx`` exists
+        and before any ``process_bar`` so trade #1 uses the right sizing.
+        """
+        if not position_size_usdt or position_size_usdt <= 0:
+            return
+        sc = self.strategy_ctx
+        if sc is None:
+            return
+        sc.default_qty_type = sc.QTY_CASH
+        sc.default_qty = float(position_size_usdt * leverage)
+        sc.initial_capital = float(position_size_usdt)
+        sc.equity = sc.initial_capital
+        sc.commission = 0.0
+
     def init_incremental(self, script: Script) -> None:
         """Prepare for bar-by-bar incremental execution.
 

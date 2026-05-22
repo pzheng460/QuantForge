@@ -36,33 +36,12 @@ _JOB_TTL = timedelta(hours=1)
 def _apply_sizing_override(
     runtime, position_size_usdt: Optional[float], leverage: float
 ) -> None:
-    """Make Pine's default qty calc match the live engine's sizing.
-
-    The live engine sizes every trade as ``position_size_usdt * leverage``
-    (USDT notional), independent of Pine's ``default_qty_type``. When the
-    backtest request supplies ``position_size_usdt``, we apply the same
-    override here so a backtest's trade ledger matches what the live engine
-    would have produced on the same signal stream. When ``position_size_usdt``
-    is ``None`` we leave Pine's declared defaults alone (TV-compatible mode).
-
-    Must be called *after* ``init_incremental`` so ``strategy_ctx`` exists,
-    and *before* any ``process_bar`` so the override is in effect from
-    bar 0.
+    """Thin shim around ``PineRuntime.apply_sizing_override`` — keeps the
+    backend-side call sites stable while routing through the single source
+    of truth so every backtest/optimize/live path produces the same trades
+    for the same params.
     """
-    if not position_size_usdt or position_size_usdt <= 0:
-        return
-    sc = runtime.strategy_ctx
-    if sc is None:
-        return
-    sc.default_qty_type = sc.QTY_CASH
-    sc.default_qty = float(position_size_usdt * leverage)
-    sc.initial_capital = float(position_size_usdt)
-    sc.equity = sc.initial_capital
-    # Zero Pine's commission so backtest mirrors live, where Pine commission
-    # would double-count alongside the real exchange's maker/taker charges.
-    # Users who want a fee model should subtract realistic per-trade fees
-    # at the analysis layer, not via Pine's internal commission_value.
-    sc.commission = 0.0
+    runtime.apply_sizing_override(position_size_usdt, leverage)
 
 
 class JobCancelled(Exception):
