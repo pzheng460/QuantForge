@@ -364,13 +364,22 @@ class PineLiveEngine:
         # Wire signal callbacks AFTER warmup + position sync.
         # Queue-time → SignalRecord history; fill-time → exchange submission.
         if self._runtime.strategy_ctx:
-            self._runtime.strategy_ctx.set_signal_callbacks(
+            sc = self._runtime.strategy_ctx
+            sc.set_signal_callbacks(
                 on_entry=self._bridge.on_entry,
                 on_close=self._bridge.on_close,
                 on_exit=self._bridge.on_exit,
                 on_entry_fill=self._bridge.on_entry_fill,
                 on_close_fill=self._bridge.on_close_fill,
             )
+            # If a queue-time exchange submission fails, the bridge calls
+            # this back to remove the still-queued Pine order. Without
+            # the rollback Pine would fill it internally on the next bar
+            # and the script would carry on as if the entry/close
+            # succeeded — wrong position, wrong equity, spurious follow-up
+            # orders. Reconcile catches drift one bar later, but only
+            # AFTER the bad state has potentially fired more signals.
+            self._bridge.set_failure_callback(sc.cancel_pending)
 
         # --- Live loop ---
         self._running = True

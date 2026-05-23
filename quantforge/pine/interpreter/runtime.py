@@ -119,32 +119,71 @@ class PineRuntime:
         position_size_usdt: float | None,
         leverage: float = 1.0,
     ) -> None:
-        """Replace Pine's default sizing with the live engine's cash model.
+        """Bind Pine's equity to the user's allocated budget.
 
         Single source of truth for the override applied by every backtest,
         optimize and live entry point — guarantees they all produce the
         same trades for the same params. When ``position_size_usdt`` is
         falsy, leave Pine's declared defaults alone (TV-compatible mode).
 
-        Effects (idempotent within a run):
-          - ``default_qty_type`` → CASH so resolved qty = notional / price
-          - ``default_qty`` → ``position_size_usdt * leverage`` (USDT)
-          - ``initial_capital`` / ``equity`` → ``position_size_usdt``
-          - ``commission`` → 0.0 (real exchange fees apply in live; backtest
-            mirrors so reported P&L scales identically across both)
+        Semantics: ``position_size_usdt`` represents the capital the user
+        is allocating to this strategy. Pine treats it as ``initial_capital``
+        / ``equity``, and the script's own ``default_qty_type`` /
+        ``default_qty_value`` then drive sizing **on top of** that
+        allocation:
+
+        * ``percent_of_equity`` (the common case) — every trade sizes to
+          ``allocation × pct/100``; compounds within the allocation as
+          trades close. E.g. allocation $15, ``default_qty_value=78`` →
+          first trade ≈ $11.70 notional; after a $1 win, next trade
+          ≈ $12.48; after a $1 loss, next trade ≈ $10.92.
+        * ``cash X`` — flat $X notional per trade. We rewrite X to the
+          full allocation so the user's explicit `position_size_usdt`
+          intent wins over the Pine declaration.
+        * ``fixed N`` with N=1 (the "no qty config" Pine default that
+          means "1 contract") — meaningless in crypto, so fall back to
+          cash mode using the full allocation.
+        * ``fixed N`` with N≠1 — user explicitly picked contracts, keep
+          as-is.
+
+        Leverage does NOT enter Pine's qty math here. It only affects the
+        exchange's margin requirement (set separately via
+        ``set_leverage`` in the live engine). Pine returns notional; the
+        exchange computes actual margin from notional / leverage. If a
+        user wants larger positions they should raise
+        ``position_size_usdt`` directly — that keeps the semantic
+        "allocation = what Pine sees" clean across modes.
+
+        Also zeros Pine's commission so backtest mirrors live (where the
+        real exchange's fees apply at fill time, not via Pine's internal
+        commission_value).
 
         Must be called after ``init_incremental`` so ``strategy_ctx`` exists
         and before any ``process_bar`` so trade #1 uses the right sizing.
         """
+        del leverage  # reserved for future use; intentionally unused here
         if not position_size_usdt or position_size_usdt <= 0:
             return
         sc = self.strategy_ctx
         if sc is None:
             return
-        sc.default_qty_type = sc.QTY_CASH
-        sc.default_qty = float(position_size_usdt * leverage)
+
+        # 1. Bind Pine's equity to the user's allocation.
         sc.initial_capital = float(position_size_usdt)
         sc.equity = sc.initial_capital
+
+        # 2. Resolve sizing mode.
+        if sc.default_qty_type == sc.QTY_CASH:
+            # User's explicit $X notional intent wins over the script's value.
+            sc.default_qty = float(position_size_usdt)
+        elif sc.default_qty_type == sc.QTY_FIXED and sc.default_qty == 1.0:
+            # No qty config in the .pine — "1 contract" default is a footgun
+            # in crypto perps. Fall back to cash mode with the full allocation.
+            sc.default_qty_type = sc.QTY_CASH
+            sc.default_qty = float(position_size_usdt)
+        # else (PERCENT, or FIXED with explicit qty): keep Pine's declared
+        # sizing logic, applied to the new allocation.
+
         sc.commission = 0.0
 
     def init_incremental(self, script: Script) -> None:

@@ -379,6 +379,17 @@ class OrderBridge:
         # reconciles position with the exchange after backfill.
         self._submission_enabled: bool = True
 
+        # Callback fired when a queue-time exchange submission fails
+        # (real failure: exception, qty rejected, connector error — NOT
+        # demo mode and NOT backfill suppression). The engine wires this
+        # to Pine's ``cancel_pending`` so Pine doesn't pretend the order
+        # filled on the next bar's execute_pending. Without this hook,
+        # Pine's state would drift to "as-if-filled" and reconcile would
+        # only fix it ONE bar later — script body in the meantime could
+        # fire spurious signals based on the phantom position.
+        # Signature: ``on_failure(order_id: str) -> None``
+        self._on_failure_cb = None
+
         # P&L tracking (always enabled for web dashboard visibility)
         capital = initial_capital if initial_capital is not None else 10_000.0
         self._demo_tracker = DemoTracker(
@@ -388,6 +399,38 @@ class OrderBridge:
             leverage=leverage,
         )
         self._last_price: float = 0.0
+
+    def set_failure_callback(self, cb) -> None:
+        """Register the cancel-Pine-pending hook fired on submission failure."""
+        self._on_failure_cb = cb
+
+    def _is_real_exchange_attempt(self) -> bool:
+        """True iff a None result from ``_submit_market`` indicates a genuine
+        exchange failure (vs. intentional skip in demo / backfill / no-connector
+        modes). Used to decide whether to roll back Pine's pending order."""
+        return (
+            not self.demo
+            and self._connector is not None
+            and self._submission_enabled
+            and self._submit_fn is None
+        )
+
+    def _rollback_pine(self, *order_ids: str) -> None:
+        """Cancel one or more Pine pending orders after a submission failure.
+
+        The strategy script will see ``position_size`` / ``position_avg_price``
+        as if the failed order never queued, so subsequent bars won't fire
+        signals predicated on the phantom fill.
+        """
+        if self._on_failure_cb is None:
+            return
+        for oid in order_ids:
+            if not oid:
+                continue
+            try:
+                self._on_failure_cb(oid)
+            except Exception:
+                logger.exception("Failure-callback raised cancelling id=%s", oid)
 
     def sync_position(self, side: str | None, qty: float, entry_price: float) -> None:
         """Sync internal position state with external source (exchange or Pine).
@@ -488,13 +531,28 @@ class OrderBridge:
         if self._position_side and self._position_side != direction:
             total = self._position_qty + new_qty
             side = "buy" if direction == "long" else "sell"
-            self._submit_market(side, total, action="reverse")
+            result = self._submit_market(side, total, action="reverse")
+            if result is None and self._is_real_exchange_attempt():
+                logger.warning(
+                    "Reverse submission failed for id=%s — rolling Pine back to %s "
+                    "(no phantom fill on next bar's execute_pending)",
+                    order.id, self._position_side,
+                )
+                self._rollback_pine(order.id)
+                return
             self._submitted_ids.add(f"{order.id}__reverse")  # the close half
             self._submitted_ids.add(order.id)  # the new entry
             return
 
         side = "buy" if direction == "long" else "sell"
-        self._submit_market(side, new_qty, action="entry")
+        result = self._submit_market(side, new_qty, action="entry")
+        if result is None and self._is_real_exchange_attempt():
+            logger.warning(
+                "Entry submission failed for id=%s — rolling Pine back to flat",
+                order.id,
+            )
+            self._rollback_pine(order.id)
+            return
         self._submitted_ids.add(order.id)
 
     def on_close(self, order: Order) -> None:
@@ -512,7 +570,15 @@ class OrderBridge:
         if not self._position_side or self._position_qty <= 0:
             return  # nothing to close
         side = "sell" if self._position_side == "long" else "buy"
-        self._submit_market(side, self._position_qty, action="close")
+        result = self._submit_market(side, self._position_qty, action="close")
+        if result is None and self._is_real_exchange_attempt():
+            logger.warning(
+                "Close submission failed for id=%s — rolling Pine back so "
+                "the position stays open on the next bar",
+                order.id,
+            )
+            self._rollback_pine(order.id)
+            return
         self._submitted_ids.add(order.id)
 
     def on_exit(self, order: Order) -> None:
