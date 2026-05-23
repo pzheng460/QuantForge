@@ -267,30 +267,30 @@ class PineLiveEngine:
                     "Failed to initialise CcxtConnector — falling back to dry-run"
                 )
 
-        # Fetch real account balance for DemoTracker initial_capital
-        initial_capital = None
+        # DemoTracker's reporting baseline = the user's allocation, NOT the
+        # exchange wallet balance. The wallet can hold deposits / withdrawals
+        # / margin from other strategies entirely outside this engine's
+        # concern; folding it into the baseline would corrupt the strategy's
+        # P&L percentages with unrelated cash flows. The strategy is given
+        # ``position_size_usdt`` to play with — that is the denominator.
+        #
+        # We still query the wallet once just to log it for the operator
+        # ("here's what's actually sitting on the exchange"), but it does
+        # NOT feed the engine's statistics.
         if connector is not None:
             try:
-                params = {}
-                if self.exchange == "bitget":
-                    params["uta"] = True
+                params = {"uta": True} if self.exchange == "bitget" else {}
                 balance = connector._exchange.fetch_balance(params)
-                usdt_total = float(balance.get("USDT", {}).get("total", 0))
-                if usdt_total > 0:
-                    initial_capital = usdt_total
-                    logger.info("Fetched account balance: %.2f USDT", usdt_total)
-                else:
-                    logger.warning(
-                        "USDT balance is 0 — using fallback initial capital"
-                    )
+                wallet_usdt = float(balance.get("USDT", {}).get("total", 0))
+                logger.info(
+                    "Wallet balance: %.2f USDT (informational; not used as "
+                    "P&L baseline — that's bound to position_size_usdt=%.2f)",
+                    wallet_usdt, self.position_size_usdt,
+                )
             except Exception:
                 logger.exception(
-                    "Failed to fetch account balance — using fallback initial capital"
+                    "Failed to fetch wallet balance for logging (non-fatal)"
                 )
-
-        if initial_capital is None:
-            initial_capital = self.position_size_usdt * 100
-            logger.info("Using fallback initial capital: %.2f USDT", initial_capital)
 
         self._bridge = OrderBridge(
             demo=self.dry_run,  # Only skip orders in dry-run mode
@@ -298,7 +298,7 @@ class PineLiveEngine:
             leverage=self.leverage,
             connector=connector,
             symbol=self.symbol,
-            initial_capital=initial_capital,
+            initial_capital=float(self.position_size_usdt),
         )
 
         # --- Restore trade history from disk ---
@@ -316,25 +316,15 @@ class PineLiveEngine:
         )
         sc = self._runtime.strategy_ctx
         if sc is not None and self.position_size_usdt > 0:
-            # NOTE: do NOT override sc.initial_capital / sc.equity here.
-            # apply_sizing_override already bound Pine's equity baseline to
-            # position_size_usdt — for percent_of_equity strategies this IS
-            # what drives the per-trade qty calc (78% of equity etc.).
-            # Replacing it with the real wallet balance would silently
-            # change the sizing the user just opted into.
-            #
-            # The dashboard's P&L-against-wallet line uses
-            # DemoTracker.initial_capital, which was already initialised
-            # to the real wallet balance in OrderBridge.__init__ above —
-            # so the dashboard still shows wallet-anchored P&L without
-            # corrupting Pine's sizing.
-            tracker = self._bridge.demo_tracker if self._bridge else None
-            tracker_baseline = tracker.initial_capital if tracker else None
+            # Pine equity baseline + DemoTracker baseline both anchor to
+            # position_size_usdt — the strategy is measured strictly against
+            # the allocation it was given. Wallet movements (deposits,
+            # other strategies, margin reservations) don't pollute these
+            # numbers.
             logger.info(
                 "Pine sizing aligned to live: qty_type=%s default_qty=%.4f "
-                "initial_capital=$%.2f commission=0 | dashboard P&L baseline=$%.2f (wallet)",
+                "initial_capital=$%.2f commission=0",
                 sc.default_qty_type, sc.default_qty, sc.initial_capital,
-                tracker_baseline if tracker_baseline is not None else 0.0,
             )
 
         # NOTE: Do NOT wire signal callbacks until warmup is complete.
