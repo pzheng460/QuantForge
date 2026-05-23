@@ -316,17 +316,25 @@ class PineLiveEngine:
         )
         sc = self._runtime.strategy_ctx
         if sc is not None and self.position_size_usdt > 0:
-            # When we have a real wallet balance, prefer it as initial_capital
-            # for the DemoTracker's reporting baseline. The sizing math above
-            # already used position_size_usdt; this just changes the equity
-            # number shown in the dashboard.
-            if initial_capital is not None:
-                sc.initial_capital = float(initial_capital)
-                sc.equity = sc.initial_capital
+            # NOTE: do NOT override sc.initial_capital / sc.equity here.
+            # apply_sizing_override already bound Pine's equity baseline to
+            # position_size_usdt — for percent_of_equity strategies this IS
+            # what drives the per-trade qty calc (78% of equity etc.).
+            # Replacing it with the real wallet balance would silently
+            # change the sizing the user just opted into.
+            #
+            # The dashboard's P&L-against-wallet line uses
+            # DemoTracker.initial_capital, which was already initialised
+            # to the real wallet balance in OrderBridge.__init__ above —
+            # so the dashboard still shows wallet-anchored P&L without
+            # corrupting Pine's sizing.
+            tracker = self._bridge.demo_tracker if self._bridge else None
+            tracker_baseline = tracker.initial_capital if tracker else None
             logger.info(
-                "Pine sizing aligned to live: qty_type=cash notional=$%.2f "
-                "initial_capital=$%.2f commission=0",
-                sc.default_qty, sc.initial_capital,
+                "Pine sizing aligned to live: qty_type=%s default_qty=%.4f "
+                "initial_capital=$%.2f commission=0 | dashboard P&L baseline=$%.2f (wallet)",
+                sc.default_qty_type, sc.default_qty, sc.initial_capital,
+                tracker_baseline if tracker_baseline is not None else 0.0,
             )
 
         # NOTE: Do NOT wire signal callbacks until warmup is complete.
