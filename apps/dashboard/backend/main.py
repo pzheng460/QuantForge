@@ -1,6 +1,7 @@
 """FastAPI application — QuantForge Web Backend."""
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,11 +38,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup: restore persisted live engines. Shutdown: save state."""
     from apps.dashboard.backend.live_engines import restore_engines, _save_state
-    count = await restore_engines()
-    if count:
-        logger.info("Restored %d live engine(s) on startup", count)
+    running_under_pytest = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    if running_under_pytest:
+        logger.info("Skipping live engine restore under pytest")
+    else:
+        count = await restore_engines()
+        if count:
+            logger.info("Restored %d live engine(s) on startup", count)
     yield
-    _save_state()
+    if not running_under_pytest:
+        _save_state()
 
 
 app = FastAPI(

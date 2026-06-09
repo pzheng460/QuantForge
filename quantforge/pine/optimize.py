@@ -355,7 +355,11 @@ def run_optimization(
         # identical trade ledgers for identical params.
         runtime.init_incremental(ast)
         runtime.apply_sizing_override(position_size_usdt, leverage)
-        for bar in bars:
+        for bar in bars[:warmup_count]:
+            runtime.process_bar(bar)
+        if warmup_count and runtime.strategy_ctx:
+            runtime.strategy_ctx.reset_trading_state()
+        for bar in bars[warmup_count:]:
             runtime.process_bar(bar)
         result = runtime.finalize()
 
@@ -364,7 +368,7 @@ def run_optimization(
         initial = result.initial_capital
 
         gross_profit = sum(t.pnl for t in trades if t.pnl > 0)
-        gross_loss = abs(sum(t.pnl for t in trades if t.pnl <= 0))
+        gross_loss = abs(sum(t.pnl for t in trades if t.pnl < 0))
         pf = (
             gross_profit / gross_loss
             if gross_loss > 0

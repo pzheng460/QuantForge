@@ -8,11 +8,14 @@ should be wired in by the caller (e.g. via QuantForge engine connectors).
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
+from typing import Callable, TypeVar
 
 from quantforge.pine.interpreter.context import BarData
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 # Timeframe → seconds mapping. Single source of truth for the whole
 # codebase — anywhere else that needs bar duration (window math in
@@ -41,6 +44,37 @@ def timeframe_to_seconds(tf: str) -> int:
     raise ValueError(f"Unsupported timeframe: {tf}")
 
 
+def _retry_transient(
+    op: Callable[[], T],
+    *,
+    label: str,
+    transient_errors: tuple[type[BaseException], ...],
+    attempts: int = 3,
+    base_delay: float = 1.0,
+) -> T:
+    """Retry transient exchange/network calls with short exponential backoff."""
+    last_exc: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return op()
+        except transient_errors as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "%s failed (%s/%s): %s — retrying in %.1fs",
+                label,
+                attempt,
+                attempts,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
 def fetch_klines(
     symbol: str,
     exchange_id: str,
@@ -67,10 +101,18 @@ def fetch_klines(
     if exchange_cls is None:
         raise ValueError(f"Exchange '{exchange_id}' not found in ccxt")
 
-    exchange = exchange_cls({"enableRateLimit": True})
-    exchange.load_markets()
-
-    import time as _time
+    exchange = exchange_cls({"enableRateLimit": True, "timeout": 30_000})
+    transient_errors = (
+        ccxt.NetworkError,
+        ccxt.RequestTimeout,
+        TimeoutError,
+        ConnectionError,
+    )
+    _retry_transient(
+        exchange.load_markets,
+        label=f"{exchange_id}.load_markets",
+        transient_errors=transient_errors,
+    )
 
     bar_ms = timeframe_to_seconds(timeframe) * 1000
     window_ms = bar_ms * page_limit  # span covered per request
@@ -81,7 +123,7 @@ def fetch_klines(
     # and the live poll would re-process that same bar once it closes
     # (with completely different OHLC). Backtest never sees a partial
     # bar, so this is a backtest-vs-live divergence we need to kill.
-    now_ms = int(_time.time() * 1000)
+    now_ms = int(time.time() * 1000)
     last_closed_start_ms = ((now_ms // bar_ms) - 1) * bar_ms
     effective_end_ms = min(end_ms, last_closed_start_ms)
 
@@ -89,8 +131,12 @@ def fetch_klines(
     unique: list[list] = []
     current = since_ms
     while current < end_ms:
-        chunk = exchange.fetch_ohlcv(
-            symbol, timeframe, since=current, limit=page_limit,
+        chunk = _retry_transient(
+            lambda: exchange.fetch_ohlcv(
+                symbol, timeframe, since=current, limit=page_limit,
+            ),
+            label=f"{exchange_id}.fetch_ohlcv({symbol},{timeframe})",
+            transient_errors=transient_errors,
         )
         if not chunk:
             # Sparse exchange / no data here. Skip forward by a window so
@@ -100,7 +146,7 @@ def fetch_klines(
             continue
         for bar in chunk:
             ts = bar[0]
-            if ts > effective_end_ms or ts in seen:
+            if ts >= effective_end_ms or ts in seen:
                 continue
             seen.add(ts)
             unique.append(bar)

@@ -74,6 +74,10 @@ class PineRuntime:
         self.strategy_ctx: StrategyContext | None = None
         self._series_assignments: dict[str, PineSeries] = {}
 
+    @staticmethod
+    def _optional_float(value) -> float | None:
+        return None if value is None else float(value)
+
     def run(self, script: Script) -> BacktestResult:
         """Execute a parsed Pine Script on the data in the context."""
         ta.reset_calculators(id(self.ctx))
@@ -107,6 +111,8 @@ class PineRuntime:
                 self.strategy_ctx._close_position(
                     last_bar.close, self.ctx.bar_index, comment="end_of_data"
                 )
+                if self.strategy_ctx._equity_curve:
+                    self.strategy_ctx._equity_curve[-1] = self.strategy_ctx.equity
 
         return self._build_result()
 
@@ -254,6 +260,8 @@ class PineRuntime:
                 self.strategy_ctx._close_position(
                     last_bar.close, self.ctx.bar_index + 1, comment="end_of_data"
                 )
+                if self.strategy_ctx._equity_curve:
+                    self.strategy_ctx._equity_curve[-1] = self.strategy_ctx.equity
         return self._build_result()
 
     # ------------------------------------------------------------------
@@ -265,7 +273,7 @@ class PineRuntime:
         sc = self.strategy_ctx
         trades = sc.trades
         winning = [t for t in trades if t.pnl > 0]
-        losing = [t for t in trades if t.pnl <= 0]
+        losing = [t for t in trades if t.pnl < 0]
         total = len(trades)
 
         return BacktestResult(
@@ -528,6 +536,8 @@ class PineRuntime:
                     return "strategy.fixed"
                 elif member == "cash":
                     return "strategy.cash"
+                elif member == "commission":
+                    return "strategy.commission"
                 elif member == "position_size":
                     return self.strategy_ctx.position_size if self.strategy_ctx else 0
                 elif member == "position_avg_price":
@@ -546,6 +556,8 @@ class PineRuntime:
 
         # General member access on evaluated object
         obj = self._eval(node.obj)
+        if obj == "strategy.commission":
+            return f"strategy.commission.{node.member}"
         if isinstance(obj, PineSeries):
             return obj  # The member was likely a namespace like ta.sma
         return obj
@@ -782,9 +794,9 @@ class PineRuntime:
             self.strategy_ctx.place_entry(
                 id=str(entry_id),
                 direction=dir_enum,
-                qty=float(qty) if qty else None,
-                limit=float(limit) if limit else None,
-                stop=float(stop) if stop else None,
+                qty=self._optional_float(qty),
+                limit=self._optional_float(limit),
+                stop=self._optional_float(stop),
                 comment=str(comment),
                 bar_index=self.ctx.bar_index,
             )
@@ -807,6 +819,7 @@ class PineRuntime:
                 return None
             exit_id = args[0] if args else kwargs.get("id", "exit")
             from_entry = args[1] if len(args) > 1 else kwargs.get("from_entry", "")
+            qty = kwargs.get("qty", None)
             limit = kwargs.get("limit", None)
             stop = kwargs.get("stop", None)
             trail_points = kwargs.get("trail_points", None)
@@ -814,11 +827,10 @@ class PineRuntime:
             self.strategy_ctx.place_exit(
                 id=str(exit_id),
                 from_entry=str(from_entry),
-                limit=float(limit) if limit else None,
-                stop=float(stop) if stop else None,
-                trail_points=(
-                    float(trail_points) if trail_points else None
-                ),
+                qty=self._optional_float(qty),
+                limit=self._optional_float(limit),
+                stop=self._optional_float(stop),
+                trail_points=self._optional_float(trail_points),
                 comment=str(comment),
                 bar_index=self.ctx.bar_index,
             )

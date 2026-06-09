@@ -2,12 +2,38 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, field_validator, model_validator
 
 _VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
 _VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid"}
 _VALID_MODES = {"grid", "wfo", "full", "heatmap"}
+_VALID_TIMEFRAMES = {
+    "1m", "3m", "5m", "15m", "30m", "1h",
+    "2h", "4h", "6h", "12h", "1d", "1w",
+}
+
+
+def _parse_date(value: str, field_name: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be YYYY-MM-DD") from exc
+
+
+def _validate_date_range(start_date: Optional[str], end_date: Optional[str]) -> None:
+    if start_date:
+        start_dt = _parse_date(start_date, "start_date")
+        end_dt = (
+            _parse_date(end_date, "end_date")
+            if end_date
+            else datetime.now(timezone.utc).replace(tzinfo=None)
+        )
+        if start_dt >= end_dt:
+            raise ValueError("start_date must be before end_date")
+    elif end_date:
+        _parse_date(end_date, "end_date")
 
 
 class BacktestRequest(BaseModel):
@@ -21,10 +47,10 @@ class BacktestRequest(BaseModel):
     end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
     warmup_bars: int = 500
-    # Optional sizing override — when set, Pine's default_qty calc is
-    # replaced with CASH mode using ``position_size_usdt * leverage`` notional
-    # per trade, matching the live engine. ``None`` keeps Pine's own
-    # default_qty_type/value (TV-compatible behavior).
+    # Optional sizing override — when set, Pine's initial capital is bound to
+    # ``position_size_usdt`` so percent/fixed/cash sizing is applied against
+    # the user allocation. Leverage is exchange margin metadata, not Pine
+    # notional sizing. ``None`` keeps Pine's own default_qty_type/value.
     position_size_usdt: Optional[float] = None
     mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
@@ -34,6 +60,7 @@ class BacktestRequest(BaseModel):
     def check_strategy_or_source(self):
         if not self.strategy and not self.pine_source:
             raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+        _validate_date_range(self.start_date, self.end_date)
         return self
 
     @field_validator("exchange")
@@ -48,6 +75,27 @@ class BacktestRequest(BaseModel):
     def validate_period(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v not in _VALID_PERIODS:
             raise ValueError(f"period must be one of {_VALID_PERIODS}")
+        return v
+
+    @field_validator("timeframe")
+    @classmethod
+    def validate_timeframe(cls, v: str) -> str:
+        if v not in _VALID_TIMEFRAMES:
+            raise ValueError(f"timeframe must be one of {_VALID_TIMEFRAMES}")
+        return v
+
+    @field_validator("warmup_bars")
+    @classmethod
+    def validate_warmup_bars(cls, v: int) -> int:
+        if not (0 <= v <= 10000):
+            raise ValueError("warmup_bars must be between 0 and 10000")
+        return v
+
+    @field_validator("position_size_usdt")
+    @classmethod
+    def validate_position_size_usdt(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v <= 0:
+            raise ValueError("position_size_usdt must be positive")
         return v
 
     @field_validator("leverage")
@@ -101,7 +149,7 @@ class BacktestResultOut(BaseModel):
     # Trade stats
     total_trades: int
     win_rate_pct: float
-    profit_factor: float
+    profit_factor: Optional[float]
     payoff_ratio: float
     avg_win: float
     avg_loss: float
@@ -179,6 +227,7 @@ class OptimizeRequest(BaseModel):
     def check_strategy_or_source(self):
         if not self.strategy and not self.pine_source:
             raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+        _validate_date_range(self.start_date, self.end_date)
         return self
 
     @field_validator("exchange")
@@ -195,11 +244,32 @@ class OptimizeRequest(BaseModel):
             raise ValueError(f"period must be one of {_VALID_PERIODS}")
         return v
 
+    @field_validator("timeframe")
+    @classmethod
+    def validate_timeframe(cls, v: str) -> str:
+        if v not in _VALID_TIMEFRAMES:
+            raise ValueError(f"timeframe must be one of {_VALID_TIMEFRAMES}")
+        return v
+
     @field_validator("leverage")
     @classmethod
     def validate_leverage(cls, v: float) -> float:
         if not (0.1 <= v <= 50):
             raise ValueError("leverage must be between 0.1 and 50")
+        return v
+
+    @field_validator("warmup_bars")
+    @classmethod
+    def validate_warmup_bars(cls, v: int) -> int:
+        if not (0 <= v <= 10000):
+            raise ValueError("warmup_bars must be between 0 and 10000")
+        return v
+
+    @field_validator("position_size_usdt")
+    @classmethod
+    def validate_position_size_usdt(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v <= 0:
+            raise ValueError("position_size_usdt must be positive")
         return v
 
     @field_validator("mode")

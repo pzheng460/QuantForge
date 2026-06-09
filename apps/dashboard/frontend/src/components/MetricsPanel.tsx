@@ -44,6 +44,10 @@ function num(v: number, digits = 2) {
   return v.toFixed(digits)
 }
 
+function ratio(v: number | null | undefined, digits = 2) {
+  return v == null ? '∞' : v.toFixed(digits)
+}
+
 function fmtDuration(hours: number): string {
   if (hours < 1) return `${Math.round(hours * 60)}m`
   if (hours < 24) return `${num(hours, 1)}h`
@@ -144,9 +148,9 @@ export default function MetricsPanel({ result }: Props) {
           />
           <Metric
             label="Profit Factor"
-            value={num(result.profit_factor)}
-            positive={result.profit_factor >= 1.5}
-            negative={result.profit_factor < 1}
+            value={ratio(result.profit_factor)}
+            positive={result.profit_factor == null || result.profit_factor >= 1.5}
+            negative={result.profit_factor != null && result.profit_factor < 1}
           />
           <Metric
             label="Payoff Ratio"

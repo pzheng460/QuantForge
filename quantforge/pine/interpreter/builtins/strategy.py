@@ -37,6 +37,8 @@ class Order:
     id: str
     direction: Direction
     action: str  # "entry", "exit", "close", "close_all"
+    from_entry: str = ""
+    entry_ids: tuple[str, ...] = ()
     qty: float | None = None
     limit: float | None = None
     stop: float | None = None
@@ -76,6 +78,7 @@ class Position:
     qty: float = 0.0
     entry_price: float = 0.0
     entry_bar: int = 0
+    entry_id: str = ""
     comment: str = ""
     _mfe: float = 0.0  # best favorable move per unit
     _mae: float = 0.0  # worst adverse move per unit (negative)
@@ -117,6 +120,7 @@ class StrategyContext:
         self.equity = initial_capital
 
         self.position = Position()
+        self._entry_lots: list[Position] = []
         self.pending_orders: list[Order] = []
         self.trades: list[Trade] = []
         self._equity_curve: list[float] = []
@@ -164,6 +168,21 @@ class StrategyContext:
         self._on_entry_fill_cb = on_entry_fill
         self._on_close_fill_cb = on_close_fill
 
+    def reset_trading_state(self) -> None:
+        """Clear orders, positions, trades, and equity while preserving config.
+
+        Used after indicator warmup: series/calculators remain primed in the
+        runtime context, but simulated warmup trades must not leak into the
+        formal backtest period.
+        """
+        self.equity = self.initial_capital
+        self.position = Position()
+        self._entry_lots = []
+        self.pending_orders = []
+        self.trades = []
+        self._equity_curve = []
+        self._entry_count = 0
+
     def place_entry(
         self,
         id: str,
@@ -179,15 +198,53 @@ class StrategyContext:
             id=id,
             direction=direction,
             action="entry",
-            qty=qty or self.default_qty,
+            qty=self.default_qty if qty is None else qty,
             limit=limit,
             stop=stop,
             comment=comment,
             bar_index=bar_index,
         )
         self.pending_orders.append(order)
+        self._attach_pending_exits_to_entry(order)
         if self._on_entry_cb is not None:
             self._on_entry_cb(order)
+
+    def _attach_pending_exits_to_entry(self, entry: Order) -> None:
+        if not self.pending_orders:
+            return
+
+        entry_index = len(self.pending_orders) - 1
+        moved: list[Order] = []
+        kept: list[Order] = []
+
+        for idx, order in enumerate(self.pending_orders):
+            if idx == entry_index:
+                kept.append(order)
+                continue
+            should_attach = (
+                order.action == "exit"
+                and (
+                    order.from_entry == entry.id
+                    or (not order.from_entry and not order.entry_ids)
+                    or entry.id in order.entry_ids
+                )
+            )
+            if not should_attach:
+                kept.append(order)
+                continue
+
+            order.entry_ids = (entry.id,)
+            order.direction = (
+                Direction.SHORT
+                if entry.direction == Direction.LONG
+                else Direction.LONG
+            )
+            order._trail_high = entry.limit or entry.stop or self.position.entry_price or 0.0
+            order._trail_low = entry.limit or entry.stop or self.position.entry_price or 0.0
+            order._trail_stop = None
+            moved.append(order)
+
+        self.pending_orders = kept + moved
 
     def place_exit(
         self,
@@ -208,41 +265,56 @@ class StrategyContext:
           - the strategy explicitly cancels via id (Pine's
             ``strategy.cancel(id)`` — not yet wired through).
         """
-        if self.position.is_flat:
-            # Nothing to exit; suppress to avoid stale orders persisting
-            # after the strategy is flat at queue time.
-            return
-
         # TV-compatible idempotency: if an exit with the same id already
         # exists, leave it in place — repeated ``strategy.exit`` calls
         # with identical args are no-ops, and trailing-stop accumulated
         # state must NOT be reset every bar. If the args drift (different
         # stop/limit/trail), update them in place; otherwise return early.
-        for existing in self.pending_orders:
+        for idx, existing in enumerate(self.pending_orders):
             if existing.action == "exit" and existing.id == id:
+                direction = self._resolve_exit_direction(from_entry)
+                entry_ids = self._resolve_exit_entry_ids(from_entry)
                 if (
                     existing.stop == stop
                     and existing.limit == limit
                     and existing.trail_points == trail_points
+                    and existing.from_entry == from_entry
+                    and existing.entry_ids == entry_ids
+                    and existing.direction == direction
                 ):
                     return  # idempotent
                 # Mutate in place — preserve trail accumulator.
+                direction_changed = (
+                    existing.from_entry != from_entry
+                    or existing.entry_ids != entry_ids
+                    or existing.direction != direction
+                )
+                existing.from_entry = from_entry
+                existing.entry_ids = entry_ids
+                existing.direction = direction
                 existing.stop = stop
                 existing.limit = limit
                 existing.trail_points = trail_points
                 existing.qty = qty
                 existing.comment = comment
+                existing.bar_index = bar_index
+                if direction_changed:
+                    existing._trail_high = self.position.entry_price or 0.0
+                    existing._trail_low = self.position.entry_price or 0.0
+                    existing._trail_stop = None
+                if direction_changed:
+                    self.pending_orders.pop(idx)
+                    self.pending_orders.append(existing)
                 return
 
-        direction = (
-            Direction.SHORT
-            if (self.position.direction == Direction.LONG)
-            else Direction.LONG
-        )
+        direction = self._resolve_exit_direction(from_entry)
+        entry_ids = self._resolve_exit_entry_ids(from_entry)
         order = Order(
             id=id,
             direction=direction,
             action="exit",
+            from_entry=from_entry,
+            entry_ids=entry_ids,
             qty=qty,
             limit=limit,
             stop=stop,
@@ -266,12 +338,45 @@ class StrategyContext:
         if self._on_exit_cb is not None:
             self._on_exit_cb(order)
 
+    def _resolve_exit_direction(self, from_entry: str = "") -> Direction:
+        """Infer the order side used to close the active or pending entry."""
+        if self.position.direction == Direction.LONG:
+            return Direction.SHORT
+        if self.position.direction == Direction.SHORT:
+            return Direction.LONG
+
+        for pending in reversed(self.pending_orders):
+            if pending.action != "entry":
+                continue
+            if from_entry and pending.id != from_entry:
+                continue
+            return (
+                Direction.SHORT
+                if pending.direction == Direction.LONG
+                else Direction.LONG
+            )
+
+        return Direction.LONG
+
+    def _resolve_exit_entry_ids(self, from_entry: str = "") -> tuple[str, ...]:
+        if from_entry:
+            return (from_entry,)
+        if self._entry_lots:
+            return tuple(lot.entry_id for lot in self._entry_lots)
+        if self.position.entry_id:
+            return (self.position.entry_id,)
+
+        pending_ids = [
+            pending.id for pending in self.pending_orders if pending.action == "entry"
+        ]
+        return tuple(pending_ids)
+
     def place_close(self, id: str = "", comment: str = "", bar_index: int = 0) -> None:
         """Queue a close order for current position."""
         if self.position.is_flat:
             return
         order = Order(
-            id=id or "close",
+            id=id,
             direction=Direction.SHORT
             if self.position.direction == Direction.LONG
             else Direction.LONG,
@@ -412,7 +517,7 @@ class StrategyContext:
         - percent_of_equity: qty is a percentage (0-100) of current equity
         - cash: qty is a dollar amount to allocate
         """
-        raw_qty = order_qty or self.default_qty
+        raw_qty = self.default_qty if order_qty is None else order_qty
 
         if self.default_qty_type == self.QTY_PERCENT:
             # percent_of_equity: raw_qty is 0-100, convert to position size
@@ -431,6 +536,10 @@ class StrategyContext:
 
     def _execute_entry(self, order: Order, price: float, bar_index: int) -> None:
         """Execute an entry order."""
+        qty = self._resolve_qty(order.qty, price)
+        if qty <= 0:
+            return
+
         # If already in opposite direction, close first. ``_close_position``
         # fires ``_on_close_fill_cb`` itself, so we don't need to here.
         # We tag the implicit close with a synthetic id so the live bridge
@@ -446,7 +555,6 @@ class StrategyContext:
             if self._entry_count >= self.pyramiding:
                 return
 
-        qty = self._resolve_qty(order.qty, price)
         comm = qty * price * self.commission
 
         if self.position.is_flat:
@@ -455,6 +563,7 @@ class StrategyContext:
                 qty=qty,
                 entry_price=price,
                 entry_bar=bar_index,
+                entry_id=order.id,
                 comment=order.comment,
             )
         else:
@@ -466,6 +575,16 @@ class StrategyContext:
             self.position.qty = total_qty
             self.position.entry_price = avg_price
 
+        self._entry_lots.append(
+            Position(
+                direction=order.direction,
+                qty=qty,
+                entry_price=price,
+                entry_bar=bar_index,
+                entry_id=order.id,
+                comment=order.comment or order.id,
+            )
+        )
         self._entry_count += 1
         self.equity -= comm
 
@@ -491,11 +610,57 @@ class StrategyContext:
         """Execute a close/exit order."""
         if self.position.is_flat:
             return
-        qty = order.qty if order.qty else self.position.qty
+        target_entry_id = ""
+        target_entry_ids: tuple[str, ...] = ()
+        if order.action == "close" and order.id not in ("", "close_all"):
+            target_entry_id = order.id
+            if not self._has_entry_lot(target_entry_id):
+                return
+        if order.action == "exit":
+            target_entry_id = order.from_entry
+            target_entry_ids = order.entry_ids
+            if target_entry_id and not self._has_entry_lot(target_entry_id):
+                return
+            if target_entry_ids and not self._has_any_entry_lot(target_entry_ids):
+                return
+        if order.qty is not None:
+            qty = order.qty
+        elif target_entry_ids and self._entry_lots:
+            qty = sum(
+                lot.qty for lot in self._entry_lots if lot.entry_id in target_entry_ids
+            )
+        elif target_entry_id and self._entry_lots:
+            qty = sum(
+                lot.qty for lot in self._entry_lots if lot.entry_id == target_entry_id
+            )
+        else:
+            qty = self.position.qty
         qty = min(qty, self.position.qty)
+        if qty <= 0:
+            return
         self._close_position(
-            price, bar_index, qty=qty, comment=order.comment, order_id=order.id,
+            price,
+            bar_index,
+            qty=qty,
+            comment=order.comment,
+            order_id=order.id,
+            target_entry_id=target_entry_id,
+            target_entry_ids=target_entry_ids,
         )
+
+    def _has_entry_lot(self, entry_id: str) -> bool:
+        if not entry_id:
+            return True
+        if self._entry_lots:
+            return any(lot.entry_id == entry_id for lot in self._entry_lots)
+        return entry_id == self.position.entry_id
+
+    def _has_any_entry_lot(self, entry_ids: tuple[str, ...]) -> bool:
+        if not entry_ids:
+            return True
+        if self._entry_lots:
+            return any(lot.entry_id in entry_ids for lot in self._entry_lots)
+        return self.position.entry_id in entry_ids
 
     def _close_position(
         self,
@@ -504,6 +669,8 @@ class StrategyContext:
         qty: float | None = None,
         comment: str = "",
         order_id: str = "",
+        target_entry_id: str = "",
+        target_entry_ids: tuple[str, ...] = (),
     ) -> None:
         """Close (part of) the current position."""
         if self.position.is_flat:
@@ -511,6 +678,41 @@ class StrategyContext:
 
         close_qty = qty if qty is not None else self.position.qty
         close_qty = min(close_qty, self.position.qty)
+        if close_qty <= 0:
+            return
+        closed_direction = self.position.direction  # capture before reset
+
+        if self._entry_lots:
+            actual_closed_qty = self._close_entry_lots(
+                price=price,
+                bar_index=bar_index,
+                qty=close_qty,
+                comment=comment,
+                target_entry_id=target_entry_id,
+                target_entry_ids=target_entry_ids,
+            )
+
+            if self.position.qty <= 0:
+                self.position = Position()
+                self._entry_count = 0
+            else:
+                self._rebuild_position_from_lots()
+                self._entry_count = len(self._entry_lots)
+
+            if self._on_close_fill_cb is not None and closed_direction is not None:
+                try:
+                    self._on_close_fill_cb(
+                        direction=closed_direction.value,
+                        price=price,
+                        qty=actual_closed_qty,
+                        order_id=order_id,
+                    )
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception(
+                        "on_close_fill callback raised"
+                    )
+            return
 
         if self.position.direction == Direction.LONG:
             pnl = (price - self.position.entry_price) * close_qty
@@ -559,6 +761,87 @@ class StrategyContext:
                 logging.getLogger(__name__).exception(
                     "on_close_fill callback raised"
                 )
+
+    def _close_entry_lots(
+        self,
+        price: float,
+        bar_index: int,
+        qty: float,
+        comment: str = "",
+        target_entry_id: str = "",
+        target_entry_ids: tuple[str, ...] = (),
+    ) -> float:
+        remaining = qty
+        closed_qty_total = 0.0
+        kept_lots: list[Position] = []
+
+        for lot in self._entry_lots:
+            if remaining <= 0:
+                kept_lots.append(lot)
+                continue
+            if target_entry_id and lot.entry_id != target_entry_id:
+                kept_lots.append(lot)
+                continue
+            if target_entry_ids and lot.entry_id not in target_entry_ids:
+                kept_lots.append(lot)
+                continue
+
+            close_qty = min(lot.qty, remaining)
+            if lot.direction == Direction.LONG:
+                pnl = (price - lot.entry_price) * close_qty
+            else:
+                pnl = (lot.entry_price - price) * close_qty
+
+            comm = close_qty * price * self.commission
+            pnl -= comm
+
+            self.trades.append(
+                Trade(
+                    entry_bar=lot.entry_bar,
+                    entry_price=lot.entry_price,
+                    exit_bar=bar_index,
+                    exit_price=price,
+                    direction=lot.direction,
+                    qty=close_qty,
+                    pnl=pnl,
+                    comment_entry=lot.comment,
+                    comment_exit=comment,
+                    mfe=self.position._mfe * close_qty,
+                    mae=self.position._mae * close_qty,
+                )
+            )
+            self.equity += pnl
+            self.position.qty -= close_qty
+            lot.qty -= close_qty
+            remaining -= close_qty
+            closed_qty_total += close_qty
+
+            if lot.qty > 0:
+                kept_lots.append(lot)
+
+        self._entry_lots = kept_lots
+        return closed_qty_total
+
+    def _rebuild_position_from_lots(self) -> None:
+        if not self._entry_lots:
+            self.position = Position()
+            return
+
+        total_qty = sum(lot.qty for lot in self._entry_lots)
+        if total_qty <= 0:
+            self.position = Position()
+            return
+
+        first = self._entry_lots[0]
+        avg_price = (
+            sum(lot.entry_price * lot.qty for lot in self._entry_lots) / total_qty
+        )
+        self.position.direction = first.direction
+        self.position.qty = total_qty
+        self.position.entry_price = avg_price
+        self.position.entry_bar = first.entry_bar
+        self.position.entry_id = first.entry_id
+        self.position.comment = first.comment
 
     def update_equity(
         self,

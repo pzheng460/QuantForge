@@ -74,7 +74,7 @@ export interface BacktestResult {
   recovery_factor: number
   total_trades: number
   win_rate_pct: number
-  profit_factor: number
+  profit_factor: number | null
   payoff_ratio: number
   avg_win: number
   avg_loss: number
@@ -129,8 +129,7 @@ export interface BacktestRequest {
   end_date?: string
   leverage?: number
   warmup_bars?: number
-  /** USDT notional per trade. When set, sizing matches the live engine
-   * (`default_qty_type=cash`, notional = size × leverage). Leave undefined
+  /** USDT allocation bound to Pine initial capital. Leave undefined
    * to use Pine's declared default_qty (TV-compatible behavior). */
   position_size_usdt?: number
   mesa_index?: number

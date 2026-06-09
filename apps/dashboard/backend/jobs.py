@@ -148,6 +148,55 @@ _STRATEGIES_DIR = (
 )
 
 
+def _apply_config_override(source: str, config_override: Optional[dict] = None) -> str:
+    # Apply config_override: replace input default values
+    if config_override:
+        import json
+        import re
+
+        number_pattern = r"-?(?:\d+(?:\.\d*)?|\.\d+)"
+        string_pattern = r'"(?:\\.|[^"\\])*"'
+        bool_pattern = r"(?:true|false)"
+        literal_pattern = rf"(?:{number_pattern}|{string_pattern}|{bool_pattern})"
+
+        def pine_literal(value: Any) -> str:
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if isinstance(value, (int, float)):
+                return str(value)
+            return json.dumps(str(value))
+
+        for var_name, value in config_override.items():
+            replacement = pine_literal(value)
+            defval_pattern = (
+                rf"(^\s*{re.escape(var_name)}\s*=\s*"
+                rf"input\.(?:int|float|bool|string)\([^\n)]*\bdefval\s*=\s*)"
+                rf"({literal_pattern})"
+            )
+            source, count = re.subn(
+                defval_pattern,
+                lambda match, replacement=replacement: f"{match.group(1)}{replacement}",
+                source,
+                flags=re.MULTILINE,
+            )
+            if count:
+                continue
+
+            positional_pattern = (
+                rf"(^\s*{re.escape(var_name)}\s*=\s*"
+                rf"input\.(?:int|float|bool|string)\(\s*)"
+                rf"({literal_pattern})"
+            )
+            source = re.sub(
+                positional_pattern,
+                lambda match, replacement=replacement: f"{match.group(1)}{replacement}",
+                source,
+                flags=re.MULTILINE,
+            )
+
+    return source
+
+
 def _resolve_pine_source(
     strategy: Optional[str],
     pine_source: Optional[str],
@@ -155,24 +204,13 @@ def _resolve_pine_source(
 ) -> str:
     """Return Pine Script source from either raw source or strategy file name."""
     if pine_source:
-        return pine_source
+        return _apply_config_override(pine_source, config_override)
 
     pine_file = _STRATEGIES_DIR / f"{strategy}.pine"
     if not pine_file.exists():
         raise FileNotFoundError(f"Strategy file not found: {pine_file}")
 
-    source = pine_file.read_text()
-
-    # Apply config_override: replace input default values
-    if config_override:
-        import re
-
-        for var_name, value in config_override.items():
-            pattern = rf"({var_name}\s*=\s*input\.(?:int|float)\()(\d+(?:\.\d+)?)"
-            replacement = rf"\g<1>{value}"
-            source = re.sub(pattern, replacement, source)
-
-    return source
+    return _apply_config_override(pine_file.read_text(), config_override)
 
 
 def _resolve_date_range(
@@ -185,7 +223,11 @@ def _resolve_date_range(
         return start_date, end_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     days = _PERIOD_DAYS.get(period or "1y", 365)
-    end_dt = datetime.now(timezone.utc)
+    end_dt = (
+        datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        if end_date
+        else datetime.now(timezone.utc)
+    )
     start_dt = end_dt - timedelta(days=days)
     return start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
 
@@ -278,7 +320,11 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
     runtime = PineRuntime(ctx)
     runtime.init_incremental(ast)
     _apply_sizing_override(runtime, req.position_size_usdt, req.leverage)
-    for bar in bars:
+    for bar in bars[:warmup_bar_count]:
+        runtime.process_bar(bar)
+    if warmup_bar_count and runtime.strategy_ctx:
+        runtime.strategy_ctx.reset_trading_state()
+    for bar in bars[warmup_bar_count:]:
         runtime.process_bar(bar)
     result = runtime.finalize()
 
@@ -291,13 +337,19 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
     total_pnl = sum(t.pnl for t in trades)
     total = len(trades)
     wins = sum(1 for t in trades if t.pnl > 0)
-    losses = total - wins
+    losses = sum(1 for t in trades if t.pnl < 0)
     win_rate = (wins / total * 100) if total > 0 else 0.0
 
     gross_profit = sum(t.pnl for t in trades if t.pnl > 0)
-    gross_loss = abs(sum(t.pnl for t in trades if t.pnl <= 0))
-    profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+    gross_loss = abs(sum(t.pnl for t in trades if t.pnl < 0))
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    elif gross_profit > 0:
+        profit_factor = None
+    else:
+        profit_factor = 0.0
 
+    expectancy = total_pnl / total if total > 0 else 0.0
     avg_win = gross_profit / wins if wins > 0 else 0.0
     avg_loss = gross_loss / losses if losses > 0 else 0.0
     payoff_ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
@@ -315,33 +367,66 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
             cur_wins += 1
             cur_losses = 0
             max_consec_wins = max(max_consec_wins, cur_wins)
-        else:
+        elif t.pnl < 0:
             cur_losses += 1
             cur_wins = 0
             max_consec_losses = max(max_consec_losses, cur_losses)
+        else:
+            cur_wins = 0
+            cur_losses = 0
 
-    # Equity curve — only from actual period (skip warmup bars)
+    # Equity curve — only from actual period. Runtime trading state is reset
+    # after warmup, so equity_curve already starts at the formal period.
     full_equity = result.equity_curve
-    period_equity = full_equity[warmup_bar_count:]
+    period_equity = full_equity
     period_ohlcv = all_ohlcv[warmup_bar_count:]
+    if not period_ohlcv:
+        raise ValueError("No OHLCV data in requested backtest period")
+    if period_ohlcv and period_ohlcv[0][4] <= 0:
+        raise ValueError("Period start close price must be positive")
+
+    # Warmup bars are for indicator readiness, not part of the displayed
+    # backtest period. Re-anchor strategy equity to the formal period start
+    # so it uses the same baseline as buy-and-hold.
+    if period_equity:
+        period_base_equity = period_equity[0]
+        if period_base_equity > 0:
+            period_equity = [
+                initial_capital * eq / period_base_equity for eq in period_equity
+            ]
 
     # Max drawdown from period equity curve
     max_dd = 0.0
     peak = period_equity[0] if period_equity else initial_capital
+    peak_idx = 0
+    underwater_start_idx: int | None = None
+    max_dd_duration_days = 0.0
     dd_values: list[float] = []
-    for eq in period_equity:
+    bar_ms = _TF_MS.get(req.timeframe, 3_600_000)
+    bar_days = bar_ms / (24 * 3_600_000)
+    for i, eq in enumerate(period_equity):
         if eq > peak:
             peak = eq
+            peak_idx = i
+            underwater_start_idx = None
         dd = (peak - eq) / peak * 100 if peak > 0 else 0.0
         dd_values.append(-dd)
         if dd > max_dd:
             max_dd = dd
+        if dd > 0:
+            if underwater_start_idx is None:
+                underwater_start_idx = peak_idx
+            max_dd_duration_days = max(
+                max_dd_duration_days,
+                (i - underwater_start_idx) * bar_days,
+            )
+        else:
+            underwater_start_idx = None
 
-    total_return_pct = total_pnl / initial_capital * 100
     final_equity = period_equity[-1] if period_equity else initial_capital
+    total_return_pct = (final_equity / initial_capital - 1) * 100
 
     # Compute risk metrics from period equity curve
-    bar_ms = _TF_MS.get(req.timeframe, 3_600_000)
     periods_per_year = 365.25 * 24 * 3_600_000 / bar_ms
 
     eq_returns = []
@@ -372,10 +457,12 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
             sortino_ratio = 0.0
 
         # Annualized return
-        n_periods = len(period_equity)
-        if n_periods > 1 and final_equity > 0 and initial_capital > 0:
+        return_intervals = len(period_equity) - 1
+        if return_intervals > 0 and final_equity > 0 and initial_capital > 0:
             ann_return = (
-                (final_equity / initial_capital) ** (periods_per_year / n_periods) - 1
+                (final_equity / initial_capital)
+                ** (periods_per_year / return_intervals)
+                - 1
             ) * 100
         else:
             ann_return = 0.0
@@ -392,10 +479,17 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
 
     # Build equity curve for frontend
     bar_count = len(period_equity)
-    step = max(1, bar_count // 2000)
+    max_curve_points = 2000
+    step = max(1, (bar_count + max_curve_points - 1) // max_curve_points)
     bh_base_price = period_ohlcv[0][4] if period_ohlcv else 1.0
+    sampled_indexes = list(range(0, bar_count, step))
+    if bar_count and sampled_indexes[-1] != bar_count - 1:
+        if len(sampled_indexes) < max_curve_points:
+            sampled_indexes.append(bar_count - 1)
+        else:
+            sampled_indexes[-1] = bar_count - 1
     equity_curve_out = []
-    for i in range(0, bar_count, step):
+    for i in sampled_indexes:
         idx = min(i, len(period_ohlcv) - 1)
         ts = datetime.fromtimestamp(
             period_ohlcv[idx][0] / 1000, tz=timezone.utc
@@ -404,39 +498,40 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         equity_curve_out.append({"t": ts, "strategy": period_equity[i], "bh": bh_val})
 
     drawdown_curve_out = []
-    for i in range(0, len(dd_values), step):
+    for i in sampled_indexes:
         idx = min(i, len(period_ohlcv) - 1)
         ts = datetime.fromtimestamp(
             period_ohlcv[idx][0] / 1000, tz=timezone.utc
         ).isoformat()
         drawdown_curve_out.append({"t": ts, "dd": dd_values[i]})
 
+    def _trade_time_iso(bar_index: int) -> str:
+        if not all_ohlcv:
+            return ""
+        if bar_index < len(all_ohlcv):
+            ts_ms = all_ohlcv[max(bar_index, 0)][0]
+        else:
+            overflow_bars = bar_index - (len(all_ohlcv) - 1)
+            ts_ms = all_ohlcv[-1][0] + overflow_bars * bar_ms
+        return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+
+    def _trade_pnl_pct(trade) -> float:
+        notional = trade.entry_price * abs(trade.qty)
+        return trade.pnl / notional * 100 if notional > 0 else 0.0
+
     # Trades
     trades_out = [
         TradeOut(
-            timestamp=datetime.fromtimestamp(
-                all_ohlcv[min(t.entry_bar, len(all_ohlcv) - 1)][0] / 1000,
-                tz=timezone.utc,
-            ).isoformat()
-            if all_ohlcv
-            else "",
+            timestamp=_trade_time_iso(t.entry_bar),
             side="buy" if t.direction.value == "long" else "sell",
             price=t.entry_price,
             exit_price=t.exit_price,
-            amount=abs(t.pnl / (t.exit_price - t.entry_price))
-            if t.exit_price != t.entry_price
-            else 0.0,
+            amount=abs(t.qty),
             fee=0.0,
             pnl=t.pnl,
-            pnl_pct=t.pnl / initial_capital * 100,
-            entry_time=datetime.fromtimestamp(
-                all_ohlcv[min(t.entry_bar, len(all_ohlcv) - 1)][0] / 1000,
-                tz=timezone.utc,
-            ).isoformat(),
-            exit_time=datetime.fromtimestamp(
-                all_ohlcv[min(t.exit_bar, len(all_ohlcv) - 1)][0] / 1000,
-                tz=timezone.utc,
-            ).isoformat(),
+            pnl_pct=_trade_pnl_pct(t),
+            entry_time=_trade_time_iso(t.entry_bar),
+            exit_time=_trade_time_iso(t.exit_bar),
             bars_held=t.exit_bar - t.entry_bar,
             mfe=t.mfe,
             mae=t.mae,
@@ -450,6 +545,29 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         for t in trades
     ]
 
+    avg_trade_duration_hours = (
+        sum((t.exit_bar - t.entry_bar) * bar_ms / 3_600_000 for t in trades) / total
+        if total > 0
+        else 0.0
+    )
+
+    monthly_buckets: dict[tuple[int, int], list[tuple[int, float]]] = {}
+    for i, eq in enumerate(period_equity):
+        if i >= len(period_ohlcv):
+            break
+        dt = datetime.fromtimestamp(period_ohlcv[i][0] / 1000, tz=timezone.utc)
+        monthly_buckets.setdefault((dt.year, dt.month), []).append((i, eq))
+
+    monthly_returns = []
+    prev_month_last: float | None = None
+    for (year, month), values in sorted(monthly_buckets.items()):
+        first = values[0][1]
+        last = values[-1][1]
+        base = prev_month_last if prev_month_last is not None else first
+        ret = (last / base - 1) * 100 if base > 0 else 0.0
+        monthly_returns.append({"year": year, "month": month, "return": ret})
+        prev_month_last = last
+
     return BacktestResultOut(
         total_return_pct=total_return_pct,
         bh_return_pct=(period_ohlcv[-1][4] / period_ohlcv[0][4] - 1) * 100
@@ -457,7 +575,7 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         else 0.0,
         annualized_return_pct=ann_return,
         max_drawdown_pct=max_dd,
-        max_dd_duration_days=0.0,
+        max_dd_duration_days=max_dd_duration_days,
         sharpe_ratio=sharpe_ratio,
         sharpe_ci_lo=None,
         sharpe_ci_hi=None,
@@ -471,19 +589,17 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         payoff_ratio=payoff_ratio,
         avg_win=avg_win,
         avg_loss=avg_loss,
-        expectancy=(avg_win * win_rate / 100 - avg_loss * (100 - win_rate) / 100)
-        if total > 0
-        else 0.0,
+        expectancy=expectancy,
         largest_win=largest_win,
         largest_loss=largest_loss,
         max_consecutive_wins=max_consec_wins,
         max_consecutive_losses=max_consec_losses,
-        avg_trade_duration_hours=0.0,
+        avg_trade_duration_hours=avg_trade_duration_hours,
         final_equity=final_equity,
         initial_capital=initial_capital,
         equity_curve=equity_curve_out,
         drawdown_curve=drawdown_curve_out,
-        monthly_returns=[],
+        monthly_returns=monthly_returns,
         trades=trades_out,
         strategy=req.strategy or "pine_script",
         exchange=req.exchange,
@@ -911,6 +1027,12 @@ def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
 
     all_ohlcv = _fetch_ohlcv(req.exchange, symbol, req.timeframe, since_ms, end_ms)
     bars = _ohlcv_to_bars(all_ohlcv)
+    start_ms = int(start_dt.timestamp() * 1000)
+    warmup_bar_count = 0
+    for bar in all_ohlcv:
+        if bar[0] >= start_ms:
+            break
+        warmup_bar_count += 1
 
     # Generate 2D grid
     def generate_param_range(param, resolution):
@@ -952,7 +1074,8 @@ def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
 
     # Run optimization
     results = run_optimization(
-        ast=ast, bars=bars, grid=grid_2d, metric="sharpe",
+        ast=ast, bars=bars, grid=grid_2d, warmup_count=warmup_bar_count,
+        metric="sharpe",
         position_size_usdt=req.position_size_usdt, leverage=req.leverage,
     )
 
@@ -1059,9 +1182,16 @@ def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridS
 
     all_ohlcv = _fetch_ohlcv(req.exchange, symbol, req.timeframe, since_ms, end_ms)
     bars = _ohlcv_to_bars(all_ohlcv)
+    start_ms = int(start_dt.timestamp() * 1000)
+    warmup_bar_count = 0
+    for bar in all_ohlcv:
+        if bar[0] >= start_ms:
+            break
+        warmup_bar_count += 1
 
     results = run_optimization(
-        ast=ast, bars=bars, grid=grid, metric=req.metric, progress_cb=_on_progress,
+        ast=ast, bars=bars, grid=grid, warmup_count=warmup_bar_count,
+        metric=req.metric, progress_cb=_on_progress,
         position_size_usdt=req.position_size_usdt, leverage=req.leverage,
     )
 

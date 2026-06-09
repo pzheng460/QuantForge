@@ -312,6 +312,31 @@ class TestRunOptimization:
         assert isinstance(r.equity_curve, list)
         assert len(r.equity_curve) > 0
 
+    def test_warmup_count_excludes_warmup_trades_and_equity(self) -> None:
+        pine = """\
+//@version=5
+strategy("Warmup Optimizer", initial_capital=100000, default_qty_type=strategy.cash, default_qty_value=10000)
+
+if bar_index == 0
+    strategy.entry("warmup-long", strategy.long)
+if bar_index == 1
+    strategy.close("warmup-long")
+"""
+        ast = parse(pine)
+        bars = [
+            BarData(open=100.0, high=100.0, low=100.0, close=100.0, volume=1.0),
+            BarData(open=200.0, high=200.0, low=200.0, close=200.0, volume=1.0),
+            BarData(open=200.0, high=200.0, low=200.0, close=200.0, volume=1.0),
+        ]
+
+        results = run_optimization(ast, bars, [{}], warmup_count=2)
+
+        assert len(results) == 1
+        assert results[0].total_trades == 0
+        assert results[0].net_profit == 0.0
+        assert results[0].return_pct == 0.0
+        assert results[0].equity_curve == [100_000.0]
+
     def test_single_param_grid(self) -> None:
         """Optimization with a single parameter."""
         pine = """\

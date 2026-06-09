@@ -34,21 +34,37 @@ def _payload(**overrides):
     return base
 
 
-def test_demo_mode_does_not_require_confirm_live(client):
+def test_demo_mode_does_not_require_confirm_live(client, monkeypatch):
     """demo=True must NOT be rejected by the confirm_live safety gate.
 
-    The real engine startup may fail downstream (ccxt sandbox auth, etc.)
-    but the LIVE-mode safety gate at the top of /live/start must never
-    fire on a demo request. We assert that any error response is for some
-    other reason, never the confirm_live one.
+    Mock engine startup so this safety test never creates persisted live
+    engine entries or hits real exchange APIs.
     """
+    import apps.dashboard.backend.live_engines as live_engines
+
+    async def fake_start_engine(**_kwargs):
+        return "fake-demo-engine"
+
+    monkeypatch.setattr(live_engines, "list_engines", lambda: [])
+    monkeypatch.setattr(live_engines, "start_engine", fake_start_engine)
+    monkeypatch.setattr(
+        live_engines,
+        "get_engine",
+        lambda _engine_id: {
+            "status": "warmup",
+            "strategy": "ema_crossover",
+            "exchange": "okx",
+            "symbol": "BTC/USDT:USDT",
+            "timeframe": "1h",
+            "demo": True,
+            "leverage": 1,
+            "created_at": "2026-05-25T00:00:00+00:00",
+        },
+    )
+
     r = client.post("/api/live/start", json=_payload(demo=True))
-    if r.status_code >= 400:
-        # Any other failure (ccxt auth, missing keys, etc.) is fine here —
-        # we only care that the safety gate didn't fire on demo.
-        body = r.text.lower()
-        assert "confirm_live" not in body
-        assert "live mode" not in body
+    assert r.status_code == 200
+    assert r.json()["engine_id"] == "fake-demo-engine"
 
 
 def test_live_mode_without_confirm_is_rejected(client):
