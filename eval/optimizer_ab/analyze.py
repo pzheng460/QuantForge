@@ -21,10 +21,17 @@ from collections import defaultdict
 
 # True = higher better, False = lower better.
 HIGHER_IS_BETTER = {
-    "oos_sharpe": True, "oos_pf": True, "oos_win_rate": True,
-    "is_sharpe": True, "is_pf": True, "is_win_rate": True,
-    "overfit_index": False, "oos_mdd": False, "is_mdd": False,
-    "cost_usd": False, "duration_s": False,
+    "oos_sharpe": True,
+    "oos_pf": True,
+    "oos_win_rate": True,
+    "is_sharpe": True,
+    "is_pf": True,
+    "is_win_rate": True,
+    "overfit_index": False,
+    "oos_mdd": False,
+    "is_mdd": False,
+    "cost_usd": False,
+    "duration_s": False,
 }
 
 
@@ -42,9 +49,16 @@ def read_rows(csv_path):
     with open(csv_path) as f:
         for r in csv.DictReader(f):
             for k in list(r.keys()):
-                if k not in ("trial_id", "method", "strategy_name", "regime",
-                             "agent_provider", "model",
-                             "trial_json", "stream_log"):
+                if k not in (
+                    "trial_id",
+                    "method",
+                    "strategy_name",
+                    "regime",
+                    "agent_provider",
+                    "model",
+                    "trial_json",
+                    "stream_log",
+                ):
                     r[k] = to_float(r[k])
             rows.append(r)
     return rows
@@ -125,27 +139,47 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--csv", required=True)
     p.add_argument("--baseline", default="baseline")
-    p.add_argument("--treatment", default="",
-                   help="Treatment method for method A/B comparison.")
+    p.add_argument(
+        "--treatment", default="", help="Treatment method for method A/B comparison."
+    )
     p.add_argument("--metric", default="oos_sharpe")
-    p.add_argument("--include-lazy", action="store_true",
-                   help="Include trials where the agent emitted FINAL_OUTPUT "
-                        "without running any real backtest (default: exclude).")
-    p.add_argument("--include-no-op", action="store_true",
-                   help="Include trials where no candidate optimization was attempted.")
-    p.add_argument("--compare-providers", default="",
-                   help="Compare two providers as provider_a,provider_b, e.g. claude,codex.")
+    p.add_argument(
+        "--include-lazy",
+        action="store_true",
+        help="Include trials where the agent emitted FINAL_OUTPUT "
+        "without running any real backtest (default: exclude).",
+    )
+    p.add_argument(
+        "--include-no-op",
+        action="store_true",
+        help="Include trials where no candidate optimization was attempted.",
+    )
+    p.add_argument(
+        "--compare-providers",
+        default="",
+        help="Compare two providers as provider_a,provider_b, e.g. claude,codex.",
+    )
     a = p.parse_args()
 
     rows = []
     import csv as _csv
+
     with open(a.csv) as f:
         for r in _csv.DictReader(f):
             for k in list(r.keys()):
-                if k not in ("trial_id", "method", "strategy_name", "regime",
-                             "agent_provider", "model",
-                             "trial_json", "stream_log", "lazy_warning",
-                             "no_op", "optimization_attempted"):
+                if k not in (
+                    "trial_id",
+                    "method",
+                    "strategy_name",
+                    "regime",
+                    "agent_provider",
+                    "model",
+                    "trial_json",
+                    "stream_log",
+                    "lazy_warning",
+                    "no_op",
+                    "optimization_attempted",
+                ):
                     r[k] = to_float(r[k])
             rows.append(r)
     if not rows:
@@ -157,13 +191,17 @@ def main():
         rows = [r for r in rows if str(r.get("lazy_warning", "")).lower() != "true"]
         dropped = before - len(rows)
         if dropped:
-            print(f"(excluded {dropped} lazy trials — re-run with --include-lazy to include)")
+            print(
+                f"(excluded {dropped} lazy trials — re-run with --include-lazy to include)"
+            )
     if not a.include_no_op:
         before = len(rows)
         rows = [r for r in rows if str(r.get("no_op", "")).lower() != "true"]
         dropped = before - len(rows)
         if dropped:
-            print(f"(excluded {dropped} no-op trials — re-run with --include-no-op to include)")
+            print(
+                f"(excluded {dropped} no-op trials — re-run with --include-no-op to include)"
+            )
 
     methods = sorted({r["method"] for r in rows})
     by_method = defaultdict(list)
@@ -184,13 +222,17 @@ def main():
         mean = sum(vs) / len(vs)
         med = statistics.median(vs)
         std = statistics.pstdev(vs) if len(vs) > 1 else 0.0
-        print(f"| {m} | {len(vs)} | {mean:.3f} | {med:.3f} | {std:.3f} | {min(vs):.3f} | {max(vs):.3f} |")
+        print(
+            f"| {m} | {len(vs)} | {mean:.3f} | {med:.3f} | {std:.3f} | {min(vs):.3f} | {max(vs):.3f} |"
+        )
 
     if a.treatment:
         if a.baseline not in methods or a.treatment not in methods:
             if not a.compare_providers:
                 print()
-                print(f"baseline `{a.baseline}` or treatment `{a.treatment}` missing — no pairwise test")
+                print(
+                    f"baseline `{a.baseline}` or treatment `{a.treatment}` missing — no pairwise test"
+                )
                 return 0
         else:
             by_key = defaultdict(dict)
@@ -220,12 +262,16 @@ def main():
 
                 print()
                 print(f"## Paired: {a.treatment} − {a.baseline} on `{a.metric}`")
-                print(f"- Pairs: {len(diffs)}  (treatment better: {n_better}/{len(diffs)})")
+                print(
+                    f"- Pairs: {len(diffs)}  (treatment better: {n_better}/{len(diffs)})"
+                )
                 print(f"- Mean Δ:    {mean_d:+.4f}")
                 print(f"- Median Δ:  {median_d:+.4f}")
                 print(f"- 95% bootstrap CI on mean Δ: [{lo:+.4f}, {hi:+.4f}]")
                 if p is not None:
-                    print(f"- Wilcoxon two-sided p = {p:.4f}  ({'significant' if p < 0.05 else 'n.s.'} α=0.05)")
+                    print(
+                        f"- Wilcoxon two-sided p = {p:.4f}  ({'significant' if p < 0.05 else 'n.s.'} α=0.05)"
+                    )
     elif not a.compare_providers:
         print()
         print("--treatment is required unless --compare-providers is set")
@@ -234,7 +280,9 @@ def main():
         parts = [x.strip() for x in a.compare_providers.split(",") if x.strip()]
         if len(parts) != 2:
             print()
-            print("--compare-providers expects exactly two providers, e.g. claude,codex")
+            print(
+                "--compare-providers expects exactly two providers, e.g. claude,codex"
+            )
             return 2
         provider_pairs = provider_paired(rows, parts[0], parts[1], a.metric)
         print()

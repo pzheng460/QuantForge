@@ -42,23 +42,25 @@ def _save_state() -> None:
     """
     configs = []
     for eid, entry in _engines.items():
-        configs.append({
-            "engine_id": eid,
-            "strategy": entry["strategy"],
-            "pine_source": entry.get("pine_source"),
-            "exchange": entry["exchange"],
-            "symbol": entry["symbol"],
-            "timeframe": entry["timeframe"],
-            "demo": entry["demo"],
-            "leverage": entry["leverage"],
-            "position_size_usdt": entry.get("position_size_usdt", 100.0),
-            "warmup_bars": entry.get("warmup_bars", 500),
-            "created_at": entry["created_at"],
-            # History fields — present iff the engine has been stopped/failed.
-            "status": entry.get("status"),
-            "stopped_at": entry.get("stopped_at"),
-            "error": entry.get("error"),
-        })
+        configs.append(
+            {
+                "engine_id": eid,
+                "strategy": entry["strategy"],
+                "pine_source": entry.get("pine_source"),
+                "exchange": entry["exchange"],
+                "symbol": entry["symbol"],
+                "timeframe": entry["timeframe"],
+                "demo": entry["demo"],
+                "leverage": entry["leverage"],
+                "position_size_usdt": entry.get("position_size_usdt", 100.0),
+                "warmup_bars": entry.get("warmup_bars", 500),
+                "created_at": entry["created_at"],
+                # History fields — present iff the engine has been stopped/failed.
+                "status": entry.get("status"),
+                "stopped_at": entry.get("stopped_at"),
+                "error": entry.get("error"),
+            }
+        )
     _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PERSIST_FILE.write_text(json.dumps(configs, indent=2))
     logger.info("Persisted %d engine configs to %s", len(configs), _PERSIST_FILE)
@@ -123,11 +125,14 @@ async def restore_engines() -> int:
             # Avoid double-launching if another in-memory entry is already running
             # for this strategy (shouldn't happen but defensive).
             for entry in _engines.values():
-                if (
-                    entry["strategy"] == cfg["strategy"]
-                    and entry["status"] in ("warmup", "running")
+                if entry["strategy"] == cfg["strategy"] and entry["status"] in (
+                    "warmup",
+                    "running",
                 ):
-                    logger.info("Engine for %s already running, skipping restore", cfg["strategy"])
+                    logger.info(
+                        "Engine for %s already running, skipping restore",
+                        cfg["strategy"],
+                    )
                     break
             else:
                 eid = await start_engine(
@@ -283,20 +288,22 @@ def list_engines() -> list[dict[str, Any]]:
         strategy_name = entry["strategy"]
         if strategy_name in perf_files:
             perf = _load_perf(perf_files[strategy_name])
-        result.append({
-            "engine_id": eid,
-            "status": entry["status"],
-            "strategy": strategy_name,
-            "exchange": entry["exchange"],
-            "symbol": entry["symbol"],
-            "timeframe": entry["timeframe"],
-            "demo": entry["demo"],
-            "leverage": entry["leverage"],
-            "created_at": entry["created_at"],
-            "stopped_at": entry.get("stopped_at"),
-            "error": entry.get("error"),
-            "performance": perf,
-        })
+        result.append(
+            {
+                "engine_id": eid,
+                "status": entry["status"],
+                "strategy": strategy_name,
+                "exchange": entry["exchange"],
+                "symbol": entry["symbol"],
+                "timeframe": entry["timeframe"],
+                "demo": entry["demo"],
+                "leverage": entry["leverage"],
+                "created_at": entry["created_at"],
+                "stopped_at": entry.get("stopped_at"),
+                "error": entry.get("error"),
+                "performance": perf,
+            }
+        )
     return result
 
 

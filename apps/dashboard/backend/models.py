@@ -10,8 +10,18 @@ _VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
 _VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid"}
 _VALID_MODES = {"grid", "wfo", "full", "heatmap"}
 _VALID_TIMEFRAMES = {
-    "1m", "3m", "5m", "15m", "30m", "1h",
-    "2h", "4h", "6h", "12h", "1d", "1w",
+    "1m",
+    "3m",
+    "5m",
+    "15m",
+    "30m",
+    "1h",
+    "2h",
+    "4h",
+    "6h",
+    "12h",
+    "1d",
+    "1w",
 }
 
 
@@ -457,8 +467,6 @@ class LiveStrategyStatusOut(BaseModel):
     performance: Optional[LivePerformanceOut] = None
 
 
-
-
 # ─── Live engine management models ────────────────────────────────────────────
 
 
@@ -529,6 +537,7 @@ class AgentRunRequest(BaseModel):
     @classmethod
     def validate_skill_path(cls, v: str) -> str:
         from pathlib import Path
+
         skill_dir = Path.home() / ".openclaw" / "skills" / v
         if not skill_dir.exists():
             raise ValueError(f"Skill not found: {v}")

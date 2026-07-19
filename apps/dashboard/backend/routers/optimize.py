@@ -12,7 +12,12 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from apps.dashboard.backend.jobs import create_job, get_job, run_optimize_job, cancel_job
+from apps.dashboard.backend.jobs import (
+    create_job,
+    get_job,
+    run_optimize_job,
+    cancel_job,
+)
 from apps.dashboard.backend.models import OptimizeRequest, OptimizeJobStatusOut
 
 router = APIRouter()

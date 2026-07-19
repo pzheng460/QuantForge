@@ -40,7 +40,9 @@ def emit_alert(
     if webhook_url:
         try:
             post = poster or _post_json
-            event["delivery"]["webhook"] = post(webhook_url, _without_delivery(event), timeout)
+            event["delivery"]["webhook"] = post(
+                webhook_url, _without_delivery(event), timeout
+            )
         except Exception as exc:  # noqa: BLE001 - alerts must not crash trading control flow.
             event["delivery"]["webhook"] = {"status": "error", "error": str(exc)}
     return event

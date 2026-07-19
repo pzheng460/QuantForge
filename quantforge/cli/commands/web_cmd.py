@@ -117,4 +117,3 @@ def status_cmd():
         pid = _read_pid(pid_file)
         state = "running" if _is_running(pid) else "stopped"
         click.echo(f"{name:<8} {state:<8} pid={pid or '-'} log={log}")
-

@@ -342,7 +342,12 @@ class TestEMACrossParity:
             f = ema_fast.update(close)
             s = ema_slow.update(close)
             sig = 0  # HOLD
-            if f is not None and s is not None and prev_fast is not None and prev_slow is not None:
+            if (
+                f is not None
+                and s is not None
+                and prev_fast is not None
+                and prev_slow is not None
+            ):
                 if prev_fast <= prev_slow and f > s:
                     sig = 1  # BUY
                 elif prev_fast >= prev_slow and f < s:

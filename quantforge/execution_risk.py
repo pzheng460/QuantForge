@@ -36,7 +36,14 @@ def assess_execution_risk(
     if metrics["reject_rate"] > cfg.max_reject_rate:
         reasons.append("rejected_order")
         reasons = sorted(set(reasons))
-    action = "pause" if any(r in reasons for r in {"rejected_order", "slippage", "partial_fill", "latency", "spread"}) else "observe"
+    action = (
+        "pause"
+        if any(
+            r in reasons
+            for r in {"rejected_order", "slippage", "partial_fill", "latency", "spread"}
+        )
+        else "observe"
+    )
     control = None
     if strategy_id:
         control = TradingControl(control_state).set_action(
@@ -134,7 +141,9 @@ def _metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         "max_slippage_bps": max(abs(e["slippage_bps"]) for e in events),
         "max_latency_ms": max(e["latency_ms"] for e in events),
         "max_spread_bps": max(e["spread_bps"] for e in events),
-        "reject_rate": round(sum(1 for e in events if "rejected_order" in e["reasons"]) / n, 10),
+        "reject_rate": round(
+            sum(1 for e in events if "rejected_order" in e["reasons"]) / n, 10
+        ),
     }
 
 

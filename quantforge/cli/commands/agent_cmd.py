@@ -95,20 +95,42 @@ def skills_cmd(as_json: bool):
 
 @agent_group.command("run")
 @click.option("--skill", required=True, help="Skill name (e.g. quantforge-optimizer)")
-@click.option("--strategy", default=None, help="Pine strategy name (e.g. ema_crossover)")
+@click.option(
+    "--strategy", default=None, help="Pine strategy name (e.g. ema_crossover)"
+)
 @click.option("--symbol", default="BTC/USDT:USDT")
 @click.option("--exchange", default="bitget")
 @click.option("--timeframe", default="1h")
 @click.option("--max-iterations", type=int, default=5)
-@click.option("--provider", type=click.Choice(["claude", "codex"]), default="claude",
-              show_default=True, help="Coding agent provider.")
-@click.option("--model", default=None,
-              help="Provider model. Claude has a default; Codex uses its account default.")
-@click.option("--via-server", is_flag=True,
-              help="Submit through web API (job tracked, recoverable). "
-                   "Default runs the provider in foreground.")
-def run_cmd(skill, strategy, symbol, exchange, timeframe, max_iterations,
-            provider, model, via_server):
+@click.option(
+    "--provider",
+    type=click.Choice(["claude", "codex"]),
+    default="claude",
+    show_default=True,
+    help="Coding agent provider.",
+)
+@click.option(
+    "--model",
+    default=None,
+    help="Provider model. Claude has a default; Codex uses its account default.",
+)
+@click.option(
+    "--via-server",
+    is_flag=True,
+    help="Submit through web API (job tracked, recoverable). "
+    "Default runs the provider in foreground.",
+)
+def run_cmd(
+    skill,
+    strategy,
+    symbol,
+    exchange,
+    timeframe,
+    max_iterations,
+    provider,
+    model,
+    via_server,
+):
     """Run an agent workflow (foreground by default, or --via-server)."""
     resolved_model = resolve_model(provider, model)
     if via_server:
@@ -152,9 +174,12 @@ def run_cmd(skill, strategy, symbol, exchange, timeframe, max_iterations,
         strategy_name = strategy.removesuffix(".pine")
         strategy_path = f"quantforge/pine/strategies/{strategy_name}.pine"
         from datetime import datetime
+
         ts = datetime.now().strftime("%Y%m%d_%H%M")
         work_path = f"/tmp/{strategy_name}_work_{ts}.pine"
-        output_path = f"quantforge/pine/strategies/optimized/{strategy_name}_optimized_{ts}.pine"
+        output_path = (
+            f"quantforge/pine/strategies/optimized/{strategy_name}_optimized_{ts}.pine"
+        )
 
     prompt = template.format(
         skill_path=skill_dir,

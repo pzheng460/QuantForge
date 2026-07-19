@@ -134,15 +134,23 @@ class PerformanceAnalyzer:
         # Sharpe ratio
         if len(self.returns) > 1 and self.returns.std() > 0:
             excess_returns = self.returns - self.risk_free_rate / self.periods_per_year
-            sharpe = excess_returns.mean() / self.returns.std() * np.sqrt(self.periods_per_year)
+            sharpe = (
+                excess_returns.mean()
+                / self.returns.std()
+                * np.sqrt(self.periods_per_year)
+            )
         else:
             sharpe = 0.0
 
         # Sortino ratio (only penalizes downside volatility)
         downside_returns = self.returns[self.returns < 0]
         if len(downside_returns) > 1 and downside_returns.std() > 0:
-            excess_returns = self.returns.mean() - self.risk_free_rate / self.periods_per_year
-            sortino = excess_returns / downside_returns.std() * np.sqrt(self.periods_per_year)
+            excess_returns = (
+                self.returns.mean() - self.risk_free_rate / self.periods_per_year
+            )
+            sortino = (
+                excess_returns / downside_returns.std() * np.sqrt(self.periods_per_year)
+            )
         else:
             sortino = 0.0
 
@@ -183,7 +191,9 @@ class PerformanceAnalyzer:
 
         # Recovery factor (total return / max drawdown)
         total_return_pct = return_metrics["total_return_pct"]
-        recovery_factor = total_return_pct / max_drawdown_pct if max_drawdown_pct > 0 else 0.0
+        recovery_factor = (
+            total_return_pct / max_drawdown_pct if max_drawdown_pct > 0 else 0.0
+        )
 
         return {
             "max_drawdown_pct": max_drawdown_pct,
@@ -329,8 +339,12 @@ class PerformanceAnalyzer:
         bars_losing = [t.bars_held for t in losing if t.bars_held > 0]
 
         avg_bars_held = sum(bars_all) / len(bars_all) if bars_all else 0.0
-        avg_bars_held_winning = sum(bars_winning) / len(bars_winning) if bars_winning else 0.0
-        avg_bars_held_losing = sum(bars_losing) / len(bars_losing) if bars_losing else 0.0
+        avg_bars_held_winning = (
+            sum(bars_winning) / len(bars_winning) if bars_winning else 0.0
+        )
+        avg_bars_held_losing = (
+            sum(bars_losing) / len(bars_losing) if bars_losing else 0.0
+        )
 
         # Open PL (unrealized) — non-zero only when last trade leaves an open position
         open_pl = 0.0
@@ -375,7 +389,11 @@ class PerformanceAnalyzer:
                 self.equity_curve.index[-1] - self.equity_curve.index[0]
             ).total_seconds()
             span_years = span_secs / (365.25 * 86400)
-            trades_per_year = len(closing_trades) / span_years if span_years > 0 else len(closing_trades)
+            trades_per_year = (
+                len(closing_trades) / span_years
+                if span_years > 0
+                else len(closing_trades)
+            )
         else:
             trades_per_year = len(closing_trades)
         return float(returns.mean() / std * np.sqrt(trades_per_year))
@@ -495,18 +513,22 @@ class PerformanceAnalyzer:
             elif dd >= 0 and in_drawdown:
                 # End of drawdown
                 in_drawdown = False
-                periods.append({
-                    "start": start,
-                    "end": timestamp,
-                    "max_drawdown_pct": abs(max_dd) * 100,
-                })
+                periods.append(
+                    {
+                        "start": start,
+                        "end": timestamp,
+                        "max_drawdown_pct": abs(max_dd) * 100,
+                    }
+                )
 
         # Handle ongoing drawdown
         if in_drawdown:
-            periods.append({
-                "start": start,
-                "end": drawdown.index[-1],
-                "max_drawdown_pct": abs(max_dd) * 100,
-            })
+            periods.append(
+                {
+                    "start": start,
+                    "end": drawdown.index[-1],
+                    "max_drawdown_pct": abs(max_dd) * 100,
+                }
+            )
 
         return periods

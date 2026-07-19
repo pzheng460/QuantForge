@@ -21,7 +21,9 @@ def news_group():
 
 
 @news_group.command("collect")
-@click.argument("sources", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
+@click.argument(
+    "sources", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path)
+)
 @click.option("--out", required=True, type=click.Path(path_type=Path))
 def collect_cmd(sources, out):
     """Normalize local news/event files into auto-tune JSONL."""
@@ -32,7 +34,9 @@ def collect_cmd(sources, out):
 @news_group.command("rss")
 @click.argument("urls", nargs=-1, required=True)
 @click.option("--out", required=True, type=click.Path(path_type=Path))
-@click.option("--symbols", default="", help="Comma-separated symbols to attach to each feed item.")
+@click.option(
+    "--symbols", default="", help="Comma-separated symbols to attach to each feed item."
+)
 def rss_cmd(urls, out, symbols):
     """Fetch RSS/Atom feeds into auto-tune JSONL."""
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
@@ -44,11 +48,15 @@ def rss_cmd(urls, out, symbols):
 @click.argument("urls", nargs=-1, required=True)
 @click.option("--exchange", required=True)
 @click.option("--out", required=True, type=click.Path(path_type=Path))
-@click.option("--symbols", default="", help="Comma-separated symbols to attach to each event.")
+@click.option(
+    "--symbols", default="", help="Comma-separated symbols to attach to each event."
+)
 def exchange_status_cmd(urls, exchange, out, symbols):
     """Fetch exchange status or announcement JSON into auto-tune JSONL."""
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-    events = collect_exchange_status_events(list(urls), out, exchange=exchange, symbols=symbol_list)
+    events = collect_exchange_status_events(
+        list(urls), out, exchange=exchange, symbols=symbol_list
+    )
     click.echo(json.dumps({"events": len(events), "out": str(out)}, indent=2))
 
 

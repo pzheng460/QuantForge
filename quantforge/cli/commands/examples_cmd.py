@@ -47,7 +47,9 @@ def list_cmd(exchange: str | None):
         click.echo(str(rel.with_suffix("")))
 
 
-@examples_group.command("run", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@examples_group.command(
+    "run", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True)
+)
 @click.argument("name")
 @click.argument("extra", nargs=-1, type=click.UNPROCESSED)
 def run_cmd(name: str, extra):
@@ -57,4 +59,3 @@ def run_cmd(name: str, extra):
         raise click.ClickException(f"example not found: {name}")
     cmd = [sys.executable, str(example), *extra]
     os.execvp(cmd[0], cmd)
-

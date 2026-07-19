@@ -151,7 +151,7 @@ def test_codex_agent_command_reads_prompt_from_stdin():
 
     assert cmd[:4] == ["codex", "--ask-for-approval", "never", "exec"]
     assert "--json" in cmd
-    assert ["--cd", "/repo"] == cmd[cmd.index("--cd"): cmd.index("--cd") + 2]
+    assert ["--cd", "/repo"] == cmd[cmd.index("--cd") : cmd.index("--cd") + 2]
     assert "--model" not in cmd
     assert cmd[-1] == "-"
 
@@ -167,6 +167,8 @@ def test_claude_agent_command_omits_model_when_unset():
 
 
 def test_claude_agent_command_includes_model_when_set():
-    cmd = build_agent_command("claude", "claude-opus-4-7", project_dir="/repo", max_turns=80)
+    cmd = build_agent_command(
+        "claude", "claude-opus-4-7", project_dir="/repo", max_turns=80
+    )
     idx = cmd.index("--model")
     assert cmd[idx + 1] == "claude-opus-4-7"

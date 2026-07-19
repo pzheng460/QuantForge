@@ -17,19 +17,32 @@ from fastapi.staticfiles import StaticFiles
 # silently because uvicorn only configures its own logger. In live trading
 # this means we have ZERO observability into what the engine is doing.
 _root = logging.getLogger()
-if not any(isinstance(h, logging.StreamHandler) and h.stream is sys.stderr for h in _root.handlers):
+if not any(
+    isinstance(h, logging.StreamHandler) and h.stream is sys.stderr
+    for h in _root.handlers
+):
     _h = logging.StreamHandler(sys.stderr)
-    _h.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s — %(message)s",
-        datefmt="%H:%M:%S",
-    ))
+    _h.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s — %(message)s",
+            datefmt="%H:%M:%S",
+        )
+    )
     _root.addHandler(_h)
 _root.setLevel(logging.INFO)
 # Quiet down very-chatty libraries so the engine log stays readable.
 for noisy in ("ccxt.base.exchange", "urllib3", "asyncio"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
-from apps.dashboard.backend.routers import strategies, backtest, optimize, live, agent, bot
+# Logging must be configured before router imports, hence the late import.
+from apps.dashboard.backend.routers import (  # noqa: E402
+    strategies,
+    backtest,
+    optimize,
+    live,
+    agent,
+    bot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +51,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup: restore persisted live engines. Shutdown: save state."""
     from apps.dashboard.backend.live_engines import restore_engines, _save_state
+
     running_under_pytest = bool(os.environ.get("PYTEST_CURRENT_TEST"))
     if running_under_pytest:
         logger.info("Skipping live engine restore under pytest")
@@ -100,6 +114,7 @@ if _FRONTEND_DIST.is_dir():
         if not index.exists():
             return {"detail": "frontend not built"}
         return FileResponse(index)
+
     logger.info("Production static serving enabled from %s", _FRONTEND_DIST)
 else:
     logger.info(

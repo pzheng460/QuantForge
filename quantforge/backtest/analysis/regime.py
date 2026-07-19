@@ -98,7 +98,9 @@ class RegimeClassifier:
         # Classify each bar
         for i in range(n):
             current_roc = roc.iloc[i] if not pd.isna(roc.iloc[i]) else 0.0
-            current_vol = rolling_vol.iloc[i] if not pd.isna(rolling_vol.iloc[i]) else 0.0
+            current_vol = (
+                rolling_vol.iloc[i] if not pd.isna(rolling_vol.iloc[i]) else 0.0
+            )
 
             # Check for high volatility first
             if current_vol > avg_vol * self.volatility_threshold:
@@ -284,7 +286,9 @@ class RegimeClassifier:
             # Bull: Price is significantly above the historical low
             # Bear: Price is significantly below the historical high
             is_bull = dist_from_low > bull_threshold or max_rolling_ret > bull_threshold
-            is_bear = dist_from_high < -bear_threshold or min_rolling_ret < -bear_threshold
+            is_bear = (
+                dist_from_high < -bear_threshold or min_rolling_ret < -bear_threshold
+            )
 
             if is_bull and not is_bear:
                 regimes.iloc[i] = SimpleRegime.BULL.value

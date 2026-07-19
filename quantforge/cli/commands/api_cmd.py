@@ -56,8 +56,11 @@ def get_cmd(path: str):
 @api_group.command("post")
 @click.argument("path")
 @click.option("--json", "json_value", help="JSON payload as a string.")
-@click.option("--json-file", type=click.Path(exists=True, dir_okay=False),
-              help="Read JSON payload from a file.")
+@click.option(
+    "--json-file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Read JSON payload from a file.",
+)
 def post_cmd(path: str, json_value: str | None, json_file: str | None):
     """POST to a web API path with an optional JSON payload."""
     try:
@@ -70,4 +73,3 @@ def post_cmd(path: str, json_value: str | None, json_file: str | None):
     except (requests.HTTPError, _http.ServerUnreachable) as e:
         click.echo(str(e), err=True)
         sys.exit(2)
-

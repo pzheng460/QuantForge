@@ -142,9 +142,7 @@ class GridSearchOptimizer:
 
         # Step 2: run stateless backtests — parallelise when n_jobs != 1
         if self.n_jobs == 1 or len(signal_pairs) <= 1:
-            results = [
-                self._run_backtest(p, s, store_equity) for p, s in signal_pairs
-            ]
+            results = [self._run_backtest(p, s, store_equity) for p, s in signal_pairs]
         else:
             workers = self.n_jobs if self.n_jobs > 0 else None
             with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -180,7 +178,9 @@ class GridSearchOptimizer:
             cost_config=self.cost_config,
             position_size_pct=self.position_size_pct,
         )
-        result = backtest.run(data=self.data, signals=signals, funding_rates=self.funding_rates)
+        result = backtest.run(
+            data=self.data, signals=signals, funding_rates=self.funding_rates
+        )
         return OptimizationResult(
             params=params,
             metrics=result.metrics,

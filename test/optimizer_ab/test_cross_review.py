@@ -39,7 +39,11 @@ def test_extract_review_output_accepts_json_sentinel():
         "robustness_score": 72,
         "overfit_risk": 41,
         "improvement_factors": [
-            {"factor": "ADX filter", "evidence": "validation drawdown", "expected_effect": "reduce whipsaw"}
+            {
+                "factor": "ADX filter",
+                "evidence": "validation drawdown",
+                "expected_effect": "reduce whipsaw",
+            }
         ],
         "blocking_issues": [],
     }
@@ -50,13 +54,15 @@ def test_extract_review_output_accepts_json_sentinel():
 
 def test_extract_review_output_from_ndjson_agent_message():
     payload = {"decision": "accept", "improvement_factors": [], "blocking_issues": []}
-    stream = json.dumps({
-        "type": "item.completed",
-        "item": {
-            "type": "agent_message",
-            "text": "REVIEW_OUTPUT: " + json.dumps(payload),
-        },
-    })
+    stream = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {
+                "type": "agent_message",
+                "text": "REVIEW_OUTPUT: " + json.dumps(payload),
+            },
+        }
+    )
 
     assert extract_review_output(stream) == payload
 

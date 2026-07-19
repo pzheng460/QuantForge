@@ -88,10 +88,14 @@ class VectorizedBacktest:
         # Funding rates settle at 00:00, 08:00, 16:00 UTC
         # We create a map keyed by (date, hour) for efficient lookup
         funding_rate_map = {}
-        if funding_rates is not None and not funding_rates.empty and self.cost_config.use_funding_rate:
+        if (
+            funding_rates is not None
+            and not funding_rates.empty
+            and self.cost_config.use_funding_rate
+        ):
             for ts, row in funding_rates.iterrows():
                 # Normalize to (date, hour) key for matching with OHLCV bars
-                if hasattr(ts, 'date'):
+                if hasattr(ts, "date"):
                     key = (ts.date(), ts.hour)
                     funding_rate_map[key] = row.get("funding_rate", 0.0)
 
@@ -176,7 +180,11 @@ class VectorizedBacktest:
             if position != 0 and funding_rate_map:
                 current_ts = data.index[i]
                 # Check if this bar is at a funding settlement time (minute=0, hour in [0, 8, 16])
-                if hasattr(current_ts, 'minute') and current_ts.minute == 0 and current_ts.hour in (0, 8, 16):
+                if (
+                    hasattr(current_ts, "minute")
+                    and current_ts.minute == 0
+                    and current_ts.hour in (0, 8, 16)
+                ):
                     key = (current_ts.date(), current_ts.hour)
                     if key in funding_rate_map:
                         funding_rate = funding_rate_map[key]
@@ -187,7 +195,9 @@ class VectorizedBacktest:
                             funding_rate=funding_rate,
                         )
                         capital += funding_payment
-                        total_funding_paid -= funding_payment  # Track as cost (negative = paid)
+                        total_funding_paid -= (
+                            funding_payment  # Track as cost (negative = paid)
+                        )
 
             # Update equity after trades and funding
             if position != 0:

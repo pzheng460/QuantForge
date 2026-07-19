@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -28,6 +26,7 @@ def client():
 
 
 # ─── Pure flag module ────────────────────────────────────────────────────────
+
 
 def test_default_is_off():
     assert evolving.is_enabled() is False
@@ -73,6 +72,7 @@ def test_corrupt_state_file_falls_back_to_default(tmp_path, monkeypatch):
 
 # ─── HTTP routes ─────────────────────────────────────────────────────────────
 
+
 def test_get_evolving_returns_default_off(client):
     r = client.get("/api/bot/evolving")
     assert r.status_code == 200
@@ -111,6 +111,7 @@ def test_bot_status_includes_evolving_and_control(client):
 
 # ─── Pine engine gate (don't actually start a live loop) ─────────────────────
 
+
 def test_pine_engine_refuses_to_start_when_paused():
     """If Evolving is ON for the strategy and control says PAUSE,
     PineLiveEngine.start() must raise before doing any IO."""
@@ -130,7 +131,11 @@ def test_pine_engine_refuses_to_start_when_paused():
     )
 
     evolving.enable(["paused_strategy"])
-    with patch.object(TradingControl, "get_action", return_value={"action": "pause", "reasons": ["test"]}):
+    with patch.object(
+        TradingControl,
+        "get_action",
+        return_value={"action": "pause", "reasons": ["test"]},
+    ):
         with pytest.raises(RuntimeError, match="paused by Evolving Mode"):
             asyncio.run(eng.start())
 
@@ -155,7 +160,9 @@ def test_pine_engine_reduces_position_size_on_reduce():
     evolving.enable(["reduce_strategy"])
     # We can't actually run start() (it would do live IO) but we can verify
     # the gate logic in isolation by calling the relevant fragment ourselves.
-    with patch.object(TradingControl, "get_action", return_value={"action": "reduce", "reasons": []}):
+    with patch.object(
+        TradingControl, "get_action", return_value={"action": "reduce", "reasons": []}
+    ):
         ctrl = TradingControl().get_action("reduce_strategy")
         assert ctrl["action"] == "reduce"
         eng.position_size_usdt = eng.position_size_usdt / 2  # what start() does
@@ -168,7 +175,7 @@ def test_pine_engine_ignores_control_when_evolving_off():
     from quantforge.trading_control import TradingControl
 
     pine_source = 'strategy("test")\nplot(close)'
-    eng = PineLiveEngine(
+    PineLiveEngine(
         pine_source=pine_source,
         exchange="bitget",
         symbol="BTC/USDT:USDT",
@@ -178,7 +185,9 @@ def test_pine_engine_ignores_control_when_evolving_off():
         strategy_name="ignored_strategy",
     )
     # Evolving stays OFF (the default from the fixture).
-    with patch.object(TradingControl, "get_action", return_value={"action": "pause", "reasons": []}):
+    with patch.object(
+        TradingControl, "get_action", return_value={"action": "pause", "reasons": []}
+    ):
         # The gate function should short-circuit before reading control.
         # We can't easily assert "didn't call" without a deeper mock; instead
         # verify is_enabled() returns False, which is what the gate checks.

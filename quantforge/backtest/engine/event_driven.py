@@ -409,7 +409,11 @@ class EventDrivenBacktest:
         else:
             pnl = -position.size * (position.entry_price - adjusted_price) - fee
 
-        pnl_pct = (pnl / (abs(position.size) * position.entry_price)) * 100 if position.entry_price > 0 else 0.0
+        pnl_pct = (
+            (pnl / (abs(position.size) * position.entry_price)) * 100
+            if position.entry_price > 0
+            else 0.0
+        )
 
         # Update capital
         position_value = abs(position.size) * position.entry_price
@@ -465,7 +469,9 @@ class EventDrivenBacktest:
         # Weighted average entry price
         old_value = abs(position.size) * position.entry_price
         new_value = amount * adjusted_price
-        new_entry_price = (old_value + new_value) / abs(new_size) if new_size != 0 else 0.0
+        new_entry_price = (
+            (old_value + new_value) / abs(new_size) if new_size != 0 else 0.0
+        )
 
         # Update capital
         new_capital = capital - fee

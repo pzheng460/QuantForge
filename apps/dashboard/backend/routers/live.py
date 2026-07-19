@@ -158,9 +158,9 @@ async def start_live(req: LiveStartRequest) -> LiveEngineOut:
 
     # Prevent duplicate engines for the same strategy
     for eng in list_engines():
-        if (
-            eng["strategy"] == (req.strategy or "custom_strategy")
-            and eng["status"] in ("warmup", "running")
+        if eng["strategy"] == (req.strategy or "custom_strategy") and eng["status"] in (
+            "warmup",
+            "running",
         ):
             raise HTTPException(
                 status_code=409,

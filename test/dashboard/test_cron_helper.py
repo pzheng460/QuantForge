@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
 
 import pytest
 
@@ -67,10 +66,7 @@ def test_install_with_empty_list_removes_block(fake_crontab):
 
 
 def test_remove_leaves_user_lines_intact(fake_crontab):
-    fake_crontab["body"] = (
-        "# my own backup script\n"
-        "0 3 * * * /home/me/backup.sh\n"
-    )
+    fake_crontab["body"] = "# my own backup script\n0 3 * * * /home/me/backup.sh\n"
     cron_helper.install(["ema_crossover"])
     cron_helper.remove()
     assert "backup.sh" in fake_crontab["body"]
@@ -97,6 +93,7 @@ def test_install_threads_webhook_url(fake_crontab):
 
 def test_read_crontab_returns_empty_on_no_crontab(monkeypatch):
     """`crontab -l` exits 1 + writes 'no crontab' to stderr when there's none."""
+
     class FakeResult:
         returncode = 1
         stdout = ""

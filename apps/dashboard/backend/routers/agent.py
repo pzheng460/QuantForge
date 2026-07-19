@@ -16,7 +16,7 @@ except ImportError:
         def safe_load(content):
             # Very basic YAML to JSON conversion for simple cases
             # This is a very basic fallback - only handles simple key-value pairs
-            lines = content.strip().split('\n')
+            lines = content.strip().split("\n")
             data = {}
             current_key = None
             current_value = []
@@ -24,36 +24,38 @@ except ImportError:
 
             for line in lines:
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
 
-                if ':' in line and not in_multiline:
+                if ":" in line and not in_multiline:
                     if current_key and current_value:
-                        data[current_key] = '\n'.join(current_value).strip()
+                        data[current_key] = "\n".join(current_value).strip()
                         current_value = []
 
-                    key, value = line.split(':', 1)
+                    key, value = line.split(":", 1)
                     current_key = key.strip()
                     value = value.strip()
 
-                    if value == '|':
+                    if value == "|":
                         in_multiline = True
                     elif value:
                         data[current_key] = value
                         current_key = None
-                elif in_multiline and line.startswith('  '):
+                elif in_multiline and line.startswith("  "):
                     current_value.append(line[2:])  # Remove 2-space indent
-                elif not line.startswith(' '):
+                elif not line.startswith(" "):
                     in_multiline = False
                     if current_key and current_value:
-                        data[current_key] = '\n'.join(current_value).strip()
+                        data[current_key] = "\n".join(current_value).strip()
                         current_value = []
                         current_key = None
 
             if current_key and current_value:
-                data[current_key] = '\n'.join(current_value).strip()
+                data[current_key] = "\n".join(current_value).strip()
 
             return data
+
+
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, validator
 
@@ -63,6 +65,7 @@ from apps.dashboard.backend.models import _VALID_EXCHANGES
 router = APIRouter()
 
 # ─── Agent models ────────────────────────────────────────────────────────────
+
 
 class AgentRunRequest(BaseModel):
     skill_path: str  # e.g., "quantforge-optimizer"
@@ -95,6 +98,7 @@ class AgentRunRequest(BaseModel):
             raise ValueError(f"Skill not found: {v}")
         return v
 
+
 class AgentEvent(BaseModel):
     type: str  # 'thinking' | 'tool_call' | 'tool_result' | 'error' | 'done'
     tool_name: Optional[str] = None  # 'Read' | 'Edit' | 'Write' | 'Bash' | etc
@@ -104,6 +108,7 @@ class AgentEvent(BaseModel):
     duration_ms: Optional[int] = None  # for tool calls
     timestamp: str = ""
 
+
 class AgentJobStatus(BaseModel):
     job_id: str
     status: str  # pending | running | completed | failed | cancelled
@@ -111,17 +116,20 @@ class AgentJobStatus(BaseModel):
     events_count: int = 0
     error: Optional[str] = None
 
+
 class AgentMetric(BaseModel):
     name: str
     pattern: str
     higher_is_better: Optional[bool]
     primary: bool = False
 
+
 class AgentSkillInfo(BaseModel):
     name: str
     description: str
     defaults: Dict[str, Any]
     metrics: List[AgentMetric]
+
 
 # ─── Agent job manager ───────────────────────────────────────────────────────
 
@@ -257,7 +265,9 @@ class AgentJobManager:
             killed_note = ""
             if pid:
                 try:
-                    import os as _os, signal as _signal
+                    import os as _os
+                    import signal as _signal
+
                     _os.kill(pid, _signal.SIGTERM)
                     killed_note = f" Sent SIGTERM to orphan PID {pid}."
                 except ProcessLookupError:
@@ -272,16 +282,20 @@ class AgentJobManager:
             )
         data["process"] = None
         self.jobs[job_id] = data
-        if data["status"] == "failed" and "Backend restarted" in (data.get("error") or ""):
+        if data["status"] == "failed" and "Backend restarted" in (
+            data.get("error") or ""
+        ):
             self._persist(job_id)
+
 
 agent_manager = AgentJobManager()
 
 # ─── Event parsing ───────────────────────────────────────────────────────────
 
+
 def parse_claude_events(line: str) -> List[AgentEvent]:
     """Parse a single line of Claude Code stream-json output into AgentEvent(s).
-    
+
     One CC message can contain multiple content items (thinking + tool_use),
     so we return a list.
     """
@@ -300,19 +314,15 @@ def parse_claude_events(line: str) -> List[AgentEvent]:
             if item.get("type") == "thinking":
                 text = item.get("thinking", "").strip()
                 if text:
-                    events.append(AgentEvent(
-                        type="thinking",
-                        content=text,
-                        timestamp=timestamp
-                    ))
+                    events.append(
+                        AgentEvent(type="thinking", content=text, timestamp=timestamp)
+                    )
             elif item.get("type") == "text":
                 text = item.get("text", "").strip()
                 if text:
-                    events.append(AgentEvent(
-                        type="thinking",
-                        content=text,
-                        timestamp=timestamp
-                    ))
+                    events.append(
+                        AgentEvent(type="thinking", content=text, timestamp=timestamp)
+                    )
             elif item.get("type") == "tool_use":
                 tool_name = item.get("name", "")
                 tool_input = item.get("input", {})
@@ -331,20 +341,26 @@ def parse_claude_events(line: str) -> List[AgentEvent]:
                     content = json.dumps(tool_input, indent=2)[:500]
 
                 diff = None
-                if tool_name == "Edit" and "old_string" in tool_input and "new_string" in tool_input:
+                if (
+                    tool_name == "Edit"
+                    and "old_string" in tool_input
+                    and "new_string" in tool_input
+                ):
                     diff = {
                         "old": tool_input["old_string"],
-                        "new": tool_input["new_string"]
+                        "new": tool_input["new_string"],
                     }
 
-                events.append(AgentEvent(
-                    type="tool_call",
-                    tool_name=tool_name,
-                    content=content,
-                    file_path=file_path,
-                    diff=diff,
-                    timestamp=timestamp
-                ))
+                events.append(
+                    AgentEvent(
+                        type="tool_call",
+                        tool_name=tool_name,
+                        content=content,
+                        file_path=file_path,
+                        diff=diff,
+                        timestamp=timestamp,
+                    )
+                )
 
     # Handle tool results (multiple possible subtypes)
     elif data.get("type") == "result":
@@ -357,32 +373,38 @@ def parse_claude_events(line: str) -> List[AgentEvent]:
                     c.get("text", str(c)) if isinstance(c, dict) else str(c)
                     for c in content
                 )
-            events.append(AgentEvent(
-                type="tool_result",
-                content=str(content)[:2000],
-                timestamp=timestamp
-            ))
+            events.append(
+                AgentEvent(
+                    type="tool_result", content=str(content)[:2000], timestamp=timestamp
+                )
+            )
         elif subtype == "success":
             # Final result
             result_text = data.get("result", "")
             cost = data.get("total_cost_usd", 0)
-            events.append(AgentEvent(
-                type="done",
-                content=f"{result_text}\n\n💰 Cost: ${cost:.4f}",
-                timestamp=timestamp
-            ))
+            events.append(
+                AgentEvent(
+                    type="done",
+                    content=f"{result_text}\n\n💰 Cost: ${cost:.4f}",
+                    timestamp=timestamp,
+                )
+            )
 
     # Handle errors
     elif data.get("type") == "error":
-        events.append(AgentEvent(
-            type="error",
-            content=data.get("message", str(data.get("error", "Unknown error"))),
-            timestamp=timestamp
-        ))
+        events.append(
+            AgentEvent(
+                type="error",
+                content=data.get("message", str(data.get("error", "Unknown error"))),
+                timestamp=timestamp,
+            )
+        )
 
     return events
 
+
 # ─── Background process management ────────────────────────────────────────────
+
 
 async def run_coding_agent(job_id: str, request: AgentRunRequest):
     """Run a coding agent subprocess and stream events."""
@@ -396,7 +418,9 @@ async def run_coding_agent(job_id: str, request: AgentRunRequest):
         workflow_file = skill_dir / "workflow.yaml"
 
         if not workflow_file.exists():
-            agent_manager.update_job(job_id, status="failed", error=f"workflow.yaml not found in {skill_dir}")
+            agent_manager.update_job(
+                job_id, status="failed", error=f"workflow.yaml not found in {skill_dir}"
+            )
             return
 
         with open(workflow_file) as f:
@@ -413,6 +437,7 @@ async def run_coding_agent(job_id: str, request: AgentRunRequest):
             work_path = f"/tmp/optimize_{strategy_name}_{job_id[:8]}.pine"
             # Final output saved in optimized/ subdirectory with timestamp
             from datetime import datetime
+
             ts = datetime.now().strftime("%Y%m%d_%H%M")
             output_path = f"quantforge/pine/strategies/optimized/{strategy_name}_optimized_{ts}.pine"
 
@@ -444,7 +469,7 @@ async def run_coding_agent(job_id: str, request: AgentRunRequest):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd="/home/pzheng46/QuantForge"
+            cwd="/home/pzheng46/QuantForge",
         )
         assert process.stdin is not None
         process.stdin.write(prompt.encode("utf-8"))
@@ -459,7 +484,7 @@ async def run_coding_agent(job_id: str, request: AgentRunRequest):
             if not line:
                 break
 
-            line_str = line.decode('utf-8').strip()
+            line_str = line.decode("utf-8").strip()
             if not line_str:
                 continue
 
@@ -477,18 +502,24 @@ async def run_coding_agent(job_id: str, request: AgentRunRequest):
             done_event = AgentEvent(
                 type="done",
                 content="Agent workflow completed successfully",
-                timestamp=str(time.time())
+                timestamp=str(time.time()),
             )
             agent_manager.append_event(job_id, done_event.dict())
         else:
             stderr_output = await process.stderr.read()
-            error_msg = stderr_output.decode('utf-8') if stderr_output else f"Process failed with code {process.returncode}"
+            error_msg = (
+                stderr_output.decode("utf-8")
+                if stderr_output
+                else f"Process failed with code {process.returncode}"
+            )
             agent_manager.update_job(job_id, status="failed", error=error_msg)
 
     except Exception as e:
         agent_manager.update_job(job_id, status="failed", error=str(e))
 
+
 # ─── API endpoints ────────────────────────────────────────────────────────────
+
 
 @router.get("/agent/skills", response_model=List[AgentSkillInfo])
 async def list_agent_skills():
@@ -507,24 +538,31 @@ async def list_agent_skills():
 
                         metrics = []
                         for metric_data in workflow.get("metrics", []):
-                            metrics.append(AgentMetric(
-                                name=metric_data["name"],
-                                pattern=metric_data["pattern"],
-                                higher_is_better=metric_data.get("higher_is_better"),
-                                primary=metric_data.get("primary", False)
-                            ))
+                            metrics.append(
+                                AgentMetric(
+                                    name=metric_data["name"],
+                                    pattern=metric_data["pattern"],
+                                    higher_is_better=metric_data.get(
+                                        "higher_is_better"
+                                    ),
+                                    primary=metric_data.get("primary", False),
+                                )
+                            )
 
-                        skills.append(AgentSkillInfo(
-                            name=skill_dir.name,
-                            description=workflow.get("description", ""),
-                            defaults=workflow.get("defaults", {}),
-                            metrics=metrics
-                        ))
+                        skills.append(
+                            AgentSkillInfo(
+                                name=skill_dir.name,
+                                description=workflow.get("description", ""),
+                                defaults=workflow.get("defaults", {}),
+                                metrics=metrics,
+                            )
+                        )
                     except Exception:
                         # Skip invalid workflow files
                         continue
 
     return skills
+
 
 @router.post("/agent/run", response_model=AgentJobStatus)
 async def run_agent(request: AgentRunRequest):
@@ -534,11 +572,8 @@ async def run_agent(request: AgentRunRequest):
     # Start background task
     asyncio.create_task(run_coding_agent(job_id, request))
 
-    return AgentJobStatus(
-        job_id=job_id,
-        status="pending",
-        events_count=0
-    )
+    return AgentJobStatus(job_id=job_id, status="pending", events_count=0)
+
 
 @router.get("/agent/{job_id}", response_model=AgentJobStatus)
 async def get_agent_status(job_id: str):
@@ -552,8 +587,9 @@ async def get_agent_status(job_id: str):
         status=job["status"],
         started_at=job.get("started_at"),
         events_count=len(job.get("events", [])),
-        error=job.get("error")
+        error=job.get("error"),
     )
+
 
 @router.post("/agent/{job_id}/stop")
 async def stop_agent(job_id: str):
@@ -573,6 +609,7 @@ async def stop_agent(job_id: str):
 
     agent_manager.update_job(job_id, status="cancelled")
     return {"status": "cancelled"}
+
 
 @router.websocket("/ws/agent/{job_id}")
 async def agent_websocket(websocket: WebSocket, job_id: str):

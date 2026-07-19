@@ -61,11 +61,17 @@ def _violations(
     symbol = request.get("symbol")
     if allowed_symbols and symbol not in allowed_symbols:
         out.append("symbol_not_allowed")
-    if float(request.get("notional_usd", 0.0) or 0.0) > float(policy.get("max_notional_usd", float("inf"))):
+    if float(request.get("notional_usd", 0.0) or 0.0) > float(
+        policy.get("max_notional_usd", float("inf"))
+    ):
         out.append("notional_limit")
-    if float(request.get("leverage", 0.0) or 0.0) > float(policy.get("max_leverage", float("inf"))):
+    if float(request.get("leverage", 0.0) or 0.0) > float(
+        policy.get("max_leverage", float("inf"))
+    ):
         out.append("leverage_limit")
-    if int(request.get("daily_orders", 0) or 0) > int(policy.get("max_daily_orders", 10**12)):
+    if int(request.get("daily_orders", 0) or 0) > int(
+        policy.get("max_daily_orders", 10**12)
+    ):
         out.append("daily_order_limit")
     if policy.get("require_approval", False):
         try:

@@ -355,7 +355,7 @@ class PineRuntime:
         # Tell input_fn.py which variable is being assigned (for override lookup)
         self.ctx._current_assign_target = node.target
         value = self._eval(node.value)
-        self.ctx._current_assign_target = ''
+        self.ctx._current_assign_target = ""
 
         if node.op == ":=":
             self.ctx._variables[node.target] = value

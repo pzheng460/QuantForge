@@ -25,6 +25,7 @@ from quantforge.pine.parser.parser import parse
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _fetch_bars(symbol: str, timeframe: str, start: str, end: str) -> list[BarData]:
     """Fetch OHLCV bars from Bitget via ccxt."""
     import ccxt
@@ -55,14 +56,16 @@ def _fetch_bars(symbol: str, timeframe: str, start: str, end: str) -> list[BarDa
         if ts < exchange.parse8601(start) or ts > end_ts or ts in seen:
             continue
         seen.add(ts)
-        bars.append(BarData(
-            open=float(row[1]),
-            high=float(row[2]),
-            low=float(row[3]),
-            close=float(row[4]),
-            volume=float(row[5]),
-            time=ts,
-        ))
+        bars.append(
+            BarData(
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+                volume=float(row[5]),
+                time=ts,
+            )
+        )
     bars.sort(key=lambda b: b.time)
     return bars
 
@@ -151,16 +154,19 @@ TV_REFERENCE = {
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def btc_bars_with_warmup():
     """Fetch BTC/USDT 15min bars: 2 months warmup (Nov 1) + test range (Jan 1 - Mar 12)."""
     warmup_bars = _fetch_bars(
-        "BTC/USDT:USDT", "15m",
+        "BTC/USDT:USDT",
+        "15m",
         "2025-11-01T00:00:00Z",
         "2025-12-31T23:59:59Z",
     )
     test_bars = _fetch_bars(
-        "BTC/USDT:USDT", "15m",
+        "BTC/USDT:USDT",
+        "15m",
         "2026-01-01T00:00:00Z",
         "2026-03-12T23:59:59Z",
     )
@@ -171,7 +177,8 @@ def btc_bars_with_warmup():
 def btc_bars_no_warmup():
     """Fetch BTC/USDT 15min bars: Jan 1 - Mar 12 only (no warmup)."""
     return _fetch_bars(
-        "BTC/USDT:USDT", "15m",
+        "BTC/USDT:USDT",
+        "15m",
         "2026-01-01T00:00:00Z",
         "2026-03-12T23:59:59Z",
     )
@@ -180,6 +187,7 @@ def btc_bars_no_warmup():
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.slow
 class TestEMACrossTVAlignment:
@@ -324,7 +332,9 @@ class TestMACDCrossTVAlignment:
 class TestWarmupEffect:
     """Verify warmup significantly improves alignment."""
 
-    def test_warmup_improves_trade_count(self, btc_bars_with_warmup, btc_bars_no_warmup):
+    def test_warmup_improves_trade_count(
+        self, btc_bars_with_warmup, btc_bars_no_warmup
+    ):
         """With warmup, trade count should be closer to TV than without."""
         warmup, test = btc_bars_with_warmup
         all_bars = warmup + test

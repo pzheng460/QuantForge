@@ -10,7 +10,11 @@ from pathlib import Path
 
 def classify_strategy(source: str) -> str:
     lower = source.lower()
-    trend = "ta.crossover" in source or "ta.crossunder" in source or source.count("ta.ema") >= 2
+    trend = (
+        "ta.crossover" in source
+        or "ta.crossunder" in source
+        or source.count("ta.ema") >= 2
+    )
     reversion = "ta.rsi" in source or "ta.stdev" in source or "reversion" in lower
     if trend and reversion:
         return "hybrid"
@@ -34,12 +38,20 @@ def validate(source: str) -> list[dict[str, str]]:
         error("NO_STRATEGY", "Missing strategy() declaration")
         return issues
     if "ta.adx" not in source and "filter" not in source.lower():
-        warn("NO_REGIME_FILTER", "No regime filter (ADX/volatility) — vulnerable to whipsaw in ranging markets")
+        warn(
+            "NO_REGIME_FILTER",
+            "No regime filter (ADX/volatility) — vulnerable to whipsaw in ranging markets",
+        )
     if "strategy.exit" not in source:
-        warn("NO_STOP_LOSS", "No stop-loss detected — consider strategy.exit() with stop or ATR-based stops")
+        warn(
+            "NO_STOP_LOSS",
+            "No stop-loss detected — consider strategy.exit() with stop or ATR-based stops",
+        )
     if "qty" not in source and "strategy.entry" in source:
         warn("NO_POSITION_SIZE", "No explicit position sizing — using platform default")
-    inputs = re.findall(r"(\w+)\s*=\s*input\.(?:int|float|bool|string|source)\(", source)
+    inputs = re.findall(
+        r"(\w+)\s*=\s*input\.(?:int|float|bool|string|source)\(", source
+    )
     for name in inputs:
         if len(re.findall(r"\b" + re.escape(name) + r"\b", source)) <= 1:
             warn("UNUSED_INPUT", f"Input '{name}' is declared but never referenced")

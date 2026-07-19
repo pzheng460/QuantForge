@@ -15,7 +15,10 @@ import pandas as pd
 
 from quantforge.backtest.engine.cost_model import CostConfig
 from quantforge.backtest.engine.vectorized import VectorizedBacktest
-from quantforge.backtest.optimization.grid_search import GridSearchOptimizer, ParameterGrid
+from quantforge.backtest.optimization.grid_search import (
+    GridSearchOptimizer,
+    ParameterGrid,
+)
 from quantforge.backtest.result import BacktestConfig
 
 
@@ -182,7 +185,9 @@ class WalkForwardAnalyzer:
                 cost_config=self.cost_config,
                 position_size_pct=self.position_size_pct,
             )
-            test_result = backtest.run(data=test_data, signals=test_signals, funding_rates=test_funding)
+            test_result = backtest.run(
+                data=test_data, signals=test_signals, funding_rates=test_funding
+            )
 
             # Create result
             wf_result = WalkForwardResult(
@@ -231,7 +236,9 @@ class WalkForwardAnalyzer:
             "avg_test_sharpe": np.mean(test_sharpes),
             "total_test_return": sum(test_returns),
             "positive_test_windows": sum(1 for r in test_returns if r > 0),
-            "robustness_ratio": np.mean(test_sharpes) / np.mean(train_sharpes) if np.mean(train_sharpes) != 0 else 0,
+            "robustness_ratio": np.mean(test_sharpes) / np.mean(train_sharpes)
+            if np.mean(train_sharpes) != 0
+            else 0,
         }
 
     def results_to_dataframe(self, results: List[WalkForwardResult]) -> pd.DataFrame:

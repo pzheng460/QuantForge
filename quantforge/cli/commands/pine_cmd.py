@@ -20,7 +20,9 @@ def _resolve_pine(name_or_path: str) -> str:
     p = Path(name_or_path)
     if p.exists():
         return str(p)
-    pine_dir = Path(__file__).resolve().parents[3] / "quantforge" / "pine" / "strategies"
+    pine_dir = (
+        Path(__file__).resolve().parents[3] / "quantforge" / "pine" / "strategies"
+    )
     candidate = pine_dir / f"{name_or_path}.pine"
     if candidate.exists():
         return str(candidate)
@@ -32,7 +34,10 @@ def _exec_pine(*args: str) -> None:
     os.execvp(cmd[0], cmd)
 
 
-@click.command("backtest", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@click.command(
+    "backtest",
+    context_settings=dict(ignore_unknown_options=True, allow_extra_args=True),
+)
 @click.argument("pine", required=True)
 @click.argument("extra", nargs=-1, type=click.UNPROCESSED)
 def backtest_cmd(pine, extra):
@@ -40,7 +45,10 @@ def backtest_cmd(pine, extra):
     _exec_pine("backtest", _resolve_pine(pine), *extra)
 
 
-@click.command("optimize", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@click.command(
+    "optimize",
+    context_settings=dict(ignore_unknown_options=True, allow_extra_args=True),
+)
 @click.argument("pine", required=True)
 @click.argument("extra", nargs=-1, type=click.UNPROCESSED)
 def optimize_cmd(pine, extra):
@@ -48,7 +56,9 @@ def optimize_cmd(pine, extra):
     _exec_pine("optimize", _resolve_pine(pine), *extra)
 
 
-@click.command("live", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@click.command(
+    "live", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True)
+)
 @click.argument("pine", required=True)
 @click.argument("extra", nargs=-1, type=click.UNPROCESSED)
 def live_cmd(pine, extra):

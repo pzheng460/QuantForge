@@ -86,19 +86,36 @@ class AutoTuneRunResult:
 
 def build_auto_tune_command(job: AutoTuneJob) -> list[str]:
     cmd = [
-        "uv", "run", "python", "-m", "eval.auto_tune", "run",
-        "--pine", job.pine,
-        "--strategy", job.strategy,
-        "--symbol", job.symbol,
-        "--exchange", job.exchange,
-        "--timeframe", job.timeframe,
-        "--windows", job.windows,
-        "--regime", job.regime,
-        "--seeds", job.seeds,
-        "--providers", job.providers,
-        "--out", job.out,
-        "--optimizer-results-csv", job.optimizer_results_csv,
-        "--optimizer-trials-dir", job.optimizer_trials_dir,
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "eval.auto_tune",
+        "run",
+        "--pine",
+        job.pine,
+        "--strategy",
+        job.strategy,
+        "--symbol",
+        job.symbol,
+        "--exchange",
+        job.exchange,
+        "--timeframe",
+        job.timeframe,
+        "--windows",
+        job.windows,
+        "--regime",
+        job.regime,
+        "--seeds",
+        job.seeds,
+        "--providers",
+        job.providers,
+        "--out",
+        job.out,
+        "--optimizer-results-csv",
+        job.optimizer_results_csv,
+        "--optimizer-trials-dir",
+        job.optimizer_trials_dir,
     ]
     if job.news_file:
         cmd.extend(["--news-file", job.news_file])
@@ -107,7 +124,9 @@ def build_auto_tune_command(job: AutoTuneJob) -> list[str]:
     return cmd
 
 
-def load_job_file(path: str | Path, *, include_disabled: bool = False) -> list[AutoTuneJob]:
+def load_job_file(
+    path: str | Path, *, include_disabled: bool = False
+) -> list[AutoTuneJob]:
     data = json.loads(Path(path).read_text())
     jobs = []
     for raw in data.get("jobs", []):
@@ -143,17 +162,25 @@ def run_once(
             ran_at=datetime.now(UTC).isoformat(),
         )
         if result.returncode == 0 and job.apply_control and Path(job.out).exists():
-            apply_auto_tune_report(job.out, state_path=job.control_state, strategy_id=job.strategy)
+            apply_auto_tune_report(
+                job.out, state_path=job.control_state, strategy_id=job.strategy
+            )
         deployment_report = None
         if result.returncode == 0 and job.auto_deploy:
-            deployment_report = _run_auto_deploy(job, run_log, promotion_runner=promotion_runner)
+            deployment_report = _run_auto_deploy(
+                job, run_log, promotion_runner=promotion_runner
+            )
             result = AutoTuneRunResult(
                 command=result.command,
                 returncode=result.returncode,
                 report_path=result.report_path,
                 ran_at=result.ran_at,
-                deployment_report_path=job.promotion_report if deployment_report else "",
-                promoted=deployment_report.get("promoted") if deployment_report else None,
+                deployment_report_path=job.promotion_report
+                if deployment_report
+                else "",
+                promoted=deployment_report.get("promoted")
+                if deployment_report
+                else None,
             )
         _append_history(job, result)
         duration_ms = int((time.time() - started) * 1000)
@@ -176,7 +203,9 @@ def run_once(
         return result
 
 
-def run_daemon(job: AutoTuneJob, *, interval_sec: int, max_runs: int | None = None) -> int:
+def run_daemon(
+    job: AutoTuneJob, *, interval_sec: int, max_runs: int | None = None
+) -> int:
     if interval_sec < 60:
         raise ValueError("interval_sec must be at least 60")
     runs = 0
@@ -195,7 +224,9 @@ def _subprocess_runner(command: list[str], cwd: str) -> subprocess.CompletedProc
     return subprocess.run(command, cwd=cwd)
 
 
-def select_best_candidate(csv_path: str | Path, *, metric: str = "oos_sharpe") -> dict[str, Any]:
+def select_best_candidate(
+    csv_path: str | Path, *, metric: str = "oos_sharpe"
+) -> dict[str, Any]:
     path = Path(csv_path)
     if not path.exists():
         raise FileNotFoundError(path)
@@ -218,15 +249,17 @@ def select_best_candidate(csv_path: str | Path, *, metric: str = "oos_sharpe") -
             pine_path = trial.get("optimized_pine") or ""
             if not pine_path or not Path(pine_path).exists():
                 continue
-            candidates.append({
-                "trial_id": row.get("trial_id", ""),
-                "metric": metric,
-                "score": score,
-                "pine_path": pine_path,
-                "trial_json": trial_json,
-                "row": row,
-                "trial": trial,
-            })
+            candidates.append(
+                {
+                    "trial_id": row.get("trial_id", ""),
+                    "metric": metric,
+                    "score": score,
+                    "pine_path": pine_path,
+                    "trial_json": trial_json,
+                    "row": row,
+                    "trial": trial,
+                }
+            )
     if not candidates:
         raise ValueError(f"no deployable candidates in {path}")
     reverse = HIGHER_IS_BETTER.get(metric, True)
@@ -245,12 +278,18 @@ def _run_auto_deploy(
         return None
     report = json.loads(report_path.read_text())
     if report.get("decision", {}).get("action") != "reoptimize":
-        _append_run_event(job, run_log, "auto_deploy_skipped", reason="decision_not_reoptimize")
+        _append_run_event(
+            job, run_log, "auto_deploy_skipped", reason="decision_not_reoptimize"
+        )
         return None
     if not job.execute:
-        _append_run_event(job, run_log, "auto_deploy_skipped", reason="execute_disabled")
+        _append_run_event(
+            job, run_log, "auto_deploy_skipped", reason="execute_disabled"
+        )
         return None
-    selected = select_best_candidate(job.optimizer_results_csv, metric=job.deploy_metric)
+    selected = select_best_candidate(
+        job.optimizer_results_csv, metric=job.deploy_metric
+    )
     run = promotion_runner or _promotion_runner
     deployment_report = run(job, selected)
     _append_run_event(
@@ -344,12 +383,18 @@ class _scheduler_lock:
 def _write_heartbeat(job: AutoTuneJob, status: str) -> None:
     path = Path(job.heartbeat)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "strategy": job.strategy,
-        "status": status,
-        "updated_at": datetime.now(UTC).isoformat(),
-        "report_path": job.out,
-    }, indent=2, sort_keys=True))
+    path.write_text(
+        json.dumps(
+            {
+                "strategy": job.strategy,
+                "status": status,
+                "updated_at": datetime.now(UTC).isoformat(),
+                "report_path": job.out,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def _append_run_event(job: AutoTuneJob, run_log: Path, action: str, **fields) -> None:
@@ -364,7 +409,9 @@ def _append_run_event(job: AutoTuneJob, run_log: Path, action: str, **fields) ->
         f.write(json.dumps(event, sort_keys=True) + "\n")
 
 
-def _update_job_state(job: AutoTuneJob, result: AutoTuneRunResult, *, duration_ms: int) -> None:
+def _update_job_state(
+    job: AutoTuneJob, result: AutoTuneRunResult, *, duration_ms: int
+) -> None:
     path = Path(job.state)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text()) if path.exists() else {"version": 1, "jobs": {}}
@@ -374,14 +421,19 @@ def _update_job_state(job: AutoTuneJob, result: AutoTuneRunResult, *, duration_m
     consecutive_errors = 0 if ok else int(prior.get("consecutiveErrors", 0)) + 1
     jobs[job.strategy] = {
         "updatedAtMs": int(time.time() * 1000),
-        "scheduleIdentity": json.dumps({
-            "version": 1,
-            "windows": job.windows,
-            "symbol": job.symbol,
-            "timeframe": job.timeframe,
-        }, sort_keys=True),
+        "scheduleIdentity": json.dumps(
+            {
+                "version": 1,
+                "windows": job.windows,
+                "symbol": job.symbol,
+                "timeframe": job.timeframe,
+            },
+            sort_keys=True,
+        ),
         "state": {
-            "lastRunAtMs": int(datetime.fromisoformat(result.ran_at).timestamp() * 1000),
+            "lastRunAtMs": int(
+                datetime.fromisoformat(result.ran_at).timestamp() * 1000
+            ),
             "lastStatus": "ok" if ok else "error",
             "lastRunStatus": "ok" if ok else "error",
             "lastDurationMs": duration_ms,
@@ -404,12 +456,18 @@ def _write_failed_run(
 ) -> None:
     path = Path(job.failed_dir) / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "run_id": run_id,
-        "strategy": job.strategy,
-        "command": result.command,
-        "returncode": result.returncode,
-        "report_path": result.report_path,
-        "duration_ms": duration_ms,
-        "ran_at": result.ran_at,
-    }, indent=2, sort_keys=True))
+    path.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "strategy": job.strategy,
+                "command": result.command,
+                "returncode": result.returncode,
+                "report_path": result.report_path,
+                "duration_ms": duration_ms,
+                "ran_at": result.ran_at,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )

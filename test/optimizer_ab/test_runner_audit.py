@@ -25,10 +25,12 @@ def test_split_train_window_creates_internal_validation():
 
 
 def test_count_codex_backtests_and_optimizer_runs():
-    stream = "\n".join([
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest baseline.pine"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli optimize candidate.pine"}}',
-    ])
+    stream = "\n".join(
+        [
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest baseline.pine"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli optimize candidate.pine"}}',
+        ]
+    )
 
     assert count_real_backtests(stream) == 2
 
@@ -48,15 +50,17 @@ def test_audit_marks_single_baseline_as_no_op():
 
 
 def test_audit_accepts_multiple_candidate_backtests():
-    stream = "\n".join([
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_1.pine | tee candidate_1_fit.txt"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_1.pine | tee candidate_1_validation.txt"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_2.pine | tee candidate_2_fit.txt"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_2.pine | tee candidate_2_validation.txt"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_3.pine | tee candidate_3_fit.txt"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_3.pine | tee candidate_3_validation.txt"}}',
-    ])
+    stream = "\n".join(
+        [
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_1.pine | tee candidate_1_fit.txt"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_1.pine | tee candidate_1_validation.txt"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_2.pine | tee candidate_2_fit.txt"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_2.pine | tee candidate_2_validation.txt"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_3.pine | tee candidate_3_fit.txt"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_3.pine | tee candidate_3_validation.txt"}}',
+        ]
+    )
 
     audit = summarize_trial_audit(
         stream=stream,
@@ -84,11 +88,13 @@ def test_stage_skill_uses_repo_local_base(tmp_path):
 
 
 def test_audit_counts_shell_loop_candidates():
-    stream = "\n".join([
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine | tee baseline.txt"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"for n in 1 2 3 4 5; do uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_${n}.pine | tee candidate_${n}_fit.txt; done"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"for n in 1 2 3 4 5; do uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_${n}.pine | tee candidate_${n}_validation.txt; done"}}',
-    ])
+    stream = "\n".join(
+        [
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine | tee baseline.txt"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"for n in 1 2 3 4 5; do uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_${n}.pine | tee candidate_${n}_fit.txt; done"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"for n in 1 2 3 4 5; do uv run python -m quantforge.pine.cli backtest /tmp/work/candidate_${n}.pine | tee candidate_${n}_validation.txt; done"}}',
+        ]
+    )
 
     audit = summarize_trial_audit(
         stream=stream,
@@ -104,15 +110,17 @@ def test_audit_counts_shell_loop_candidates():
 
 def test_audit_counts_work_file_fit_validation_runs():
     split = split_train_window("2024-01-01", "2024-06-30")
-    stream = "\n".join([
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-06-30"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-05-06"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-05-07 --end 2024-06-30"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-05-06"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-05-07 --end 2024-06-30"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-05-06"}}',
-        '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-05-07 --end 2024-06-30"}}',
-    ])
+    stream = "\n".join(
+        [
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-06-30"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-05-06"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-05-07 --end 2024-06-30"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-05-06"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-05-07 --end 2024-06-30"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-01-01 --end 2024-05-06"}}',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"uv run python -m quantforge.pine.cli backtest /tmp/work/ema.pine --start 2024-05-07 --end 2024-06-30"}}',
+        ]
+    )
 
     audit = summarize_trial_audit(
         stream=stream,

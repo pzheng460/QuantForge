@@ -23,16 +23,36 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_ROOT = Path(__file__).resolve().parent
 
 FIELDS = [
-    "trial_id", "method", "strategy_name", "regime", "seed",
-    "agent_provider", "model",
-    "returncode", "cost_usd", "duration_s",
-    "n_backtests", "candidate_backtests", "validation_backtests",
+    "trial_id",
+    "method",
+    "strategy_name",
+    "regime",
+    "seed",
+    "agent_provider",
+    "model",
+    "returncode",
+    "cost_usd",
+    "duration_s",
+    "n_backtests",
+    "candidate_backtests",
+    "validation_backtests",
     "optimization_attempted",
-    "no_op", "lazy_warning",
-    "is_sharpe", "is_pf", "is_mdd", "is_win_rate", "is_n_trades",
-    "oos_sharpe", "oos_pf", "oos_mdd", "oos_win_rate", "oos_n_trades",
-    "overfit_index", "is_to_oos_pf_ratio",
-    "trial_json", "stream_log",
+    "no_op",
+    "lazy_warning",
+    "is_sharpe",
+    "is_pf",
+    "is_mdd",
+    "is_win_rate",
+    "is_n_trades",
+    "oos_sharpe",
+    "oos_pf",
+    "oos_mdd",
+    "oos_win_rate",
+    "oos_n_trades",
+    "overfit_index",
+    "is_to_oos_pf_ratio",
+    "trial_json",
+    "stream_log",
 ]
 
 
@@ -57,17 +77,27 @@ def main():
     p.add_argument("--config", default=str(EVAL_ROOT / "test_set.yaml"))
     p.add_argument("--tier", choices=["dev", "test", "holdout"], required=True)
     p.add_argument("--methods", required=True)
-    p.add_argument("--strategies", default="",
-                   help="Optional comma-separated strategy path or stem filter.")
+    p.add_argument(
+        "--strategies",
+        default="",
+        help="Optional comma-separated strategy path or stem filter.",
+    )
     p.add_argument("--regimes", default="")
     p.add_argument("--seeds", default="")
     p.add_argument("--results-csv", default=str(EVAL_ROOT / "results" / "matrix.csv"))
     p.add_argument("--trials-dir", default=str(EVAL_ROOT / "results" / "trials"))
     p.add_argument("--no-holdout", action="store_true")
-    p.add_argument("--agent-provider", choices=["claude", "codex"], default=None,
-                   help="Single provider override. Prefer --agent-providers for cross-validation.")
-    p.add_argument("--agent-providers", default="",
-                   help="Comma-separated providers to run, e.g. claude,codex.")
+    p.add_argument(
+        "--agent-provider",
+        choices=["claude", "codex"],
+        default=None,
+        help="Single provider override. Prefer --agent-providers for cross-validation.",
+    )
+    p.add_argument(
+        "--agent-providers",
+        default="",
+        help="Comma-separated providers to run, e.g. claude,codex.",
+    )
     p.add_argument("--model", default=None)
     a = p.parse_args()
 
@@ -77,11 +107,15 @@ def main():
     if strategy_filters:
         strategies = filter_strategies(strategies, strategy_filters)
         if not strategies:
-            raise SystemExit(f"no strategies matched: {', '.join(sorted(strategy_filters))}")
+            raise SystemExit(
+                f"no strategies matched: {', '.join(sorted(strategy_filters))}"
+            )
     methods = parse_csv_list(a.methods, [])
     regimes = parse_csv_list(a.regimes, list(cfg["regimes"]))
     seeds = [int(s) for s in parse_csv_list(a.seeds, cfg["trial"].get("seeds") or [1])]
-    default_provider = [a.agent_provider or cfg["trial"].get("agent_provider", "claude")]
+    default_provider = [
+        a.agent_provider or cfg["trial"].get("agent_provider", "claude")
+    ]
     providers = parse_csv_list(a.agent_providers, default_provider)
 
     csv_path = Path(a.results_csv)
@@ -115,10 +149,25 @@ def main():
         print(f"  [run]  {cell_id}")
         t0 = time.time()
         runner_cmd = [
-            "uv", "run", "python", "-m", "eval.optimizer_ab.runner",
-            "--config", a.config, "--method", method, "--strategy", strat,
-            "--regime", regime, "--seed", str(seed), "--out", str(trial_json),
-            "--agent-provider", provider,
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "eval.optimizer_ab.runner",
+            "--config",
+            a.config,
+            "--method",
+            method,
+            "--strategy",
+            strat,
+            "--regime",
+            regime,
+            "--seed",
+            str(seed),
+            "--out",
+            str(trial_json),
+            "--agent-provider",
+            provider,
         ]
         if a.model:
             runner_cmd.extend(["--model", a.model])
@@ -128,14 +177,31 @@ def main():
         ).returncode
         if not a.no_holdout and trial_json.exists():
             subprocess.run(
-                ["uv", "run", "python", "-m", "eval.optimizer_ab.holdout_eval",
-                 "--config", a.config, "--trial", str(trial_json)],
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "-m",
+                    "eval.optimizer_ab.holdout_eval",
+                    "--config",
+                    a.config,
+                    "--trial",
+                    str(trial_json),
+                ],
                 cwd=str(Path(__file__).resolve().parents[2]),
             )
         duration = time.time() - t0
         row = _row(
-            method, strat, regime, seed, cell_id, trial_json, duration, rc,
-            provider, a.model,
+            method,
+            strat,
+            regime,
+            seed,
+            cell_id,
+            trial_json,
+            duration,
+            rc,
+            provider,
+            a.model,
         )
         _append(csv_path, row)
         done.add(row.get("trial_id", cell_id))
@@ -144,17 +210,34 @@ def main():
     return 0
 
 
-def _row(method, strat, regime, seed, cell_id, trial_json, duration, rc,
-         agent_provider=None, model=None):
+def _row(
+    method,
+    strat,
+    regime,
+    seed,
+    cell_id,
+    trial_json,
+    duration,
+    rc,
+    agent_provider=None,
+    model=None,
+):
     if not trial_json.exists():
-        return {"trial_id": cell_id, "method": method,
-                "strategy_name": Path(strat).stem, "regime": regime,
-                "seed": seed, "returncode": rc,
-                "agent_provider": agent_provider, "model": model,
-                "candidate_backtests": None, "validation_backtests": None,
-                "optimization_attempted": None,
-                "no_op": None,
-                "duration_s": round(duration, 1)}
+        return {
+            "trial_id": cell_id,
+            "method": method,
+            "strategy_name": Path(strat).stem,
+            "regime": regime,
+            "seed": seed,
+            "returncode": rc,
+            "agent_provider": agent_provider,
+            "model": model,
+            "candidate_backtests": None,
+            "validation_backtests": None,
+            "optimization_attempted": None,
+            "no_op": None,
+            "duration_s": round(duration, 1),
+        }
     rec = json.loads(trial_json.read_text())
     ho = rec.get("holdout") or {}
     is_m = ho.get("is") or {}

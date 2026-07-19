@@ -49,7 +49,11 @@ def pair_provider_trials(rows, provider_a, provider_b):
 
 
 def load_trial(row_or_path):
-    path = row_or_path if isinstance(row_or_path, (str, Path)) else row_or_path["trial_json"]
+    path = (
+        row_or_path
+        if isinstance(row_or_path, (str, Path))
+        else row_or_path["trial_json"]
+    )
     return json.loads(Path(path).read_text())
 
 
@@ -118,7 +122,7 @@ def _decode_review_after_sentinel(text):
     match = REVIEW_RE.search(text)
     if not match:
         return None
-    payload = text[match.end():].strip()
+    payload = text[match.end() :].strip()
     try:
         obj, _ = json.JSONDecoder().raw_decode(payload)
         return obj
@@ -178,8 +182,9 @@ def invoke_reviewer(prompt, provider, model, max_turns, timeout_s, log_path):
     return proc.returncode or 0, "".join(chunks)
 
 
-def review_trial(trial_path, reviewer_provider, out_dir, model=None,
-                 max_turns=40, timeout_s=900):
+def review_trial(
+    trial_path, reviewer_provider, out_dir, model=None, max_turns=40, timeout_s=900
+):
     trial_path = Path(trial_path)
     trial = load_trial(trial_path)
     reviewer_model = resolve_model(reviewer_provider, model)
@@ -219,25 +224,33 @@ def summarize_review_records(records):
         if not factors:
             factors = [{}]
         for factor in factors:
-            rows.append({
-                "trial_id": rec.get("trial_id"),
-                "reviewed_provider": rec.get("reviewed_provider"),
-                "reviewer_provider": rec.get("reviewer_provider"),
-                "decision": review.get("decision"),
-                "robustness_score": review.get("robustness_score"),
-                "overfit_risk": review.get("overfit_risk"),
-                "factor": factor.get("factor"),
-                "evidence": factor.get("evidence"),
-                "expected_effect": factor.get("expected_effect"),
-            })
+            rows.append(
+                {
+                    "trial_id": rec.get("trial_id"),
+                    "reviewed_provider": rec.get("reviewed_provider"),
+                    "reviewer_provider": rec.get("reviewer_provider"),
+                    "decision": review.get("decision"),
+                    "robustness_score": review.get("robustness_score"),
+                    "overfit_risk": review.get("overfit_risk"),
+                    "factor": factor.get("factor"),
+                    "evidence": factor.get("evidence"),
+                    "expected_effect": factor.get("expected_effect"),
+                }
+            )
     return rows
 
 
 def write_factor_summary(records, summary_csv):
     rows = summarize_review_records(records)
     fieldnames = [
-        "trial_id", "reviewed_provider", "reviewer_provider", "decision",
-        "robustness_score", "overfit_risk", "factor", "evidence",
+        "trial_id",
+        "reviewed_provider",
+        "reviewer_provider",
+        "decision",
+        "robustness_score",
+        "overfit_risk",
+        "factor",
+        "evidence",
         "expected_effect",
     ]
     summary_csv = Path(summary_csv)
@@ -249,10 +262,18 @@ def write_factor_summary(records, summary_csv):
     return rows
 
 
-def run_cross_review(csv_path, provider_a, provider_b, out_dir,
-                     model=None, provider_models=None,
-                     max_turns=40, timeout_s=900, dry_run=False,
-                     summary_csv=None):
+def run_cross_review(
+    csv_path,
+    provider_a,
+    provider_b,
+    out_dir,
+    model=None,
+    provider_models=None,
+    max_turns=40,
+    timeout_s=900,
+    dry_run=False,
+    summary_csv=None,
+):
     rows = read_rows(csv_path)
     outputs = []
     records = []
@@ -285,18 +306,27 @@ def run_cross_review(csv_path, provider_a, provider_b, out_dir,
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--csv", required=True)
-    p.add_argument("--providers", default="claude,codex",
-                   help="Two providers to cross-review, e.g. claude,codex.")
+    p.add_argument(
+        "--providers",
+        default="claude,codex",
+        help="Two providers to cross-review, e.g. claude,codex.",
+    )
     p.add_argument("--out-dir", default="eval/optimizer_ab/results/cross_reviews")
-    p.add_argument("--summary-csv", default="",
-                   help="Optional CSV that flattens improvement_factors.")
+    p.add_argument(
+        "--summary-csv",
+        default="",
+        help="Optional CSV that flattens improvement_factors.",
+    )
     p.add_argument("--model", default=None)
     p.add_argument("--claude-model", default=None)
     p.add_argument("--codex-model", default=None)
     p.add_argument("--max-turns", type=int, default=40)
     p.add_argument("--timeout-seconds", type=int, default=900)
-    p.add_argument("--dry-run", action="store_true",
-                   help="Write review prompts without invoking agents.")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write review prompts without invoking agents.",
+    )
     a = p.parse_args()
 
     providers = [x.strip() for x in a.providers.split(",") if x.strip()]

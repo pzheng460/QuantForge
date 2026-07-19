@@ -81,15 +81,17 @@ class DemoTracker:
             pnl = (price - self._entry_price) * self._position_qty
         else:
             pnl = (self._entry_price - price) * self._position_qty
-        self.trades.append(VirtualTrade(
-            direction=self._position_side,
-            entry_price=self._entry_price,
-            exit_price=price,
-            qty=self._position_qty,
-            pnl=pnl,
-            entry_time=self._entry_time,
-            exit_time=time.time(),
-        ))
+        self.trades.append(
+            VirtualTrade(
+                direction=self._position_side,
+                entry_price=self._entry_price,
+                exit_price=price,
+                qty=self._position_qty,
+                pnl=pnl,
+                entry_time=self._entry_time,
+                exit_time=time.time(),
+            )
+        )
         self._position_side = None
         self._entry_price = 0.0
         self._position_qty = 0.0
@@ -102,7 +104,9 @@ class DemoTracker:
         self._entry_time = time.time()  # approximate
         logger.info(
             "Restored open position: %s %.6f @ %.2f",
-            side.upper(), qty, entry_price,
+            side.upper(),
+            qty,
+            entry_price,
         )
 
     @property
@@ -187,14 +191,14 @@ class DemoTracker:
 
         avg_win_pct = 0.0
         if winning:
-            avg_win_pct = sum(
-                t.pnl / t.entry_price * 100 for t in winning
-            ) / len(winning)
+            avg_win_pct = sum(t.pnl / t.entry_price * 100 for t in winning) / len(
+                winning
+            )
         avg_loss_pct = 0.0
         if losing:
-            avg_loss_pct = sum(
-                t.pnl / t.entry_price * 100 for t in losing
-            ) / len(losing)
+            avg_loss_pct = sum(t.pnl / t.entry_price * 100 for t in losing) / len(
+                losing
+            )
 
         gross_wins = sum(t.pnl for t in winning)
         gross_losses = abs(sum(t.pnl for t in losing))
@@ -212,22 +216,24 @@ class DemoTracker:
             # pnl_pct = pnl / notional_value * 100
             notional = t.entry_price * t.qty if t.qty > 0 else 1.0
             pnl_pct = t.pnl / notional * 100 if notional > 0 else 0.0
-            trades_out.append({
-                "symbol": self.symbol,
-                "side": t.direction,
-                "entry_price": t.entry_price,
-                "exit_price": t.exit_price,
-                "amount": t.qty,
-                "entry_time": datetime.fromtimestamp(
-                    t.entry_time, tz=timezone.utc
-                ).isoformat(),
-                "exit_time": datetime.fromtimestamp(
-                    t.exit_time, tz=timezone.utc
-                ).isoformat(),
-                "pnl": t.pnl,
-                "pnl_pct": pnl_pct,
-                "exit_reason": "",
-            })
+            trades_out.append(
+                {
+                    "symbol": self.symbol,
+                    "side": t.direction,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "amount": t.qty,
+                    "entry_time": datetime.fromtimestamp(
+                        t.entry_time, tz=timezone.utc
+                    ).isoformat(),
+                    "exit_time": datetime.fromtimestamp(
+                        t.exit_time, tz=timezone.utc
+                    ).isoformat(),
+                    "pnl": t.pnl,
+                    "pnl_pct": pnl_pct,
+                    "exit_reason": "",
+                }
+            )
 
         # Open position state for restart recovery
         open_position = None
@@ -238,7 +244,9 @@ class DemoTracker:
                 "qty": self._position_qty,
                 "entry_time": datetime.fromtimestamp(
                     self._entry_time, tz=timezone.utc
-                ).isoformat() if self._entry_time else "",
+                ).isoformat()
+                if self._entry_time
+                else "",
             }
 
         return {
@@ -251,9 +259,7 @@ class DemoTracker:
             "current_balance": current_balance,
             "peak_balance": peak,
             "total_return_pct": (
-                (current_balance - self.initial_capital)
-                / self.initial_capital
-                * 100
+                (current_balance - self.initial_capital) / self.initial_capital * 100
             ),
             "total_pnl": realized + unrealized,
             "max_drawdown_pct": max_dd,
@@ -416,7 +422,9 @@ class OrderBridge:
             self._demo_tracker._position_qty = 0.0
         logger.info(
             "Position synced: %s qty=%.6f entry=%.2f",
-            (side or "FLAT").upper(), qty, entry_price,
+            (side or "FLAT").upper(),
+            qty,
+            entry_price,
         )
 
     # ─── Queue-time callbacks ─────────────────────────────────────────
@@ -477,7 +485,8 @@ class OrderBridge:
         self.signals.append(self._record(order))
         logger.info(
             "QUEUED ENTRY %s | id=%s%s%s%s",
-            order.direction.value.upper(), order.id,
+            order.direction.value.upper(),
+            order.id,
             f" limit={order.limit}" if order.limit else "",
             f" stop={order.stop}" if order.stop else "",
             f" trail={order.trail_points}" if order.trail_points else "",
@@ -504,7 +513,8 @@ class OrderBridge:
                 logger.warning(
                     "Reverse submission failed for id=%s — rolling Pine back to %s "
                     "(no phantom fill on next bar's execute_pending)",
-                    order.id, self._position_side,
+                    order.id,
+                    self._position_side,
                 )
                 self._rollback_pine(order.id)
                 return
@@ -533,7 +543,8 @@ class OrderBridge:
         self.signals.append(self._record(order))
         logger.info(
             "QUEUED CLOSE %s | id=%s",
-            self._position_side or "FLAT", order.id,
+            self._position_side or "FLAT",
+            order.id,
         )
         if not self._position_side or self._position_qty <= 0:
             return  # nothing to close
@@ -554,8 +565,11 @@ class OrderBridge:
         self.signals.append(self._record(order))
         logger.info(
             "QUEUED EXIT %s | id=%s stop=%s limit=%s trail=%s",
-            self._position_side or "FLAT", order.id,
-            order.stop, order.limit, order.trail_points,
+            self._position_side or "FLAT",
+            order.id,
+            order.stop,
+            order.limit,
+            order.trail_points,
         )
         # Conditional — wait for Pine to fire the fill callback when bar
         # range crosses the trigger. No submission here.
@@ -569,7 +583,11 @@ class OrderBridge:
     # with the incremental qty (Pine averages internally).
 
     def on_entry_fill(
-        self, direction: str, price: float, qty: float, order_id: str = "",
+        self,
+        direction: str,
+        price: float,
+        qty: float,
+        order_id: str = "",
     ) -> None:
         """Pine filled an entry. Submit only if not pre-submitted at queue-time."""
         if qty <= 0:
@@ -604,8 +622,8 @@ class OrderBridge:
                 if new_total > 0:
                     self._demo_tracker._position_qty = new_total
                     self._demo_tracker._entry_price = (
-                        (old_entry * old_qty + fill * qty) / new_total
-                    )
+                        old_entry * old_qty + fill * qty
+                    ) / new_total
             else:
                 self._demo_tracker.on_entry(direction, fill)
                 # Override qty DemoTracker would have estimated — Pine's
@@ -613,7 +631,11 @@ class OrderBridge:
                 self._demo_tracker._position_qty = qty
 
     def on_close_fill(
-        self, direction: str, price: float, qty: float, order_id: str = "",
+        self,
+        direction: str,
+        price: float,
+        qty: float,
+        order_id: str = "",
     ) -> None:
         """Pine filled a close. Submit only if not pre-submitted at queue-time."""
         if qty <= 0:
@@ -653,14 +675,20 @@ class OrderBridge:
         if not self._submission_enabled:
             logger.debug(
                 "Submission suppressed (backfill mode): %s %s qty=%.6f",
-                action, side, qty,
+                action,
+                side,
+                qty,
             )
             return None
         if self.demo:
             return None
         if self._submit_fn:
             self._submit_fn(
-                side=side, qty=qty, action=action, limit=None, stop=None,
+                side=side,
+                qty=qty,
+                action=action,
+                limit=None,
+                stop=None,
             )
             return None
         if self._connector is None:
@@ -673,10 +701,15 @@ class OrderBridge:
             reduce_only = action in ("close", "exit")
             logger.info(
                 "Exchange order: %s %s qty=%.6f reduce_only=%s",
-                action, side, qty, reduce_only,
+                action,
+                side,
+                qty,
+                reduce_only,
             )
             return self._connector.submit_market_order(
-                side=side, qty=qty, reduce_only=reduce_only,
+                side=side,
+                qty=qty,
+                reduce_only=reduce_only,
             )
         except Exception:
             logger.exception(

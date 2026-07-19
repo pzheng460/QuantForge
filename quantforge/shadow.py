@@ -6,7 +6,12 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from quantforge.deployment import DeploymentError, DeploymentRegistry, DeploymentStatus, StrategyVersion
+from quantforge.deployment import (
+    DeploymentError,
+    DeploymentRegistry,
+    DeploymentStatus,
+    StrategyVersion,
+)
 
 MetricEvaluator = Callable[[Path, str, str, str, str, str], dict[str, Any]]
 
@@ -21,8 +26,10 @@ def compare_metrics(
 ) -> dict[str, Any]:
     """Compare baseline and candidate metrics with conservative shadow gates."""
     deltas = {
-        "profit_factor": _num(candidate, "profit_factor") - _num(baseline, "profit_factor"),
-        "max_drawdown": _num(candidate, "max_drawdown") - _num(baseline, "max_drawdown"),
+        "profit_factor": _num(candidate, "profit_factor")
+        - _num(baseline, "profit_factor"),
+        "max_drawdown": _num(candidate, "max_drawdown")
+        - _num(baseline, "max_drawdown"),
         "n_trades": _num(candidate, "n_trades") - _num(baseline, "n_trades"),
         "return_pct": _num(candidate, "return_pct") - _num(baseline, "return_pct"),
         "sharpe": _num(candidate, "sharpe") - _num(baseline, "sharpe"),
@@ -65,11 +72,17 @@ def run_shadow_comparison(
     """Evaluate the promoted version and latest shadow candidate on one window."""
     registry = DeploymentRegistry(registry_path)
     baseline = registry.current(strategy_id)
-    candidate = _latest_shadow_candidate(registry, strategy_id, exclude_version_id=baseline.version_id)
+    candidate = _latest_shadow_candidate(
+        registry, strategy_id, exclude_version_id=baseline.version_id
+    )
     evaluate = evaluator or _default_evaluator()
 
-    baseline_metrics = evaluate(Path(baseline.pine_path), symbol, exchange, timeframe, start, end)
-    candidate_metrics = evaluate(Path(candidate.pine_path), symbol, exchange, timeframe, start, end)
+    baseline_metrics = evaluate(
+        Path(baseline.pine_path), symbol, exchange, timeframe, start, end
+    )
+    candidate_metrics = evaluate(
+        Path(candidate.pine_path), symbol, exchange, timeframe, start, end
+    )
     comparison = compare_metrics(baseline_metrics, candidate_metrics)
     report = {
         "strategy_id": strategy_id,
@@ -102,7 +115,8 @@ def _latest_shadow_candidate(
     candidates = [
         version
         for version in registry.list(strategy_id)
-        if version.status == DeploymentStatus.SHADOW and version.version_id != exclude_version_id
+        if version.status == DeploymentStatus.SHADOW
+        and version.version_id != exclude_version_id
     ]
     if not candidates:
         raise DeploymentError(f"no shadow candidate for {strategy_id}")

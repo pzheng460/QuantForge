@@ -53,11 +53,13 @@ class ComprehensiveReportGenerator:
 
     def add_level_result(self, level: int, name: str, metrics: Dict[str, Any]):
         """Add a UQSS level backtest result."""
-        self.levels_results.append({
-            "level": level,
-            "name": name,
-            "metrics": metrics,
-        })
+        self.levels_results.append(
+            {
+                "level": level,
+                "name": name,
+                "metrics": metrics,
+            }
+        )
 
     def set_three_stage_results(self, results: Dict[str, Any]):
         """Set three-stage validation results."""
@@ -276,8 +278,8 @@ class ComprehensiveReportGenerator:
             <h1>完整回测验证报告</h1>
             <div class="subtitle">
                 {self.symbol} | 周期: {self.period} |
-                {start.strftime('%Y-%m-%d') if hasattr(start, 'strftime') else start} 至
-                {end.strftime('%Y-%m-%d') if hasattr(end, 'strftime') else end} |
+                {start.strftime("%Y-%m-%d") if hasattr(start, "strftime") else start} 至
+                {end.strftime("%Y-%m-%d") if hasattr(end, "strftime") else end} |
                 {bars:,} 数据条
             </div>
         </header>
@@ -297,14 +299,16 @@ class ComprehensiveReportGenerator:
         # Three-stage overall result
         three_stage_pass = False
         if self.three_stage_results:
-            three_stage_pass = self.three_stage_results.get("summary", {}).get("all_pass", False)
+            three_stage_pass = self.three_stage_results.get("summary", {}).get(
+                "all_pass", False
+            )
 
         overall_status = "success" if three_stage_pass else "warning"
         overall_text = "策略验证通过" if three_stage_pass else "策略需要改进"
 
         # Convert benchmark and funding values to Python float
         btc_benchmark = _to_python_float(self.btc_benchmark)
-        avg_funding_rate = _to_python_float(self.funding_info.get('avg_rate', 0))
+        avg_funding_rate = _to_python_float(self.funding_info.get("avg_rate", 0))
 
         return f"""
         <section class="section">
@@ -313,7 +317,7 @@ class ComprehensiveReportGenerator:
                 <div class="summary-card {overall_status}">
                     <div class="title">整体评估</div>
                     <div class="value">{overall_text}</div>
-                    <div class="detail">三阶段验证{'全部通过' if three_stage_pass else '部分未通过'}</div>
+                    <div class="detail">三阶段验证{"全部通过" if three_stage_pass else "部分未通过"}</div>
                 </div>
                 <div class="summary-card info">
                     <div class="title">BTC 基准收益</div>
@@ -322,12 +326,12 @@ class ComprehensiveReportGenerator:
                 </div>
                 <div class="summary-card">
                     <div class="title">最佳策略级别</div>
-                    <div class="value">L{best_level['level'] if best_level else '?'}</div>
-                    <div class="detail">{best_level['name'] if best_level else 'N/A'} (Sharpe: {best_sharpe:.2f})</div>
+                    <div class="value">L{best_level["level"] if best_level else "?"}</div>
+                    <div class="detail">{best_level["name"] if best_level else "N/A"} (Sharpe: {best_sharpe:.2f})</div>
                 </div>
                 <div class="summary-card info">
                     <div class="title">资金费率</div>
-                    <div class="value">{self.funding_info.get('count', 0)} 条</div>
+                    <div class="value">{self.funding_info.get("count", 0)} 条</div>
                     <div class="detail">平均 {avg_funding_rate:.4f}% / 8h</div>
                 </div>
             </div>
@@ -343,7 +347,12 @@ class ComprehensiveReportGenerator:
         sorted_levels = sorted(self.levels_results, key=lambda x: x["level"])
 
         # Find best by Sharpe - convert to Python float
-        best_sharpe = _to_python_float(max(_to_python_float(lr["metrics"].get("sharpe_ratio", -999)) for lr in sorted_levels))
+        best_sharpe = _to_python_float(
+            max(
+                _to_python_float(lr["metrics"].get("sharpe_ratio", -999))
+                for lr in sorted_levels
+            )
+        )
 
         rows = ""
         for lr in sorted_levels:
@@ -362,7 +371,7 @@ class ComprehensiveReportGenerator:
 
             rows += f"""
             <tr>
-                <td><strong>L{lr['level']}</strong> {lr['name']}{badge}</td>
+                <td><strong>L{lr["level"]}</strong> {lr["name"]}{badge}</td>
                 <td class="{ret_class}">{ret:+.2f}%</td>
                 <td class="{sharpe_class}">{sharpe:.2f}</td>
                 <td>{dd:.2f}%</td>
@@ -373,8 +382,14 @@ class ComprehensiveReportGenerator:
 
         # Level chart data - convert to JSON-safe format
         levels = [f"L{lr['level']}" for lr in sorted_levels]
-        returns = [_to_python_float(lr["metrics"].get("total_return_pct", 0)) for lr in sorted_levels]
-        sharpes = [_to_python_float(lr["metrics"].get("sharpe_ratio", 0)) for lr in sorted_levels]
+        returns = [
+            _to_python_float(lr["metrics"].get("total_return_pct", 0))
+            for lr in sorted_levels
+        ]
+        sharpes = [
+            _to_python_float(lr["metrics"].get("sharpe_ratio", 0))
+            for lr in sorted_levels
+        ]
 
         # Convert to JSON strings for safe JavaScript embedding
         levels_json = json.dumps(levels)
@@ -470,18 +485,18 @@ class ComprehensiveReportGenerator:
             """
 
         # Stage 1 metrics - convert to Python floats
-        s1_sharpe = _to_python_float(s1.get('in_sample_sharpe', 0))
-        s1_return = _to_python_float(s1.get('in_sample_return', 0))
-        s1_drawdown = _to_python_float(s1.get('in_sample_drawdown', 0))
-        s1_trades = int(s1.get('in_sample_trades', 0))
+        s1_sharpe = _to_python_float(s1.get("in_sample_sharpe", 0))
+        s1_return = _to_python_float(s1.get("in_sample_return", 0))
+        s1_drawdown = _to_python_float(s1.get("in_sample_drawdown", 0))
+        s1_trades = int(s1.get("in_sample_trades", 0))
 
         stage1_content = f"""
         <div class="metrics-grid">
-            <div class="metric-card {'positive' if s1_sharpe >= 1 else 'negative'}">
+            <div class="metric-card {"positive" if s1_sharpe >= 1 else "negative"}">
                 <div class="value">{s1_sharpe:.2f}</div>
                 <div class="label">样本内夏普</div>
             </div>
-            <div class="metric-card {'positive' if s1_return > 0 else 'negative'}">
+            <div class="metric-card {"positive" if s1_return > 0 else "negative"}">
                 <div class="value">{s1_return:+.2f}%</div>
                 <div class="label">样本内收益</div>
             </div>
@@ -495,7 +510,7 @@ class ComprehensiveReportGenerator:
             </div>
         </div>
         <p style="margin-top: 10px; color: #6c757d;">
-            最优参数: {s1.get('best_params', {})}
+            最优参数: {s1.get("best_params", {})}
         </p>
         """
 
@@ -503,16 +518,16 @@ class ComprehensiveReportGenerator:
         robustness = _to_python_float(s2.get("robustness_ratio", 0))
         pos_windows = int(s2.get("positive_windows", 0))
         total_windows = int(s2.get("windows_count", 1))
-        avg_train_return = _to_python_float(s2.get('avg_train_return', 0))
-        avg_test_return = _to_python_float(s2.get('avg_test_return', 0))
+        avg_train_return = _to_python_float(s2.get("avg_train_return", 0))
+        avg_test_return = _to_python_float(s2.get("avg_test_return", 0))
 
         stage2_content = f"""
         <div class="metrics-grid">
-            <div class="metric-card {'positive' if robustness >= 0.5 else 'negative'}">
+            <div class="metric-card {"positive" if robustness >= 0.5 else "negative"}">
                 <div class="value">{robustness:.2f}</div>
                 <div class="label">鲁棒性比率</div>
             </div>
-            <div class="metric-card {'positive' if pos_windows/max(total_windows,1) >= 0.5 else 'negative'}">
+            <div class="metric-card {"positive" if pos_windows / max(total_windows, 1) >= 0.5 else "negative"}">
                 <div class="value">{pos_windows}/{total_windows}</div>
                 <div class="label">正收益窗口</div>
             </div>
@@ -528,18 +543,18 @@ class ComprehensiveReportGenerator:
         """
 
         # Stage 3 metrics - convert to Python floats
-        s3_sharpe = _to_python_float(s3.get('holdout_sharpe', 0))
-        s3_return = _to_python_float(s3.get('holdout_return', 0))
-        s3_drawdown = _to_python_float(s3.get('holdout_drawdown', 0))
+        s3_sharpe = _to_python_float(s3.get("holdout_sharpe", 0))
+        s3_return = _to_python_float(s3.get("holdout_return", 0))
+        s3_drawdown = _to_python_float(s3.get("holdout_drawdown", 0))
         degradation = _to_python_float(summary.get("degradation", 0))
 
         stage3_content = f"""
         <div class="metrics-grid">
-            <div class="metric-card {'positive' if s3_sharpe >= 0.5 else 'negative'}">
+            <div class="metric-card {"positive" if s3_sharpe >= 0.5 else "negative"}">
                 <div class="value">{s3_sharpe:.2f}</div>
                 <div class="label">样本外夏普</div>
             </div>
-            <div class="metric-card {'positive' if s3_return > 0 else 'negative'}">
+            <div class="metric-card {"positive" if s3_return > 0 else "negative"}">
                 <div class="value">{s3_return:+.2f}%</div>
                 <div class="label">样本外收益</div>
             </div>
@@ -547,7 +562,7 @@ class ComprehensiveReportGenerator:
                 <div class="value">{s3_drawdown:.2f}%</div>
                 <div class="label">最大回撤</div>
             </div>
-            <div class="metric-card {'positive' if degradation <= 0.5 else 'negative'}">
+            <div class="metric-card {"positive" if degradation <= 0.5 else "negative"}">
                 <div class="value">{degradation:.0%}</div>
                 <div class="label">性能衰减</div>
             </div>
@@ -578,7 +593,9 @@ class ComprehensiveReportGenerator:
         # Regime distribution chart - convert to JSON-safe format
         regimes = list(regime_summary.keys())
         pcts = [_to_python_float(regime_summary.get(r, 0)) for r in regimes]
-        regime_labels = [r.replace('_pct', '').replace('_', ' ').title() for r in regimes]
+        regime_labels = [
+            r.replace("_pct", "").replace("_", " ").title() for r in regimes
+        ]
 
         # Convert to JSON for safe JavaScript embedding
         labels_json = json.dumps(regime_labels)
@@ -602,9 +619,9 @@ class ComprehensiveReportGenerator:
         simple_section = ""
         if self.simple_regime_results:
             sr = self.simple_regime_results
-            bull_pct = _to_python_float(sr.get('bull_pct', 0))
-            bear_pct = _to_python_float(sr.get('bear_pct', 0))
-            ranging_pct = _to_python_float(sr.get('ranging_pct', 0))
+            bull_pct = _to_python_float(sr.get("bull_pct", 0))
+            bear_pct = _to_python_float(sr.get("bear_pct", 0))
+            ranging_pct = _to_python_float(sr.get("ranging_pct", 0))
             simple_section = f"""
             <h3>简化市场状态分析 (US-10 规格)</h3>
             <p style="color: #6c757d; margin-bottom: 15px;">
@@ -676,84 +693,110 @@ class ComprehensiveReportGenerator:
             summary = self.three_stage_results.get("summary", {})
 
             if not summary.get("stage1_pass"):
-                recommendations.append({
-                    "type": "danger",
-                    "title": "样本内优化未达标",
-                    "content": "样本内夏普比率 < 1.0，建议：1) 调整策略逻辑；2) 尝试不同的参数范围；3) 考虑其他技术指标组合"
-                })
+                recommendations.append(
+                    {
+                        "type": "danger",
+                        "title": "样本内优化未达标",
+                        "content": "样本内夏普比率 < 1.0，建议：1) 调整策略逻辑；2) 尝试不同的参数范围；3) 考虑其他技术指标组合",
+                    }
+                )
 
             if not summary.get("stage2_pass"):
                 robustness = _to_python_float(summary.get("robustness_ratio", 0))
-                recommendations.append({
-                    "type": "warning",
-                    "title": f"滚动验证鲁棒性不足 ({robustness:.2f})",
-                    "content": "参数在时间序列上不稳定，建议：1) 使用更长的回测周期；2) 增加参数约束；3) 考虑自适应参数"
-                })
+                recommendations.append(
+                    {
+                        "type": "warning",
+                        "title": f"滚动验证鲁棒性不足 ({robustness:.2f})",
+                        "content": "参数在时间序列上不稳定，建议：1) 使用更长的回测周期；2) 增加参数约束；3) 考虑自适应参数",
+                    }
+                )
 
             if not summary.get("stage3_pass"):
                 degradation = _to_python_float(summary.get("degradation", 0))
-                recommendations.append({
-                    "type": "danger",
-                    "title": f"样本外性能衰减严重 ({degradation:.0%})",
-                    "content": "可能存在过拟合，建议：1) 减少优化参数数量；2) 使用更保守的参数；3) 增加样本外数据比例"
-                })
+                recommendations.append(
+                    {
+                        "type": "danger",
+                        "title": f"样本外性能衰减严重 ({degradation:.0%})",
+                        "content": "可能存在过拟合，建议：1) 减少优化参数数量；2) 使用更保守的参数；3) 增加样本外数据比例",
+                    }
+                )
 
             if summary.get("all_pass"):
-                recommendations.append({
-                    "type": "success",
-                    "title": "三阶段验证全部通过",
-                    "content": "策略具备较好的稳健性，可以进入模拟盘测试阶段。建议使用 10% 资金进行 2-4 周的实盘验证。"
-                })
+                recommendations.append(
+                    {
+                        "type": "success",
+                        "title": "三阶段验证全部通过",
+                        "content": "策略具备较好的稳健性，可以进入模拟盘测试阶段。建议使用 10% 资金进行 2-4 周的实盘验证。",
+                    }
+                )
 
         # Analyze levels - convert sharpe to Python float for comparison
         if self.levels_results:
-            positive_levels = [lr for lr in self.levels_results if _to_python_float(lr["metrics"].get("sharpe_ratio", 0)) > 0]
+            positive_levels = [
+                lr
+                for lr in self.levels_results
+                if _to_python_float(lr["metrics"].get("sharpe_ratio", 0)) > 0
+            ]
             if len(positive_levels) == 0:
-                recommendations.append({
-                    "type": "danger",
-                    "title": "所有级别夏普比率为负",
-                    "content": "策略在当前市场条件下表现不佳，建议：1) 分析是否处于不适合的市场状态；2) 考虑做空策略；3) 重新审视策略假设"
-                })
+                recommendations.append(
+                    {
+                        "type": "danger",
+                        "title": "所有级别夏普比率为负",
+                        "content": "策略在当前市场条件下表现不佳，建议：1) 分析是否处于不适合的市场状态；2) 考虑做空策略；3) 重新审视策略假设",
+                    }
+                )
             elif len(positive_levels) >= 3:
-                recommendations.append({
-                    "type": "success",
-                    "title": f"{len(positive_levels)} 个级别夏普比率为正",
-                    "content": "策略在多个时间视界下表现良好，表明核心逻辑有效。建议选择夏普比率最高且回撤可接受的级别。"
-                })
+                recommendations.append(
+                    {
+                        "type": "success",
+                        "title": f"{len(positive_levels)} 个级别夏普比率为正",
+                        "content": "策略在多个时间视界下表现良好，表明核心逻辑有效。建议选择夏普比率最高且回撤可接受的级别。",
+                    }
+                )
 
         # Regime recommendations - convert return_pct to Python float for comparison
         if self.regime_results:
             regime_perf = self.regime_results.get("performance", {})
-            negative_regimes = [r for r, p in regime_perf.items() if _to_python_float(p.get("return_pct", 0)) < -5]
+            negative_regimes = [
+                r
+                for r, p in regime_perf.items()
+                if _to_python_float(p.get("return_pct", 0)) < -5
+            ]
             if negative_regimes:
-                recommendations.append({
-                    "type": "info",
-                    "title": "特定市场状态表现不佳",
-                    "content": f"在 {', '.join(negative_regimes)} 状态下亏损较大。建议：1) 在该状态下减少仓位；2) 添加状态过滤条件"
-                })
+                recommendations.append(
+                    {
+                        "type": "info",
+                        "title": "特定市场状态表现不佳",
+                        "content": f"在 {', '.join(negative_regimes)} 状态下亏损较大。建议：1) 在该状态下减少仓位；2) 添加状态过滤条件",
+                    }
+                )
 
         # General recommendations - convert btc_benchmark to Python float
         btc_benchmark = _to_python_float(self.btc_benchmark)
         if btc_benchmark < -20:
-            recommendations.append({
-                "type": "info",
-                "title": "回测期间为熊市",
-                "content": f"BTC 同期下跌 {btc_benchmark:.1f}%，策略在熊市中的表现是重要参考。如果策略亏损小于 BTC，说明具有一定的防御能力。"
-            })
+            recommendations.append(
+                {
+                    "type": "info",
+                    "title": "回测期间为熊市",
+                    "content": f"BTC 同期下跌 {btc_benchmark:.1f}%，策略在熊市中的表现是重要参考。如果策略亏损小于 BTC，说明具有一定的防御能力。",
+                }
+            )
 
         if not recommendations:
-            recommendations.append({
-                "type": "info",
-                "title": "暂无特别建议",
-                "content": "请结合具体情况分析回测结果。"
-            })
+            recommendations.append(
+                {
+                    "type": "info",
+                    "title": "暂无特别建议",
+                    "content": "请结合具体情况分析回测结果。",
+                }
+            )
 
         recs_html = ""
         for rec in recommendations:
             recs_html += f"""
-            <div class="recommendation {rec['type']}">
-                <div class="recommendation-title">{rec['title']}</div>
-                <div>{rec['content']}</div>
+            <div class="recommendation {rec["type"]}">
+                <div class="recommendation-title">{rec["title"]}</div>
+                <div>{rec["content"]}</div>
             </div>
             """
 
@@ -776,7 +819,7 @@ class ComprehensiveReportGenerator:
         """Generate footer section."""
         return f"""
         <footer>
-            <p>QuantForge 完整回测验证报告 | 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>QuantForge 完整回测验证报告 | 生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
             <p>本报告仅供参考，不构成投资建议</p>
         </footer>
         """

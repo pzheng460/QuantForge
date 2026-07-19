@@ -41,7 +41,9 @@ def check_risk(
     fills = _fills_for(data, strategy_id, role)
     daily_pnl = _daily_realized_pnl(fills)
     consecutive_losses = _consecutive_losses(fills)
-    largest_loss = min([float(f.get("realized_pnl_delta", 0.0)) for f in fills] or [0.0])
+    largest_loss = min(
+        [float(f.get("realized_pnl_delta", 0.0)) for f in fills] or [0.0]
+    )
 
     hard_reasons: list[str] = []
     warning_reasons: list[str] = []
@@ -67,7 +69,9 @@ def check_risk(
         reasons = []
 
     score = _risk_score(summary, daily_pnl, consecutive_losses, cfg)
-    control = TradingControl(control_state).set_action(strategy_id, action, reasons=reasons, score=score)
+    control = TradingControl(control_state).set_action(
+        strategy_id, action, reasons=reasons, score=score
+    )
     rollback = _maybe_rollback(
         strategy_id,
         registry_path=registry_path,
@@ -125,9 +129,12 @@ def _maybe_rollback(
     }
 
 
-def _fills_for(data: dict[str, Any], strategy_id: str, role: str) -> list[dict[str, Any]]:
+def _fills_for(
+    data: dict[str, Any], strategy_id: str, role: str
+) -> list[dict[str, Any]]:
     return [
-        fill for fill in data.get("fills", [])
+        fill
+        for fill in data.get("fills", [])
         if fill.get("strategy_id") == strategy_id and fill.get("role") == role
     ]
 
@@ -166,7 +173,9 @@ def _risk_score(
     cfg: RiskConfig,
 ) -> float:
     score = 100.0
-    score -= min(60.0, (float(summary["max_drawdown"]) / max(cfg.max_drawdown, 1e-9)) * 35.0)
+    score -= min(
+        60.0, (float(summary["max_drawdown"]) / max(cfg.max_drawdown, 1e-9)) * 35.0
+    )
     if daily_pnl < 0:
         score -= min(35.0, (abs(daily_pnl) / max(cfg.max_daily_loss, 1e-9)) * 35.0)
     score -= min(20.0, (consecutive_losses / max(cfg.max_consecutive_losses, 1)) * 20.0)

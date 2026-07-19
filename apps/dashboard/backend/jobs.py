@@ -237,7 +237,9 @@ def _resolve_date_range(
 # which timeframes exist or how long they are.
 def _build_tf_ms() -> dict[str, int]:
     from quantforge.pine.live.connector import _TF_SECONDS
+
     return {tf: secs * 1000 for tf, secs in _TF_SECONDS.items()}
+
 
 _TF_MS = _build_tf_ms()
 
@@ -258,8 +260,12 @@ def _fetch_ohlcv(
     from quantforge.pine.live.connector import fetch_klines
 
     rows = fetch_klines(
-        symbol=symbol, exchange_id=exchange_id, timeframe=timeframe,
-        since_ms=since_ms, end_ms=end_ms, page_limit=200,
+        symbol=symbol,
+        exchange_id=exchange_id,
+        timeframe=timeframe,
+        since_ms=since_ms,
+        end_ms=end_ms,
+        page_limit=200,
     )
     if not rows:
         raise ValueError("No OHLCV data returned from exchange")
@@ -704,8 +710,12 @@ def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
         # Train period
         train_bars = period_bars[w["train_start_idx"] : w["train_end_idx"]]
         train_optimization = run_optimization(
-            ast=ast, bars=train_bars, grid=grid, metric=req.metric,
-            position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+            ast=ast,
+            bars=train_bars,
+            grid=grid,
+            metric=req.metric,
+            position_size_usdt=req.position_size_usdt,
+            leverage=req.leverage,
         )
         best_params = train_optimization[0].params if train_optimization else {}
         train_sharpe = (
@@ -720,8 +730,12 @@ def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
         # Test period with best params
         test_bars = period_bars[w["test_start_idx"] : w["test_end_idx"]]
         test_optimization = run_optimization(
-            ast=ast, bars=test_bars, grid=[best_params], metric=req.metric,
-            position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+            ast=ast,
+            bars=test_bars,
+            grid=[best_params],
+            metric=req.metric,
+            position_size_usdt=req.position_size_usdt,
+            leverage=req.leverage,
         )
         test_sharpe = (
             _safe_float(test_optimization[0].sharpe) if test_optimization else 0.0
@@ -842,8 +856,12 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
     # Stage 1: In-sample optimization
     s1_bars = period_bars[:s1_end]
     s1_optimization = run_optimization(
-        ast=ast, bars=s1_bars, grid=grid, metric=req.metric,
-        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+        ast=ast,
+        bars=s1_bars,
+        grid=grid,
+        metric=req.metric,
+        position_size_usdt=req.position_size_usdt,
+        leverage=req.leverage,
     )
     best_params = s1_optimization[0].params if s1_optimization else {}
     s1_return = (
@@ -882,8 +900,12 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
         test_bars = s2_bars[test_start:test_end]
 
         test_results = run_optimization(
-            ast=ast, bars=test_bars, grid=[best_params], metric=req.metric,
-            position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+            ast=ast,
+            bars=test_bars,
+            grid=[best_params],
+            metric=req.metric,
+            position_size_usdt=req.position_size_usdt,
+            leverage=req.leverage,
         )
         test_return = (
             _safe_float(test_results[0].return_pct * 100) if test_results else 0.0
@@ -902,8 +924,12 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
     # Stage 3: Final holdout test (80-100% data)
     s3_bars = period_bars[s2_end:]
     s3_optimization = run_optimization(
-        ast=ast, bars=s3_bars, grid=[best_params], metric=req.metric,
-        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+        ast=ast,
+        bars=s3_bars,
+        grid=[best_params],
+        metric=req.metric,
+        position_size_usdt=req.position_size_usdt,
+        leverage=req.leverage,
     )
     s3_return = (
         _safe_float(s3_optimization[0].return_pct * 100) if s3_optimization else 0.0
@@ -1074,9 +1100,13 @@ def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
 
     # Run optimization
     results = run_optimization(
-        ast=ast, bars=bars, grid=grid_2d, warmup_count=warmup_bar_count,
+        ast=ast,
+        bars=bars,
+        grid=grid_2d,
+        warmup_count=warmup_bar_count,
         metric="sharpe",
-        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+        position_size_usdt=req.position_size_usdt,
+        leverage=req.leverage,
     )
 
     # Build result grids
@@ -1125,7 +1155,9 @@ def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
     )
 
 
-def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridSearchResultOut:
+def _run_pine_optimize(
+    req: OptimizeRequest, job_id: str | None = None
+) -> GridSearchResultOut:
     """Execute Pine Script grid optimization synchronously."""
     from quantforge.pine.optimize import (
         extract_pine_inputs,
@@ -1156,6 +1188,7 @@ def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridS
 
     # Capture wall-clock start so the progress callback can report ETA.
     import time as _time
+
     grid_start = _time.monotonic()
 
     def _on_progress(completed: int, total: int) -> None:
@@ -1190,9 +1223,14 @@ def _run_pine_optimize(req: OptimizeRequest, job_id: str | None = None) -> GridS
         warmup_bar_count += 1
 
     results = run_optimization(
-        ast=ast, bars=bars, grid=grid, warmup_count=warmup_bar_count,
-        metric=req.metric, progress_cb=_on_progress,
-        position_size_usdt=req.position_size_usdt, leverage=req.leverage,
+        ast=ast,
+        bars=bars,
+        grid=grid,
+        warmup_count=warmup_bar_count,
+        metric=req.metric,
+        progress_cb=_on_progress,
+        position_size_usdt=req.position_size_usdt,
+        leverage=req.leverage,
     )
 
     rows = []

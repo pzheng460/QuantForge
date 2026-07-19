@@ -107,7 +107,9 @@ def show_cmd(name: str, as_json: bool):
                 rng = ""
                 if f.get("min") is not None or f.get("max") is not None:
                     rng = f"  [{f.get('min')}..{f.get('max')} step={f.get('step')}]"
-                click.echo(f"  - {f['name']:<18} {f['type']:<6} default={f['default']}{rng}")
+                click.echo(
+                    f"  - {f['name']:<18} {f['type']:<6} default={f['default']}{rng}"
+                )
             return
     click.echo(f"strategy '{name}' not found", err=True)
     sys.exit(2)

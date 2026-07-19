@@ -49,7 +49,7 @@ class Order:
     # updates this in ``execute_pending`` as the position price moves.
     # Not part of the user-facing API.
     _trail_high: float = 0.0  # best favorable price seen since order queued
-    _trail_low: float = 0.0   # worst favorable price seen since order queued (short)
+    _trail_low: float = 0.0  # worst favorable price seen since order queued (short)
     _trail_stop: float | None = None  # current trailing stop price
 
 
@@ -221,13 +221,10 @@ class StrategyContext:
             if idx == entry_index:
                 kept.append(order)
                 continue
-            should_attach = (
-                order.action == "exit"
-                and (
-                    order.from_entry == entry.id
-                    or (not order.from_entry and not order.entry_ids)
-                    or entry.id in order.entry_ids
-                )
+            should_attach = order.action == "exit" and (
+                order.from_entry == entry.id
+                or (not order.from_entry and not order.entry_ids)
+                or entry.id in order.entry_ids
             )
             if not should_attach:
                 kept.append(order)
@@ -235,12 +232,14 @@ class StrategyContext:
 
             order.entry_ids = (entry.id,)
             order.direction = (
-                Direction.SHORT
-                if entry.direction == Direction.LONG
-                else Direction.LONG
+                Direction.SHORT if entry.direction == Direction.LONG else Direction.LONG
             )
-            order._trail_high = entry.limit or entry.stop or self.position.entry_price or 0.0
-            order._trail_low = entry.limit or entry.stop or self.position.entry_price or 0.0
+            order._trail_high = (
+                entry.limit or entry.stop or self.position.entry_price or 0.0
+            )
+            order._trail_low = (
+                entry.limit or entry.stop or self.position.entry_price or 0.0
+            )
             order._trail_stop = None
             moved.append(order)
 
@@ -402,9 +401,7 @@ class StrategyContext:
         if order_id is None:
             self.pending_orders = []
         else:
-            self.pending_orders = [
-                o for o in self.pending_orders if o.id != order_id
-            ]
+            self.pending_orders = [o for o in self.pending_orders if o.id != order_id]
         return before - len(self.pending_orders)
 
     def execute_pending(self, bar, bar_index: int) -> None:
@@ -546,7 +543,9 @@ class StrategyContext:
         # can dedup against the queue-time submission (see OrderBridge).
         if not self.position.is_flat and self.position.direction != order.direction:
             self._close_position(
-                price, bar_index, comment=order.comment,
+                price,
+                bar_index,
+                comment=order.comment,
                 order_id=f"{order.id}__reverse",
             )
 
@@ -602,9 +601,8 @@ class StrategyContext:
             except Exception:
                 # Never let a buggy callback break the strategy run.
                 import logging
-                logging.getLogger(__name__).exception(
-                    "on_entry_fill callback raised"
-                )
+
+                logging.getLogger(__name__).exception("on_entry_fill callback raised")
 
     def _execute_close(self, order: Order, price: float, bar_index: int) -> None:
         """Execute a close/exit order."""
@@ -709,6 +707,7 @@ class StrategyContext:
                     )
                 except Exception:
                     import logging
+
                     logging.getLogger(__name__).exception(
                         "on_close_fill callback raised"
                     )
@@ -758,9 +757,8 @@ class StrategyContext:
                 )
             except Exception:
                 import logging
-                logging.getLogger(__name__).exception(
-                    "on_close_fill callback raised"
-                )
+
+                logging.getLogger(__name__).exception("on_close_fill callback raised")
 
     def _close_entry_lots(
         self,

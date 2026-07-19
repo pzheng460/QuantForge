@@ -35,9 +35,15 @@ class BacktestConfig:
         """Convert config to dictionary."""
         return {
             "symbol": self.symbol,
-            "interval": self.interval.value if isinstance(self.interval, KlineInterval) else self.interval,
-            "start_date": self.start_date.isoformat() if isinstance(self.start_date, datetime) else self.start_date,
-            "end_date": self.end_date.isoformat() if isinstance(self.end_date, datetime) else self.end_date,
+            "interval": self.interval.value
+            if isinstance(self.interval, KlineInterval)
+            else self.interval,
+            "start_date": self.start_date.isoformat()
+            if isinstance(self.start_date, datetime)
+            else self.start_date,
+            "end_date": self.end_date.isoformat()
+            if isinstance(self.end_date, datetime)
+            else self.end_date,
             "initial_capital": self.initial_capital,
             "maker_fee": self.maker_fee,
             "taker_fee": self.taker_fee,
@@ -100,7 +106,9 @@ class TradeRecord:
     def to_dict(self) -> Dict[str, Any]:
         """Convert trade to dictionary."""
         return {
-            "timestamp": self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else self.timestamp,
+            "timestamp": self.timestamp.isoformat()
+            if isinstance(self.timestamp, datetime)
+            else self.timestamp,
             "side": self.side,
             "price": self.price,
             "amount": self.amount,
@@ -111,7 +119,9 @@ class TradeRecord:
             "capital_after": self.capital_after,
             "entry_price": self.entry_price,
             "exit_reason": self.exit_reason,
-            "entry_time": self.entry_time.isoformat() if isinstance(self.entry_time, datetime) else self.entry_time,
+            "entry_time": self.entry_time.isoformat()
+            if isinstance(self.entry_time, datetime)
+            else self.entry_time,
             "bars_held": self.bars_held,
         }
 
@@ -159,12 +169,17 @@ class BacktestResult:
         return {
             "config": self.config.to_dict(),
             "equity_curve": {
-                "index": [ts.isoformat() if hasattr(ts, "isoformat") else str(ts) for ts in self.equity_curve.index.tolist()],
+                "index": [
+                    ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                    for ts in self.equity_curve.index.tolist()
+                ],
                 "values": self.equity_curve.tolist(),
             },
             "trades": [t.to_dict() for t in self.trades],
             "metrics": self.metrics,
-            "run_time": self.run_time.isoformat() if isinstance(self.run_time, datetime) else self.run_time,
+            "run_time": self.run_time.isoformat()
+            if isinstance(self.run_time, datetime)
+            else self.run_time,
             "duration_seconds": self.duration_seconds,
         }
 

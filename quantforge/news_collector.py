@@ -24,7 +24,10 @@ def collect_events(sources: list[str | Path], out: str | Path) -> list[dict[str,
             events.append(_normalize(raw, source=str(src)))
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(json.dumps(e, sort_keys=True) for e in events) + ("\n" if events else ""))
+    out_path.write_text(
+        "\n".join(json.dumps(e, sort_keys=True) for e in events)
+        + ("\n" if events else "")
+    )
     return events
 
 
@@ -39,10 +42,17 @@ def collect_rss_events(
     fetch = fetcher or _fetch_url
     for url in urls:
         for raw in _parse_feed(fetch(url), source=url):
-            events.append(_normalize(raw | {"symbols": symbols or raw.get("symbols", [])}, source=url))
+            events.append(
+                _normalize(
+                    raw | {"symbols": symbols or raw.get("symbols", [])}, source=url
+                )
+            )
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(json.dumps(e, sort_keys=True) for e in events) + ("\n" if events else ""))
+    out_path.write_text(
+        "\n".join(json.dumps(e, sort_keys=True) for e in events)
+        + ("\n" if events else "")
+    )
     return events
 
 
@@ -59,10 +69,17 @@ def collect_exchange_status_events(
     for url in urls:
         payload = json.loads(fetch(url))
         for raw in _status_payload_events(payload, exchange=exchange):
-            events.append(_normalize(raw | {"symbols": symbols or raw.get("symbols", [])}, source=url))
+            events.append(
+                _normalize(
+                    raw | {"symbols": symbols or raw.get("symbols", [])}, source=url
+                )
+            )
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(json.dumps(e, sort_keys=True) for e in events) + ("\n" if events else ""))
+    out_path.write_text(
+        "\n".join(json.dumps(e, sort_keys=True) for e in events)
+        + ("\n" if events else "")
+    )
     return events
 
 
@@ -80,7 +97,10 @@ def collect_microstructure_events(
                 events.append(_normalize(event, source=source_name))
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(json.dumps(e, sort_keys=True) for e in events) + ("\n" if events else ""))
+    out_path.write_text(
+        "\n".join(json.dumps(e, sort_keys=True) for e in events)
+        + ("\n" if events else "")
+    )
     return events
 
 
@@ -97,7 +117,9 @@ def _load_source(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _load_micro_source(source: str | Path, *, fetcher: Callable[[str], str] | None = None) -> list[dict[str, Any]]:
+def _load_micro_source(
+    source: str | Path, *, fetcher: Callable[[str], str] | None = None
+) -> list[dict[str, Any]]:
     src = str(source)
     if src.startswith(("http://", "https://")):
         text = (fetcher or _fetch_url)(src)
@@ -122,17 +144,26 @@ def _normalize(event: dict[str, Any], *, source: str) -> dict[str, Any]:
 def _fetch_url(url: str) -> str:
     req = Request(url, headers={"User-Agent": "QuantForge/1.0"})
     with urlopen(req, timeout=20) as resp:
-        return resp.read().decode(resp.headers.get_content_charset() or "utf-8", errors="replace")
+        return resp.read().decode(
+            resp.headers.get_content_charset() or "utf-8", errors="replace"
+        )
 
 
-def _status_payload_events(payload: dict[str, Any], *, exchange: str) -> list[dict[str, Any]]:
+def _status_payload_events(
+    payload: dict[str, Any], *, exchange: str
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     incidents = payload.get("incidents") or payload.get("status") or []
     if isinstance(incidents, dict):
         incidents = [incidents]
     for incident in incidents:
         rows.append(_normalize_status_incident(incident, exchange=exchange))
-    announcements = payload.get("announcements") or payload.get("notices") or payload.get("data") or []
+    announcements = (
+        payload.get("announcements")
+        or payload.get("notices")
+        or payload.get("data")
+        or []
+    )
     if isinstance(announcements, dict):
         announcements = [announcements]
     for announcement in announcements:
@@ -140,40 +171,78 @@ def _status_payload_events(payload: dict[str, Any], *, exchange: str) -> list[di
     return rows
 
 
-def _normalize_status_incident(incident: dict[str, Any], *, exchange: str) -> dict[str, Any]:
-    name = str(incident.get("name") or incident.get("title") or incident.get("message") or "")
+def _normalize_status_incident(
+    incident: dict[str, Any], *, exchange: str
+) -> dict[str, Any]:
+    name = str(
+        incident.get("name") or incident.get("title") or incident.get("message") or ""
+    )
     status = str(incident.get("status") or incident.get("state") or "status")
     impact = str(incident.get("impact") or incident.get("severity") or "").strip()
     updates = incident.get("incident_updates") or incident.get("updates") or []
     summary = ""
     if updates and isinstance(updates, list):
         summary = str(updates[0].get("body") or updates[0].get("message") or "")
-    summary = summary or str(incident.get("summary") or incident.get("body") or incident.get("description") or "")
+    summary = summary or str(
+        incident.get("summary")
+        or incident.get("body")
+        or incident.get("description")
+        or ""
+    )
     return {
-        "title": " ".join(x for x in [exchange, status, impact + ":" if impact else "", name] if x).strip(),
+        "title": " ".join(
+            x for x in [exchange, status, impact + ":" if impact else "", name] if x
+        ).strip(),
         "summary": summary,
-        "url": incident.get("shortlink") or incident.get("url") or incident.get("link") or "",
+        "url": incident.get("shortlink")
+        or incident.get("url")
+        or incident.get("link")
+        or "",
         "source": exchange,
         "published_at": _normalize_time(
-            str(incident.get("updated_at") or incident.get("created_at") or incident.get("published_at") or "")
+            str(
+                incident.get("updated_at")
+                or incident.get("created_at")
+                or incident.get("published_at")
+                or ""
+            )
         ),
     }
 
 
-def _normalize_announcement(announcement: dict[str, Any], *, exchange: str) -> dict[str, Any]:
-    title = str(announcement.get("title") or announcement.get("name") or announcement.get("headline") or "")
+def _normalize_announcement(
+    announcement: dict[str, Any], *, exchange: str
+) -> dict[str, Any]:
+    title = str(
+        announcement.get("title")
+        or announcement.get("name")
+        or announcement.get("headline")
+        or ""
+    )
     return {
         "title": f"{exchange} announcement: {title}",
-        "summary": str(announcement.get("summary") or announcement.get("body") or announcement.get("description") or ""),
+        "summary": str(
+            announcement.get("summary")
+            or announcement.get("body")
+            or announcement.get("description")
+            or ""
+        ),
         "url": announcement.get("url") or announcement.get("link") or "",
         "source": exchange,
         "published_at": _normalize_time(
-            str(announcement.get("published_at") or announcement.get("updated_at") or announcement.get("created_at") or "")
+            str(
+                announcement.get("published_at")
+                or announcement.get("updated_at")
+                or announcement.get("created_at")
+                or ""
+            )
         ),
     }
 
 
-def _micro_payload_events(payload: dict[str, Any], *, source_name: str) -> list[dict[str, Any]]:
+def _micro_payload_events(
+    payload: dict[str, Any], *, source_name: str
+) -> list[dict[str, Any]]:
     if payload.get("type") in {"funding", "funding_rate"}:
         return [_micro_funding_event(payload, source_name=source_name)]
     if payload.get("type") in {"open_interest", "oi"}:
@@ -199,11 +268,15 @@ def _micro_funding_event(row: dict[str, Any], *, source_name: str) -> dict[str, 
         "summary": f"funding_rate={rate} may indicate crowded leverage or carry pressure.",
         "symbols": [symbol] if symbol else [],
         "source": source_name,
-        "published_at": _normalize_time(str(row.get("ts") or row.get("timestamp") or row.get("time") or "")),
+        "published_at": _normalize_time(
+            str(row.get("ts") or row.get("timestamp") or row.get("time") or "")
+        ),
     }
 
 
-def _micro_open_interest_event(row: dict[str, Any], *, source_name: str) -> dict[str, Any]:
+def _micro_open_interest_event(
+    row: dict[str, Any], *, source_name: str
+) -> dict[str, Any]:
     symbol = str(row.get("symbol") or row.get("instId") or row.get("instrument") or "")
     change = float(row.get("change_pct", row.get("changePct", row.get("change", 0.0))))
     value = row.get("open_interest", row.get("openInterest", row.get("oi", "")))
@@ -213,21 +286,32 @@ def _micro_open_interest_event(row: dict[str, Any], *, source_name: str) -> dict
         "summary": f"open_interest={value} change_pct={change:+.4f}.",
         "symbols": [symbol] if symbol else [],
         "source": source_name,
-        "published_at": _normalize_time(str(row.get("ts") or row.get("timestamp") or row.get("time") or "")),
+        "published_at": _normalize_time(
+            str(row.get("ts") or row.get("timestamp") or row.get("time") or "")
+        ),
     }
 
 
-def _micro_liquidation_event(row: dict[str, Any], *, source_name: str) -> dict[str, Any]:
+def _micro_liquidation_event(
+    row: dict[str, Any], *, source_name: str
+) -> dict[str, Any]:
     symbol = str(row.get("symbol") or row.get("instId") or row.get("instrument") or "")
     side = str(row.get("side") or row.get("direction") or "")
-    notional = float(row.get("notional_usd", row.get("notionalUsd", row.get("usd", row.get("amount", 0.0)))))
+    notional = float(
+        row.get(
+            "notional_usd",
+            row.get("notionalUsd", row.get("usd", row.get("amount", 0.0))),
+        )
+    )
     label = "spike" if notional >= 10_000_000 else "event"
     return {
         "title": f"{source_name} liquidation {label}: {symbol} {side} ${notional:.0f}",
         "summary": f"liquidation notional_usd={notional:.0f} side={side}.",
         "symbols": [symbol] if symbol else [],
         "source": source_name,
-        "published_at": _normalize_time(str(row.get("ts") or row.get("timestamp") or row.get("time") or "")),
+        "published_at": _normalize_time(
+            str(row.get("ts") or row.get("timestamp") or row.get("time") or "")
+        ),
     }
 
 
@@ -243,9 +327,14 @@ def _parse_feed(xml_text: str, *, source: str) -> list[dict[str, Any]]:
     root = ET.fromstring(xml_text)
     tag = _local_name(root.tag)
     if tag == "rss":
-        return [_parse_rss_item(item, source=source) for item in root.findall(".//item")]
+        return [
+            _parse_rss_item(item, source=source) for item in root.findall(".//item")
+        ]
     if tag == "feed":
-        return [_parse_atom_entry(entry, source=source) for entry in _children(root, "entry")]
+        return [
+            _parse_atom_entry(entry, source=source)
+            for entry in _children(root, "entry")
+        ]
     return []
 
 
@@ -255,7 +344,9 @@ def _parse_rss_item(item: ET.Element, *, source: str) -> dict[str, Any]:
         "summary": _child_text(item, "description"),
         "url": _child_text(item, "link"),
         "source": source,
-        "published_at": _normalize_time(_child_text(item, "pubDate") or _child_text(item, "date")),
+        "published_at": _normalize_time(
+            _child_text(item, "pubDate") or _child_text(item, "date")
+        ),
     }
 
 
@@ -270,7 +361,9 @@ def _parse_atom_entry(entry: ET.Element, *, source: str) -> dict[str, Any]:
         "summary": _child_text(entry, "summary") or _child_text(entry, "content"),
         "url": link,
         "source": source,
-        "published_at": _normalize_time(_child_text(entry, "updated") or _child_text(entry, "published")),
+        "published_at": _normalize_time(
+            _child_text(entry, "updated") or _child_text(entry, "published")
+        ),
     }
 
 

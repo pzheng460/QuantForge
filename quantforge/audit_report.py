@@ -20,7 +20,9 @@ def build_audit_report(
 ) -> dict[str, Any]:
     auto_tune = _load_optional(auto_tune_path)
     promotion = _load_optional(promotion_path)
-    shadow = _load_optional(shadow_path) or (promotion.get("shadow") if promotion else {})
+    shadow = _load_optional(shadow_path) or (
+        promotion.get("shadow") if promotion else {}
+    )
     risk = _load_optional(risk_path)
     status, reasons = _overall_status(auto_tune, promotion, shadow, risk)
     report = {
@@ -116,7 +118,9 @@ def _overall_status(
         return "rejected", (shadow.get("reasons") or [])
     decision = auto_tune.get("decision") or {}
     if decision.get("action"):
-        return decision["action"], (auto_tune.get("evidence") or {}).get("trigger_reasons") or []
+        return decision["action"], (auto_tune.get("evidence") or {}).get(
+            "trigger_reasons"
+        ) or []
     return "unknown", []
 
 

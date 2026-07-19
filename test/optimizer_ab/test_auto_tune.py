@@ -62,7 +62,9 @@ def test_build_orchestrate_command_uses_cross_review_guided_defaults():
 
 
 def test_parse_window_specs_accepts_named_ranges():
-    assert parse_window_specs("recent:2024-07-01:2024-12-31,stress:2024-08-01:2024-09-30") == [
+    assert parse_window_specs(
+        "recent:2024-07-01:2024-12-31,stress:2024-08-01:2024-09-30"
+    ) == [
         ("recent", "2024-07-01", "2024-12-31"),
         ("stress", "2024-08-01", "2024-09-30"),
     ]
@@ -72,15 +74,31 @@ def test_evidence_report_aggregates_window_reasons():
     good = HealthMetrics(0.08, 1.6, 0.08, 0.38, 45, 1200, 8000)
     fragile = HealthMetrics(0.17, 1.52, 0.138, 0.255, 47, 34216.70, 17552.50)
     windows = [
-        WindowHealth("recent", "2024-07-01", "2024-12-31", good, decide_action(good, GateConfig())),
-        WindowHealth("stress", "2024-08-01", "2024-09-30", fragile, decide_action(fragile, GateConfig())),
+        WindowHealth(
+            "recent",
+            "2024-07-01",
+            "2024-12-31",
+            good,
+            decide_action(good, GateConfig()),
+        ),
+        WindowHealth(
+            "stress",
+            "2024-08-01",
+            "2024-09-30",
+            fragile,
+            decide_action(fragile, GateConfig()),
+        ),
     ]
 
     report = build_evidence_report(windows)
 
     assert report["worst_window"] == "stress"
     assert report["decision"]["action"] == "reoptimize"
-    assert report["trigger_reasons"] == ["max_drawdown", "single_trade_concentration", "win_rate"]
+    assert report["trigger_reasons"] == [
+        "max_drawdown",
+        "single_trade_concentration",
+        "win_rate",
+    ]
 
 
 def test_news_events_raise_reoptimization_risk_for_relevant_shock():

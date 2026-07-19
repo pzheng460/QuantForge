@@ -20,25 +20,25 @@ def _lookup(ctx, var_name: str, title: str, fallback_key: str, defval):
 
 def input_int(ctx, defval: int = 0, title: str = "", **kwargs) -> int:
     """Return integer input value, checking context overrides first."""
-    var_name = getattr(ctx, '_current_assign_target', '') or ''
+    var_name = getattr(ctx, "_current_assign_target", "") or ""
     fallback = title or f"input_int_{defval}"
     return int(_lookup(ctx, var_name, title, fallback, defval))
 
 
 def input_float(ctx, defval: float = 0.0, title: str = "", **kwargs) -> float:
-    var_name = getattr(ctx, '_current_assign_target', '') or ''
+    var_name = getattr(ctx, "_current_assign_target", "") or ""
     fallback = title or f"input_float_{defval}"
     return float(_lookup(ctx, var_name, title, fallback, defval))
 
 
 def input_bool(ctx, defval: bool = False, title: str = "", **kwargs) -> bool:
-    var_name = getattr(ctx, '_current_assign_target', '') or ''
+    var_name = getattr(ctx, "_current_assign_target", "") or ""
     fallback = title or f"input_bool_{defval}"
     return bool(_lookup(ctx, var_name, title, fallback, defval))
 
 
 def input_string(ctx, defval: str = "", title: str = "", **kwargs) -> str:
-    var_name = getattr(ctx, '_current_assign_target', '') or ''
+    var_name = getattr(ctx, "_current_assign_target", "") or ""
     fallback = title or f"input_string_{defval}"
     return str(_lookup(ctx, var_name, title, fallback, defval))
 

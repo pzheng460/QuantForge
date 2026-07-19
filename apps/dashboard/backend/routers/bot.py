@@ -52,6 +52,7 @@ class BotStatusOut(BaseModel):
 
 # ─── Evolving Mode toggle ────────────────────────────────────────────────────
 
+
 @router.get("/bot/evolving", response_model=EvolvingStateOut)
 def get_evolving():
     return evolving.load_state()
@@ -73,6 +74,7 @@ def set_evolving(req: EvolvingToggleIn):
 
 
 # ─── Bot status snapshot ─────────────────────────────────────────────────────
+
 
 def _load_optional_json(path: Path) -> Optional[dict]:
     if not path.exists():

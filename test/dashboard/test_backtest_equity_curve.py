@@ -11,7 +11,9 @@ from apps.dashboard.backend.models import BacktestRequest
 class _FakeRuntime:
     def __init__(self, _ctx):
         self._bars = []
-        self.strategy_ctx = SimpleNamespace(reset_trading_state=self._reset_trading_state)
+        self.strategy_ctx = SimpleNamespace(
+            reset_trading_state=self._reset_trading_state
+        )
         self._reset_at = None
 
     def init_incremental(self, _ast):
@@ -38,7 +40,9 @@ class _FakeRuntime:
         )
 
 
-def test_backtest_equity_curve_reanchors_after_warmup_without_period_trades(monkeypatch):
+def test_backtest_equity_curve_reanchors_after_warmup_without_period_trades(
+    monkeypatch,
+):
     import quantforge.pine.interpreter.runtime as runtime_mod
     import quantforge.pine.parser.parser as parser_mod
 

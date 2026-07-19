@@ -48,11 +48,16 @@ def test_bot_evolving_enable_rejects_unknown_strategy(monkeypatch, tmp_path):
 
     monkeypatch.setattr(evolving, "STATE_PATH", tmp_path / "evolving.json")
     runner = CliRunner()
-    result = runner.invoke(cli, ["bot", "evolving", "enable", "--strategy", "ema_cross", "--no-cron"])
+    result = runner.invoke(
+        cli, ["bot", "evolving", "enable", "--strategy", "ema_cross", "--no-cron"]
+    )
     assert result.exit_code != 0
     assert "Unknown strategy 'ema_cross'" in result.output
     # Did not write the state file
-    assert not (tmp_path / "evolving.json").exists() or "ema_cross" not in (tmp_path / "evolving.json").read_text()
+    assert (
+        not (tmp_path / "evolving.json").exists()
+        or "ema_cross" not in (tmp_path / "evolving.json").read_text()
+    )
 
 
 def test_bot_evolving_enable_accepts_known_strategy(monkeypatch, tmp_path):
@@ -60,6 +65,8 @@ def test_bot_evolving_enable_accepts_known_strategy(monkeypatch, tmp_path):
 
     monkeypatch.setattr(evolving, "STATE_PATH", tmp_path / "evolving.json")
     runner = CliRunner()
-    result = runner.invoke(cli, ["bot", "evolving", "enable", "--strategy", "ema_crossover", "--no-cron"])
+    result = runner.invoke(
+        cli, ["bot", "evolving", "enable", "--strategy", "ema_crossover", "--no-cron"]
+    )
     assert result.exit_code == 0
     assert "Evolving Mode is now ON" in result.output

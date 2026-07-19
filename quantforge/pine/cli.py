@@ -44,8 +44,11 @@ def _fetch_ohlcv(
     end_ms = int(end_dt.timestamp() * 1000)
 
     return fetch_klines(
-        symbol=symbol, exchange_id=exchange_id, timeframe=timeframe,
-        since_ms=since_ms, end_ms=end_ms,
+        symbol=symbol,
+        exchange_id=exchange_id,
+        timeframe=timeframe,
+        since_ms=since_ms,
+        end_ms=end_ms,
     )
 
 
@@ -255,7 +258,9 @@ def _apply_live_control(args: argparse.Namespace, strategy_id: str) -> None:
         raise SystemExit(2)
     if action == "reduce":
         args.position_size = float(args.position_size) * 0.5
-        print(f"Control state reduce active: position size set to {args.position_size:.2f}")
+        print(
+            f"Control state reduce active: position size set to {args.position_size:.2f}"
+        )
 
 
 def _run_optimize(args: argparse.Namespace) -> None:
@@ -482,8 +487,10 @@ def main() -> None:
     )
     lv.add_argument("--timeframe", default="15m", help="Kline timeframe (default: 15m)")
     lv.add_argument(
-        "--demo", action="store_true", default=True,
-        help="Use exchange sandbox/demo API (e.g. Bitget UTA Demo). Default."
+        "--demo",
+        action="store_true",
+        default=True,
+        help="Use exchange sandbox/demo API (e.g. Bitget UTA Demo). Default.",
     )
     lv.add_argument(
         "--no-demo",

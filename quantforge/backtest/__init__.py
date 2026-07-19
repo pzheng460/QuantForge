@@ -22,9 +22,15 @@ from quantforge.backtest.engine.event_driven import (
 
 # Analysis tools
 from quantforge.backtest.analysis.performance import PerformanceAnalyzer
-from quantforge.backtest.analysis.regime import MarketRegime, RegimeClassifier, SimpleRegime
+from quantforge.backtest.analysis.regime import (
+    MarketRegime,
+    RegimeClassifier,
+    SimpleRegime,
+)
 from quantforge.backtest.analysis.report import ReportGenerator
-from quantforge.backtest.analysis.comprehensive_report import ComprehensiveReportGenerator
+from quantforge.backtest.analysis.comprehensive_report import (
+    ComprehensiveReportGenerator,
+)
 
 # Optimization tools
 from quantforge.backtest.optimization.grid_search import (

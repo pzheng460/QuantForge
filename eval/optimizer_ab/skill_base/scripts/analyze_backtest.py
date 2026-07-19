@@ -38,13 +38,37 @@ def failures(metrics: dict[str, float | int | str]) -> list[dict[str, str]]:
     wr = float(metrics.get("win_rate", 0.0))
     trades = int(metrics.get("total_trades", 0))
     if pf < 1.2:
-        out.append({"type": "LOW_PF", "severity": "high", "constraint_hint": "improve expectancy or pause"})
+        out.append(
+            {
+                "type": "LOW_PF",
+                "severity": "high",
+                "constraint_hint": "improve expectancy or pause",
+            }
+        )
     if mdd > 15:
-        out.append({"type": "HIGH_DD", "severity": "high", "constraint_hint": "reduce exposure or add stop"})
+        out.append(
+            {
+                "type": "HIGH_DD",
+                "severity": "high",
+                "constraint_hint": "reduce exposure or add stop",
+            }
+        )
     if wr < 30:
-        out.append({"type": "LOW_WIN_RATE", "severity": "medium", "constraint_hint": "filter noisy entries"})
+        out.append(
+            {
+                "type": "LOW_WIN_RATE",
+                "severity": "medium",
+                "constraint_hint": "filter noisy entries",
+            }
+        )
     if trades < 20:
-        out.append({"type": "LOW_SAMPLE", "severity": "medium", "constraint_hint": "avoid accepting sparse validation"})
+        out.append(
+            {
+                "type": "LOW_SAMPLE",
+                "severity": "medium",
+                "constraint_hint": "avoid accepting sparse validation",
+            }
+        )
     return out
 
 
@@ -57,11 +81,16 @@ def main() -> int:
     strategy_type = "unknown"
     if args.pine_file and Path(args.pine_file).exists():
         strategy_type = classify_strategy(Path(args.pine_file).read_text())
-    print(json.dumps({
-        "metrics": metrics,
-        "failures": failures(metrics),
-        "strategy_classification": strategy_type,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "metrics": metrics,
+                "failures": failures(metrics),
+                "strategy_classification": strategy_type,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

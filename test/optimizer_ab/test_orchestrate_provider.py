@@ -1,4 +1,8 @@
-from eval.optimizer_ab.orchestrate import build_cell_id, filter_strategies, parse_csv_list
+from eval.optimizer_ab.orchestrate import (
+    build_cell_id,
+    filter_strategies,
+    parse_csv_list,
+)
 
 
 def test_cell_id_includes_provider_for_cross_validation():

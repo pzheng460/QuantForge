@@ -12,7 +12,12 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from apps.dashboard.backend.jobs import create_job, get_job, run_backtest_job, cancel_job
+from apps.dashboard.backend.jobs import (
+    create_job,
+    get_job,
+    run_backtest_job,
+    cancel_job,
+)
 from apps.dashboard.backend.models import BacktestRequest, JobStatusOut
 
 router = APIRouter()
@@ -73,9 +78,7 @@ async def backtest_websocket(websocket: WebSocket, job_id: str):
                 )
                 break
             elif status in ("failed", "cancelled"):
-                await websocket.send_json(
-                    {"status": status, "error": job.get("error")}
-                )
+                await websocket.send_json({"status": status, "error": job.get("error")})
                 break
             else:
                 await websocket.send_json({"status": status})

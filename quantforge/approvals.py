@@ -27,7 +27,9 @@ class ApprovalRequest:
 
 class ApprovalQueue:
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path else Path.home() / ".quantforge" / "approvals.json"
+        self.path = (
+            Path(path) if path else Path.home() / ".quantforge" / "approvals.json"
+        )
 
     def request(self, action: str, payload: dict[str, Any]) -> ApprovalRequest:
         req = ApprovalRequest(
@@ -65,7 +67,9 @@ class ApprovalQueue:
         return ApprovalRequest(**raw)
 
     def list(self, status: str | None = None) -> list[ApprovalRequest]:
-        requests = [ApprovalRequest(**raw) for raw in self._read().get("requests", {}).values()]
+        requests = [
+            ApprovalRequest(**raw) for raw in self._read().get("requests", {}).values()
+        ]
         if status:
             requests = [r for r in requests if r.status == status]
         return sorted(requests, key=lambda r: r.requested_at)

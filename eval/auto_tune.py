@@ -13,7 +13,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from eval.optimizer_ab.holdout_eval import _window_start_idx, backtest, max_drawdown, profit_factor
+from eval.optimizer_ab.holdout_eval import (
+    _window_start_idx,
+    backtest,
+    max_drawdown,
+    profit_factor,
+)
 
 
 @dataclass(frozen=True)
@@ -92,7 +97,13 @@ def decide_action(metrics: HealthMetrics, gate: GateConfig) -> Decision:
     score -= max(0.0, gate.min_profit_factor - metrics.profit_factor) * 35
     score -= max(0.0, metrics.max_drawdown - gate.max_drawdown) * 180
     score -= max(0.0, gate.min_win_rate - metrics.win_rate) * 80
-    score -= max(0.0, metrics.single_trade_concentration - gate.max_single_trade_concentration) * 45
+    score -= (
+        max(
+            0.0,
+            metrics.single_trade_concentration - gate.max_single_trade_concentration,
+        )
+        * 45
+    )
     score -= max(0, gate.min_trades - metrics.n_trades) * 0.8
     score = max(0.0, round(score, 1))
 
@@ -133,7 +144,9 @@ def score_news_events(events: list[dict[str, Any]], *, symbol: str) -> dict[str,
     reasons: set[str] = set()
     for event in events:
         symbols = {str(s).upper() for s in event.get("symbols", [])}
-        text = " ".join(str(event.get(k, "")) for k in ("title", "summary", "body")).lower()
+        text = " ".join(
+            str(event.get(k, "")) for k in ("title", "summary", "body")
+        ).lower()
         relevant = symbol.upper() in symbols or base in symbols or base.lower() in text
         if not relevant:
             continue
@@ -177,7 +190,16 @@ def _score_structured_event(text: str) -> dict[str, int]:
         "open_interest": 0,
         "liquidation": 0,
     }
-    if any(token in text for token in ["degraded", "outage", "maintenance", "api latency", "elevated latency"]):
+    if any(
+        token in text
+        for token in [
+            "degraded",
+            "outage",
+            "maintenance",
+            "api latency",
+            "elevated latency",
+        ]
+    ):
         score["exchange_status"] += 30
     if "funding_rate=" in text or "funding high" in text:
         score["funding"] += 18
@@ -203,7 +225,9 @@ def build_evidence_report(
     windows: list[WindowHealth],
     news_risk: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    trigger_reasons = sorted({reason for window in windows for reason in window.decision.reasons})
+    trigger_reasons = sorted(
+        {reason for window in windows for reason in window.decision.reasons}
+    )
     worst = min(windows, key=lambda w: w.decision.score) if windows else None
     action = "observe"
     if any(w.decision.action == "pause" for w in windows):
@@ -219,7 +243,8 @@ def build_evidence_report(
                 "name": w.name,
                 "start": w.start,
                 "end": w.end,
-                "metrics": asdict(w.metrics) | {
+                "metrics": asdict(w.metrics)
+                | {
                     "single_trade_concentration": w.metrics.single_trade_concentration,
                 },
                 "decision": asdict(w.decision),
@@ -228,7 +253,8 @@ def build_evidence_report(
         ],
         "worst_window": worst.name if worst else None,
         "trigger_reasons": sorted(set(trigger_reasons)),
-        "news_risk": news_risk or {
+        "news_risk": news_risk
+        or {
             "risk_score": 0,
             "risk_level": "none",
             "matched_events": 0,
@@ -242,14 +268,28 @@ def build_evidence_report(
     }
 
 
-def evaluate_health(pine_path: Path, symbol: str, exchange: str, timeframe: str, start: str, end: str) -> HealthMetrics:
+def evaluate_health(
+    pine_path: Path, symbol: str, exchange: str, timeframe: str, start: str, end: str
+) -> HealthMetrics:
     result, bars = backtest(pine_path, symbol, exchange, timeframe, start, end)
     win_idx = _window_start_idx(bars, start)
     equity = list(getattr(result, "equity_curve", []))[win_idx:]
-    trades = [t for t in getattr(result, "trades", []) if getattr(t, "entry_bar", -1) >= win_idx]
-    initial = float(equity[0]) if equity else float(getattr(result, "initial_capital", 100000.0))
+    trades = [
+        t
+        for t in getattr(result, "trades", [])
+        if getattr(t, "entry_bar", -1) >= win_idx
+    ]
+    initial = (
+        float(equity[0])
+        if equity
+        else float(getattr(result, "initial_capital", 100000.0))
+    )
     net = sum(float(getattr(t, "pnl", 0.0)) for t in trades)
-    wins = [float(getattr(t, "pnl", 0.0)) for t in trades if float(getattr(t, "pnl", 0.0)) > 0]
+    wins = [
+        float(getattr(t, "pnl", 0.0))
+        for t in trades
+        if float(getattr(t, "pnl", 0.0)) > 0
+    ]
     n_trades = len(trades)
     return HealthMetrics(
         return_pct=(net / initial) if initial > 0 else 0.0,
@@ -275,15 +315,27 @@ def build_orchestrate_command(
     trials_dir: str = "eval/optimizer_ab/results/auto_tune_trials",
 ) -> list[str]:
     cmd = [
-        "uv", "run", "python", "-m", "eval.optimizer_ab.orchestrate",
-        "--tier", tier,
-        "--methods", methods,
-        "--strategies", strategy,
-        "--regimes", regime,
-        "--seeds", seeds,
-        "--agent-providers", providers,
-        "--results-csv", results_csv,
-        "--trials-dir", trials_dir,
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "eval.optimizer_ab.orchestrate",
+        "--tier",
+        tier,
+        "--methods",
+        methods,
+        "--strategies",
+        strategy,
+        "--regimes",
+        regime,
+        "--seeds",
+        seeds,
+        "--agent-providers",
+        providers,
+        "--results-csv",
+        results_csv,
+        "--trials-dir",
+        trials_dir,
     ]
     if not execute_holdout:
         cmd.append("--no-holdout")
@@ -291,38 +343,74 @@ def build_orchestrate_command(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evaluate strategy health and optionally launch auto re-optimization.")
+    parser = argparse.ArgumentParser(
+        description="Evaluate strategy health and optionally launch auto re-optimization."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Run the auto-tune health gate.")
     run.add_argument("--pine", required=True, help="Pine file to evaluate.")
-    run.add_argument("--strategy", required=True, help="Strategy stem/path for optimizer A/B.")
+    run.add_argument(
+        "--strategy", required=True, help="Strategy stem/path for optimizer A/B."
+    )
     run.add_argument("--symbol", default="BTC/USDT:USDT")
     run.add_argument("--exchange", default="bitget")
     run.add_argument("--timeframe", default="1h")
     run.add_argument("--start", default="2024-07-01")
     run.add_argument("--end", default="2024-12-31")
-    run.add_argument("--windows", default="", help="Comma-separated name:start:end windows to collect.")
-    run.add_argument("--news-file", default="", help="Optional JSONL news/events file for exogenous risk scoring.")
-    run.add_argument("--out", default="", help="Optional JSON path to write the evidence report.")
+    run.add_argument(
+        "--windows",
+        default="",
+        help="Comma-separated name:start:end windows to collect.",
+    )
+    run.add_argument(
+        "--news-file",
+        default="",
+        help="Optional JSONL news/events file for exogenous risk scoring.",
+    )
+    run.add_argument(
+        "--out", default="", help="Optional JSON path to write the evidence report."
+    )
     run.add_argument("--regime", default="trend_2024h1")
     run.add_argument("--seeds", default="1")
     run.add_argument("--providers", default="claude,codex")
-    run.add_argument("--optimizer-results-csv", default="eval/optimizer_ab/results/auto_tune.csv")
-    run.add_argument("--optimizer-trials-dir", default="eval/optimizer_ab/results/auto_tune_trials")
-    run.add_argument("--execute", action="store_true", help="Actually launch optimizer when the gate requests it.")
-    run.add_argument("--no-holdout", action="store_true", help="Skip optimizer holdout evaluation.")
+    run.add_argument(
+        "--optimizer-results-csv", default="eval/optimizer_ab/results/auto_tune.csv"
+    )
+    run.add_argument(
+        "--optimizer-trials-dir", default="eval/optimizer_ab/results/auto_tune_trials"
+    )
+    run.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually launch optimizer when the gate requests it.",
+    )
+    run.add_argument(
+        "--no-holdout", action="store_true", help="Skip optimizer holdout evaluation."
+    )
     args = parser.parse_args()
 
-    window_specs = parse_window_specs(args.windows) if args.windows else [("current", args.start, args.end)]
+    window_specs = (
+        parse_window_specs(args.windows)
+        if args.windows
+        else [("current", args.start, args.end)]
+    )
     windows = []
     for name, start, end in window_specs:
-        metrics = evaluate_health(Path(args.pine), args.symbol, args.exchange, args.timeframe, start, end)
-        windows.append(WindowHealth(name, start, end, metrics, decide_action(metrics, GateConfig())))
+        metrics = evaluate_health(
+            Path(args.pine), args.symbol, args.exchange, args.timeframe, start, end
+        )
+        windows.append(
+            WindowHealth(
+                name, start, end, metrics, decide_action(metrics, GateConfig())
+            )
+        )
 
     news_risk = None
     if args.news_file:
-        news_risk = score_news_events(load_news_events(Path(args.news_file)), symbol=args.symbol)
+        news_risk = score_news_events(
+            load_news_events(Path(args.news_file)), symbol=args.symbol
+        )
     evidence = build_evidence_report(windows, news_risk)
     cmd = build_orchestrate_command(
         strategy=args.strategy,
@@ -346,7 +434,9 @@ def main() -> int:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.out).write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))
-        return subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[1])).returncode
+        return subprocess.run(
+            cmd, cwd=str(Path(__file__).resolve().parents[1])
+        ).returncode
 
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

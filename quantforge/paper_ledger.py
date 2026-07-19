@@ -16,9 +16,15 @@ class PaperLedger:
         *,
         initial_equity: float = 100_000.0,
     ) -> None:
-        self.path = Path(path) if path else Path.home() / ".quantforge" / "paper_ledger.json"
+        self.path = (
+            Path(path) if path else Path.home() / ".quantforge" / "paper_ledger.json"
+        )
         self.initial_equity = float(initial_equity)
-        self.backend = "sqlite" if self.path.suffix.lower() in {".db", ".sqlite", ".sqlite3"} else "json"
+        self.backend = (
+            "sqlite"
+            if self.path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+            else "json"
+        )
 
     def record_signal(
         self,
@@ -59,8 +65,12 @@ class PaperLedger:
 
         realized_delta = float(updated["realized_pnl"]) - prior_realized
         equity = self._last_equity(data, strategy_id, role) + realized_delta
-        high_water = max(self.initial_equity, self._high_water(data, strategy_id, role), equity)
-        drawdown = 0.0 if high_water <= 0 else max(0.0, (high_water - equity) / high_water)
+        high_water = max(
+            self.initial_equity, self._high_water(data, strategy_id, role), equity
+        )
+        drawdown = (
+            0.0 if high_water <= 0 else max(0.0, (high_water - equity) / high_water)
+        )
 
         event_ts = ts or datetime.now(UTC).isoformat()
         signal = {
@@ -97,17 +107,27 @@ class PaperLedger:
         data.setdefault("equity", []).append(equity_point)
         data["positions"][key] = updated
         self._write(data)
-        return {"signal": signal, "fill": fill, "position": updated, "equity": equity_point}
+        return {
+            "signal": signal,
+            "fill": fill,
+            "position": updated,
+            "equity": equity_point,
+        }
 
     def summary(self, strategy_id: str, *, role: str | None = None) -> dict[str, Any]:
         data = self._read()
         roles = [role] if role else ["promoted", "paper", "shadow"]
-        summaries = [_summary_for(data, strategy_id, r, self.initial_equity) for r in roles]
-        return summaries[0] if role else {"strategy_id": strategy_id, "roles": summaries}
+        summaries = [
+            _summary_for(data, strategy_id, r, self.initial_equity) for r in roles
+        ]
+        return (
+            summaries[0] if role else {"strategy_id": strategy_id, "roles": summaries}
+        )
 
     def _last_equity(self, data: dict[str, Any], strategy_id: str, role: str) -> float:
         points = [
-            point for point in data.get("equity", [])
+            point
+            for point in data.get("equity", [])
             if point.get("strategy_id") == strategy_id and point.get("role") == role
         ]
         return float(points[-1]["equity"]) if points else self.initial_equity
@@ -124,7 +144,13 @@ class PaperLedger:
         if self.backend == "sqlite":
             return self._read_sqlite()
         if not self.path.exists():
-            return {"version": 1, "signals": [], "fills": [], "positions": {}, "equity": []}
+            return {
+                "version": 1,
+                "signals": [],
+                "fills": [],
+                "positions": {},
+                "equity": [],
+            }
         return json.loads(self.path.read_text())
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -188,7 +214,13 @@ class PaperLedger:
                 }
                 for row in conn.execute("select * from equity order by id")
             ]
-        return {"version": 1, "signals": signals, "fills": fills, "positions": positions, "equity": equity}
+        return {
+            "version": 1,
+            "signals": signals,
+            "fills": fills,
+            "positions": positions,
+            "equity": equity,
+        }
 
     def _write_sqlite(self, data: dict[str, Any]) -> None:
         self._ensure_sqlite()
@@ -203,7 +235,12 @@ class PaperLedger:
                 values(:ts, :strategy_id, :role, :version_id, :side, :price, :quantity, :metadata)
                 """,
                 [
-                    signal | {"metadata": json.dumps(signal.get("metadata") or {}, sort_keys=True)}
+                    signal
+                    | {
+                        "metadata": json.dumps(
+                            signal.get("metadata") or {}, sort_keys=True
+                        )
+                    }
                     for signal in data.get("signals", [])
                 ],
             )
@@ -287,14 +324,21 @@ def _fill_price(side: str, price: float, slippage_bps: float) -> float:
     return price * (1 + slip if side == "buy" else 1 - slip)
 
 
-def _apply_fill(position: dict[str, Any], signed_qty: float, price: float) -> dict[str, Any]:
+def _apply_fill(
+    position: dict[str, Any], signed_qty: float, price: float
+) -> dict[str, Any]:
     qty = float(position.get("quantity", 0.0))
     avg = float(position.get("avg_price", 0.0))
     realized = float(position.get("realized_pnl", 0.0))
     if qty == 0 or (qty > 0 and signed_qty > 0) or (qty < 0 and signed_qty < 0):
         new_qty = qty + signed_qty
         new_avg = ((abs(qty) * avg) + (abs(signed_qty) * price)) / abs(new_qty)
-        return {**position, "quantity": round(new_qty, 10), "avg_price": round(new_avg, 10), "realized_pnl": realized}
+        return {
+            **position,
+            "quantity": round(new_qty, 10),
+            "avg_price": round(new_avg, 10),
+            "realized_pnl": realized,
+        }
 
     closing_qty = min(abs(qty), abs(signed_qty))
     if qty > 0:
@@ -311,14 +355,18 @@ def _apply_fill(position: dict[str, Any], signed_qty: float, price: float) -> di
     }
 
 
-def _summary_for(data: dict[str, Any], strategy_id: str, role: str, initial_equity: float) -> dict[str, Any]:
+def _summary_for(
+    data: dict[str, Any], strategy_id: str, role: str, initial_equity: float
+) -> dict[str, Any]:
     position = data.get("positions", {}).get(_position_key(strategy_id, role)) or {}
     fills = [
-        fill for fill in data.get("fills", [])
+        fill
+        for fill in data.get("fills", [])
         if fill.get("strategy_id") == strategy_id and fill.get("role") == role
     ]
     equity_points = [
-        point for point in data.get("equity", [])
+        point
+        for point in data.get("equity", [])
         if point.get("strategy_id") == strategy_id and point.get("role") == role
     ]
     equity = float(equity_points[-1]["equity"]) if equity_points else initial_equity

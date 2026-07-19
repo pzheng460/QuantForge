@@ -51,7 +51,9 @@ class StrategyVersion:
 
 class DeploymentRegistry:
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path else Path.home() / ".quantforge" / "deployments.json"
+        self.path = (
+            Path(path) if path else Path.home() / ".quantforge" / "deployments.json"
+        )
 
     def register_candidate(
         self,
@@ -91,9 +93,7 @@ class DeploymentRegistry:
 
     def current(self, strategy_id: str) -> StrategyVersion:
         promoted = [
-            v
-            for v in self.list(strategy_id)
-            if v.status == DeploymentStatus.PROMOTED
+            v for v in self.list(strategy_id) if v.status == DeploymentStatus.PROMOTED
         ]
         if not promoted:
             raise KeyError(f"no promoted version for {strategy_id}")
@@ -125,7 +125,9 @@ class DeploymentRegistry:
                 and existing.status == DeploymentStatus.PROMOTED
             ):
                 previous_id = existing.version_id
-                versions[vid] = _serialize(_replace(existing, status=DeploymentStatus.ARCHIVED))
+                versions[vid] = _serialize(
+                    _replace(existing, status=DeploymentStatus.ARCHIVED)
+                )
 
         promoted = _replace(
             version,
@@ -144,8 +146,12 @@ class DeploymentRegistry:
         previous = self.get(current.previous_version_id)
         data = self._read()
         versions = data.setdefault("versions", {})
-        versions[current.version_id] = _serialize(_replace(current, status=DeploymentStatus.ARCHIVED))
-        restored = _replace(previous, status=DeploymentStatus.PROMOTED, promoted_at=_now())
+        versions[current.version_id] = _serialize(
+            _replace(current, status=DeploymentStatus.ARCHIVED)
+        )
+        restored = _replace(
+            previous, status=DeploymentStatus.PROMOTED, promoted_at=_now()
+        )
         versions[restored.version_id] = _serialize(restored)
         self._write(data)
         return restored
@@ -168,19 +174,23 @@ class DeploymentRegistry:
 
     @staticmethod
     def _version_id(strategy_id: str, pine: Path, evidence: Path) -> str:
-        payload = "|".join([
-            strategy_id,
-            str(pine),
-            pine.read_text() if pine.exists() else "",
-            evidence.read_text() if evidence.exists() else "",
-            _now(),
-        ])
+        payload = "|".join(
+            [
+                strategy_id,
+                str(pine),
+                pine.read_text() if pine.exists() else "",
+                evidence.read_text() if evidence.exists() else "",
+                _now(),
+            ]
+        )
         digest = hashlib.sha256(payload.encode()).hexdigest()[:12]
         return f"{strategy_id}__{digest}"
 
 
 def _assert_promotable(report: dict[str, Any]) -> None:
-    decision = report.get("decision") or report.get("evidence", {}).get("decision") or {}
+    decision = (
+        report.get("decision") or report.get("evidence", {}).get("decision") or {}
+    )
     if decision.get("action") != "observe":
         raise PromotionRejected(f"decision action is {decision.get('action')!r}")
     evidence = report.get("evidence") or {}
@@ -193,8 +203,16 @@ def _assert_promotable(report: dict[str, Any]) -> None:
 
 def _validate_transition(current: DeploymentStatus, target: DeploymentStatus) -> None:
     allowed = {
-        DeploymentStatus.CANDIDATE: {DeploymentStatus.PAPER, DeploymentStatus.REJECTED, DeploymentStatus.ARCHIVED},
-        DeploymentStatus.PAPER: {DeploymentStatus.SHADOW, DeploymentStatus.REJECTED, DeploymentStatus.ARCHIVED},
+        DeploymentStatus.CANDIDATE: {
+            DeploymentStatus.PAPER,
+            DeploymentStatus.REJECTED,
+            DeploymentStatus.ARCHIVED,
+        },
+        DeploymentStatus.PAPER: {
+            DeploymentStatus.SHADOW,
+            DeploymentStatus.REJECTED,
+            DeploymentStatus.ARCHIVED,
+        },
         DeploymentStatus.SHADOW: {DeploymentStatus.REJECTED, DeploymentStatus.ARCHIVED},
         DeploymentStatus.PROMOTED: {DeploymentStatus.ARCHIVED},
         DeploymentStatus.ARCHIVED: set(),
@@ -262,10 +280,16 @@ def build_live_command(
         ApprovalQueue(approvals_path).require_approved(approval_id)
         if policy_path or request_path:
             if not policy_path or not request_path:
-                raise DeploymentError("both policy_path and request_path are required for live policy")
-            policy_report = evaluate_live_policy(policy_path, request_path, approvals_path=approvals_path)
+                raise DeploymentError(
+                    "both policy_path and request_path are required for live policy"
+                )
+            policy_report = evaluate_live_policy(
+                policy_path, request_path, approvals_path=approvals_path
+            )
             if not policy_report["allowed"]:
-                raise DeploymentError(f"live policy rejected: {', '.join(policy_report['violations'])}")
+                raise DeploymentError(
+                    f"live policy rejected: {', '.join(policy_report['violations'])}"
+                )
         cmd.append("--confirm-live")
     cmd.extend(["--control-state", control_state])
     if extra:

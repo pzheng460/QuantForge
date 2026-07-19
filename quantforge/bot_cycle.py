@@ -11,7 +11,13 @@ from typing import Any
 
 from quantforge.audit_report import build_audit_report
 from quantforge.alerts import emit_alert, should_alert_cycle
-from quantforge.auto_tune_scheduler import AutoTuneJob, PromotionRunner, Runner, load_job_file, run_once
+from quantforge.auto_tune_scheduler import (
+    AutoTuneJob,
+    PromotionRunner,
+    Runner,
+    load_job_file,
+    run_once,
+)
 from quantforge.bot_preflight import run_bot_preflight
 from quantforge.bot_status import build_bot_status, write_bot_status
 from quantforge.risk_control import RiskConfig, check_risk
@@ -89,7 +95,9 @@ def run_bot_cycle(
     else:
         captured = []
 
-    result = run_once(job, runner=effective_runner, promotion_runner=promotion_runner, cwd=cwd)
+    result = run_once(
+        job, runner=effective_runner, promotion_runner=promotion_runner, cwd=cwd
+    )
     auto_tune = asdict(result)
     if captured:
         subprocess_log["runs"] = [_subprocess_result_dict(item) for item in captured]
@@ -190,7 +198,9 @@ def _cycle_report(
     }
 
 
-def run_quiet_subprocess(command: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
+def run_quiet_subprocess(
+    command: list[str], cwd: str
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=cwd, capture_output=True, text=True)
 
 

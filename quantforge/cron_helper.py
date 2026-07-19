@@ -122,16 +122,15 @@ def install(
 
     repo = _repo_root()
     cli = _cli_binary()
-    ops = Path(ops_dir).expanduser() if ops_dir else (Path.home() / ".quantforge" / "ops")
+    ops = (
+        Path(ops_dir).expanduser() if ops_dir else (Path.home() / ".quantforge" / "ops")
+    )
     log = ops / "cron.log"
     webhook = f" --alert-webhook-url {alert_webhook_url}" if alert_webhook_url else ""
 
     block_lines = [BEGIN_MARKER]
     for s in strategies:
-        cmd = (
-            f"cd {repo} && {cli} bot cycle {s} "
-            f"--ops-dir {ops}{webhook} >> {log} 2>&1"
-        )
+        cmd = f"cd {repo} && {cli} bot cycle {s} --ops-dir {ops}{webhook} >> {log} 2>&1"
         block_lines.append(f"{schedule} {cmd}")
     block_lines.append(END_MARKER)
     block = "\n".join(block_lines) + "\n"

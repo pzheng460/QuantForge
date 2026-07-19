@@ -76,7 +76,9 @@ def write_bot_status(report: dict[str, Any], out: str | Path) -> None:
     tmp.replace(path)
 
 
-def _current_promoted(registry: DeploymentRegistry, strategy_id: str) -> StrategyVersion | None:
+def _current_promoted(
+    registry: DeploymentRegistry, strategy_id: str
+) -> StrategyVersion | None:
     try:
         return registry.current(strategy_id)
     except KeyError:
@@ -124,8 +126,7 @@ def _pending_approvals(
 ) -> list[ApprovalRequest]:
     requests = ApprovalQueue(approvals_path).list(status="pending")
     return [
-        req for req in requests
-        if req.payload.get("strategy_id") in {None, strategy_id}
+        req for req in requests if req.payload.get("strategy_id") in {None, strategy_id}
     ]
 
 

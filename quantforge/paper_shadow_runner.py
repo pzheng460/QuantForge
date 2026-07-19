@@ -6,7 +6,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from quantforge.deployment import DeploymentError, DeploymentRegistry, DeploymentStatus, StrategyVersion
+from quantforge.deployment import (
+    DeploymentError,
+    DeploymentRegistry,
+    DeploymentStatus,
+    StrategyVersion,
+)
 from quantforge.paper_ledger import PaperLedger
 
 
@@ -24,7 +29,9 @@ def run_shadow_observation(
     """Record promoted/shadow signals from a normalized runtime JSONL stream."""
     registry = DeploymentRegistry(registry_path)
     promoted = registry.current(strategy_id)
-    shadow = _latest_shadow_candidate(registry, strategy_id, exclude_version_id=promoted.version_id)
+    shadow = _latest_shadow_candidate(
+        registry, strategy_id, exclude_version_id=promoted.version_id
+    )
     ledger = PaperLedger(ledger_path, initial_equity=initial_equity)
     processed = 0
     recorded = 0
@@ -80,7 +87,8 @@ def _latest_shadow_candidate(
     candidates = [
         version
         for version in registry.list(strategy_id)
-        if version.status == DeploymentStatus.SHADOW and version.version_id != exclude_version_id
+        if version.status == DeploymentStatus.SHADOW
+        and version.version_id != exclude_version_id
     ]
     if not candidates:
         raise DeploymentError(f"no shadow candidate for {strategy_id}")

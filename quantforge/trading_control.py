@@ -20,7 +20,9 @@ class ControlDecision:
 
 class TradingControl:
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path else Path.home() / ".quantforge" / "trading_control.json"
+        self.path = (
+            Path(path) if path else Path.home() / ".quantforge" / "trading_control.json"
+        )
 
     def set_action(
         self,
@@ -66,9 +68,13 @@ def apply_auto_tune_report(
     strategy_id: str,
 ) -> ControlDecision:
     report = json.loads(Path(report_path).read_text())
-    decision = report.get("decision") or report.get("evidence", {}).get("decision") or {}
+    decision = (
+        report.get("decision") or report.get("evidence", {}).get("decision") or {}
+    )
     action = decision.get("action", "observe")
     evidence = report.get("evidence") or {}
     reasons = evidence.get("trigger_reasons") or decision.get("reasons") or []
     score = decision.get("score")
-    return TradingControl(state_path).set_action(strategy_id, action, reasons=reasons, score=score)
+    return TradingControl(state_path).set_action(
+        strategy_id, action, reasons=reasons, score=score
+    )

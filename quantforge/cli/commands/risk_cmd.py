@@ -19,10 +19,14 @@ def risk_group():
 
 @risk_group.command("check")
 @click.argument("strategy_id")
-@click.option("--role", default="promoted", type=click.Choice(["promoted", "paper", "shadow"]))
+@click.option(
+    "--role", default="promoted", type=click.Choice(["promoted", "paper", "shadow"])
+)
 @click.option("--ledger", "ledger_path", default=None, type=click.Path(path_type=Path))
 @click.option("--control-state", default=None, type=click.Path(path_type=Path))
-@click.option("--registry", "registry_path", default=None, type=click.Path(path_type=Path))
+@click.option(
+    "--registry", "registry_path", default=None, type=click.Path(path_type=Path)
+)
 @click.option("--out", "out_path", default=None, type=click.Path(path_type=Path))
 @click.option("--auto-rollback", is_flag=True)
 @click.option("--max-drawdown", default=0.05, type=float)
@@ -110,7 +114,9 @@ def execution_cmd(
 @risk_group.command("live-policy")
 @click.argument("policy", type=click.Path(exists=True, path_type=Path))
 @click.argument("request", type=click.Path(exists=True, path_type=Path))
-@click.option("--approvals", "approvals_path", default=None, type=click.Path(path_type=Path))
+@click.option(
+    "--approvals", "approvals_path", default=None, type=click.Path(path_type=Path)
+)
 @click.option("--out", "out_path", default=None, type=click.Path(path_type=Path))
 def live_policy_cmd(policy, request, approvals_path, out_path):
     """Check live launch/order permission policy."""

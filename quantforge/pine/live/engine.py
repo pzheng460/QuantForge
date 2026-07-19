@@ -138,13 +138,15 @@ class PineLiveEngine:
 
         if evolving.is_enabled(self.strategy_name):
             from quantforge.trading_control import TradingControl
+
             ctrl = TradingControl().get_action(self.strategy_name)
             action = ctrl.get("action", "resume")
             reasons = ctrl.get("reasons", [])
             if action == "pause":
                 logger.error(
                     "Refusing to start: trading_control says PAUSE for %s. Reasons: %s",
-                    self.strategy_name, reasons,
+                    self.strategy_name,
+                    reasons,
                 )
                 raise RuntimeError(
                     f"Pine engine paused by Evolving Mode for '{self.strategy_name}': "
@@ -155,7 +157,10 @@ class PineLiveEngine:
                 self.position_size_usdt = old / 2
                 logger.warning(
                     "Evolving Mode REDUCE — position size %.2f → %.2f for %s. Reasons: %s",
-                    old, self.position_size_usdt, self.strategy_name, reasons,
+                    old,
+                    self.position_size_usdt,
+                    self.strategy_name,
+                    reasons,
                 )
 
         logger.info(
@@ -194,20 +199,27 @@ class PineLiveEngine:
                         try:
                             bg_symbol = self.symbol.split(":")[0].replace("/", "")
                             category = (
-                                "USDC-FUTURES" if ":USDC" in self.symbol
+                                "USDC-FUTURES"
+                                if ":USDC" in self.symbol
                                 else "USDT-FUTURES"
                             )
                             margin_coin = "USDC" if ":USDC" in self.symbol else "USDT"
-                            resp = connector._exchange.privateUtaPostV3AccountSetLeverage({
-                                "symbol": bg_symbol,
-                                "category": category,
-                                "leverage": str(self.leverage),
-                                "marginCoin": margin_coin,
-                            })
+                            resp = (
+                                connector._exchange.privateUtaPostV3AccountSetLeverage(
+                                    {
+                                        "symbol": bg_symbol,
+                                        "category": category,
+                                        "leverage": str(self.leverage),
+                                        "marginCoin": margin_coin,
+                                    }
+                                )
+                            )
                             if resp.get("code") == "00000":
                                 logger.info(
                                     "Leverage set to %dx for %s (UTA %s)",
-                                    self.leverage, self.symbol, category,
+                                    self.leverage,
+                                    self.symbol,
+                                    category,
                                 )
                             else:
                                 logger.warning("UTA set leverage non-OK: %s", resp)
@@ -215,9 +227,7 @@ class PineLiveEngine:
                             logger.exception("Failed to set leverage (UTA path)")
                     else:
                         try:
-                            connector._exchange.set_leverage(
-                                self.leverage, self.symbol
-                            )
+                            connector._exchange.set_leverage(self.leverage, self.symbol)
                             logger.info(
                                 "Leverage set to %dx for %s", self.leverage, self.symbol
                             )
@@ -230,7 +240,8 @@ class PineLiveEngine:
                     # endpoint above, so trust the API success response there.
                     try:
                         positions = (
-                            [] if is_bitget_uta
+                            []
+                            if is_bitget_uta
                             else connector._exchange.fetch_positions([self.symbol])
                         )
                         actual_leverage = None
@@ -285,7 +296,8 @@ class PineLiveEngine:
                 logger.info(
                     "Wallet balance: %.2f USDT (informational; not used as "
                     "P&L baseline — that's bound to position_size_usdt=%.2f)",
-                    wallet_usdt, self.position_size_usdt,
+                    wallet_usdt,
+                    self.position_size_usdt,
                 )
             except Exception:
                 logger.exception(
@@ -312,7 +324,8 @@ class PineLiveEngine:
         # entry point — backtest, optimize, CLI, live). The live engine
         # always has a position_size_usdt so this always runs.
         self._runtime.apply_sizing_override(
-            self.position_size_usdt, self.leverage,
+            self.position_size_usdt,
+            self.leverage,
         )
         sc = self._runtime.strategy_ctx
         if sc is not None and self.position_size_usdt > 0:
@@ -324,7 +337,9 @@ class PineLiveEngine:
             logger.info(
                 "Pine sizing aligned to live: qty_type=%s default_qty=%.4f "
                 "initial_capital=$%.2f commission=0",
-                sc.default_qty_type, sc.default_qty, sc.initial_capital,
+                sc.default_qty_type,
+                sc.default_qty,
+                sc.initial_capital,
             )
 
         # NOTE: Do NOT wire signal callbacks until warmup is complete.
@@ -412,8 +427,11 @@ class PineLiveEngine:
         file is archived and a fresh run begins.
         """
         perf_path = (
-            Path.home() / ".quantforge" / "live"
-            / self.strategy_name / "live_performance.json"
+            Path.home()
+            / ".quantforge"
+            / "live"
+            / self.strategy_name
+            / "live_performance.json"
         )
         if not perf_path.exists():
             logger.info("No previous performance file — starting fresh")
@@ -432,6 +450,7 @@ class PineLiveEngine:
         if saved_fp != current_fp:
             # Config changed — archive old file and start fresh
             from datetime import datetime
+
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             archive_path = perf_path.with_name(f"live_performance_{ts}.json")
             try:
@@ -439,7 +458,9 @@ class PineLiveEngine:
                 logger.warning(
                     "Config fingerprint mismatch (saved=%s, current=%s). "
                     "Archived old data to %s — starting fresh run",
-                    saved_fp or "<none>", current_fp, archive_path.name,
+                    saved_fp or "<none>",
+                    current_fp,
+                    archive_path.name,
                 )
             except Exception:
                 logger.exception("Failed to archive old performance file")
@@ -464,7 +485,9 @@ class PineLiveEngine:
                 logger.info(
                     "Restored open position from disk: %s %.6f @ %.2f "
                     "(will be overridden by exchange sync if available)",
-                    side.upper(), qty, entry_price,
+                    side.upper(),
+                    qty,
+                    entry_price,
                 )
 
     async def _sync_position_state(self, connector) -> None:
@@ -500,7 +523,9 @@ class PineLiveEngine:
             self._bridge.sync_position(side, contracts, entry_price)
             logger.info(
                 "Synced position from exchange: %s %.6f @ %.2f",
-                side, contracts, entry_price,
+                side,
+                contracts,
+                entry_price,
             )
             self._apply_synced_pine_position(side, contracts, entry_price)
             return
@@ -546,7 +571,9 @@ class PineLiveEngine:
                 self._bridge.sync_position(side, actual_qty, entry)
                 logger.info(
                     "(dry-run) Synced position from Pine state: %s qty=%.6f entry=%.2f",
-                    side, actual_qty, entry,
+                    side,
+                    actual_qty,
+                    entry,
                 )
             else:
                 self._bridge.sync_position(None, 0.0, 0.0)
@@ -617,23 +644,30 @@ class PineLiveEngine:
             wait_time = max(1, next_bar_close - now + buffer_sec)
             logger.debug(
                 "Sleeping %.1fs until next bar close (tf=%ss, buffer=%ss)",
-                wait_time, tf_sec, buffer_sec,
+                wait_time,
+                tf_sec,
+                buffer_sec,
             )
             await asyncio.sleep(wait_time)
 
             try:
                 # ── Pull every bar we haven't seen ─────────────────────
                 # since_ms = first millisecond AFTER the last bar we processed
-                since_ms = (self._last_bar_time + 1) * 1000 if self._last_bar_time else None
+                since_ms = (
+                    (self._last_bar_time + 1) * 1000 if self._last_bar_time else None
+                )
                 now_ms = int(time.time() * 1000)
                 current_bar_open_ms = (now_ms // tf_ms) * tf_ms
                 missing = (
                     max(2, math.ceil((now_ms - since_ms) / tf_ms) + 2)
-                    if since_ms else 2
+                    if since_ms
+                    else 2
                 )
                 limit = min(missing, 500)
                 ohlcv = (
-                    exchange.fetch_ohlcv(self.symbol, self.timeframe, since=since_ms, limit=limit)
+                    exchange.fetch_ohlcv(
+                        self.symbol, self.timeframe, since=since_ms, limit=limit
+                    )
                     if since_ms is not None
                     else exchange.fetch_ohlcv(self.symbol, self.timeframe, limit=limit)
                 )
@@ -642,8 +676,10 @@ class PineLiveEngine:
 
                 # Confirmed bars only — exclude the bar currently in progress.
                 new_bars = [
-                    b for b in ohlcv
-                    if b[0] < current_bar_open_ms and (b[0] // 1000) > self._last_bar_time
+                    b
+                    for b in ohlcv
+                    if b[0] < current_bar_open_ms
+                    and (b[0] // 1000) > self._last_bar_time
                 ]
                 if not new_bars:
                     continue
@@ -655,15 +691,21 @@ class PineLiveEngine:
                         "Falling behind: backfilling %d bars (last_bar_time=%d, "
                         "now=%d). Exchange submission suppressed during replay; "
                         "reconcile runs after.",
-                        len(new_bars), self._last_bar_time, now_ms // 1000,
+                        len(new_bars),
+                        self._last_bar_time,
+                        now_ms // 1000,
                     )
                     self._bridge._submission_enabled = False
 
                 for confirmed in new_bars:
                     bar_ts = confirmed[0] // 1000
                     bar = BarData(
-                        open=confirmed[1], high=confirmed[2], low=confirmed[3],
-                        close=confirmed[4], volume=confirmed[5], time=bar_ts,
+                        open=confirmed[1],
+                        high=confirmed[2],
+                        low=confirmed[3],
+                        close=confirmed[4],
+                        volume=confirmed[5],
+                        time=bar_ts,
                     )
                     self._bridge.update_price(bar.open)
                     new_orders = self._runtime.process_bar(bar)
@@ -673,7 +715,9 @@ class PineLiveEngine:
 
                     logger.info(
                         "Bar %d | open=%.2f close=%.2f | new_queue=%d | pos=%s qty=%.6f%s",
-                        self._bars_processed, bar.open, bar.close,
+                        self._bars_processed,
+                        bar.open,
+                        bar.close,
                         len(new_orders),
                         self._bridge._position_side or "flat",
                         self._bridge._position_qty,
@@ -746,13 +790,19 @@ class PineLiveEngine:
         logger.warning(
             "POSITION DRIFT detected — bridge=%s qty=%.6f, exchange=%s qty=%.6f. "
             "Treating exchange as ground truth and re-syncing Pine.",
-            bridge_side or "flat", bridge_qty, exch_side or "flat", exch_qty,
+            bridge_side or "flat",
+            bridge_qty,
+            exch_side or "flat",
+            exch_qty,
         )
         self._bridge.sync_position(exch_side, exch_qty, exch_entry)
         self._apply_synced_pine_position(exch_side, exch_qty, exch_entry)
 
     def _apply_synced_pine_position(
-        self, side: str | None, qty: float, entry_price: float,
+        self,
+        side: str | None,
+        qty: float,
+        entry_price: float,
     ) -> None:
         """Push an externally-resolved position into Pine's StrategyContext.
 
@@ -774,6 +824,7 @@ class PineLiveEngine:
         if not self._runtime or not self._runtime.strategy_ctx:
             return
         from quantforge.pine.interpreter.builtins.strategy import Direction
+
         sc = self._runtime.strategy_ctx
         current_bar_index = self._runtime.ctx.bar_index
         if side:

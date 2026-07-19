@@ -36,9 +36,10 @@ def _require_evolving(strategy: str | None = None) -> None:
     state = evolving.load_state()
     msg = ["Evolving Mode is OFF — bot subsystem is disabled by default."]
     if not state["enabled"]:
-        msg.append("Enable with:  quantforge-cli bot evolving enable" + (
-            f" --strategy {strategy}" if strategy else ""
-        ))
+        msg.append(
+            "Enable with:  quantforge-cli bot evolving enable"
+            + (f" --strategy {strategy}" if strategy else "")
+        )
     elif strategy and strategy not in state["strategies"]:
         msg.append(
             f"Master switch is on but '{strategy}' is not in the allow-list. "
@@ -48,6 +49,7 @@ def _require_evolving(strategy: str | None = None) -> None:
 
 
 # ─── bot evolving … ──────────────────────────────────────────────────────────
+
 
 @click.group("bot")
 def bot_group():
@@ -67,6 +69,7 @@ def evolving_status(as_json: bool):
     cron_state: dict = {"installed": False, "lines": []}
     try:
         from quantforge import cron_helper
+
         cron_state = cron_helper.status()
     except (RuntimeError, FileNotFoundError):
         pass
@@ -92,12 +95,25 @@ def evolving_status(as_json: bool):
 
 
 @evolving_group.command("enable")
-@click.option("--strategy", "strategies", multiple=True, help="Strategy to add to allow-list (repeatable)")
-@click.option("--clear-strategies", is_flag=True, help="Wipe the allow-list before enabling")
+@click.option(
+    "--strategy",
+    "strategies",
+    multiple=True,
+    help="Strategy to add to allow-list (repeatable)",
+)
+@click.option(
+    "--clear-strategies", is_flag=True, help="Wipe the allow-list before enabling"
+)
 @click.option("--no-cron", is_flag=True, help="Skip auto-installing the cron block")
-@click.option("--schedule", default="*/30 * * * *", show_default=True,
-              help="Cron schedule expression for the cycle")
-@click.option("--alert-webhook-url", help="Slack/webhook URL to thread into the cron line")
+@click.option(
+    "--schedule",
+    default="*/30 * * * *",
+    show_default=True,
+    help="Cron schedule expression for the cycle",
+)
+@click.option(
+    "--alert-webhook-url", help="Slack/webhook URL to thread into the cron line"
+)
 def evolving_enable(strategies, clear_strategies, no_cron, schedule, alert_webhook_url):
     """Turn on Evolving Mode and (by default) install the cron block.
 
@@ -130,6 +146,7 @@ def evolving_enable(strategies, clear_strategies, no_cron, schedule, alert_webho
         return
     try:
         from quantforge import cron_helper
+
         cron_status = cron_helper.install(
             state["strategies"],
             schedule=schedule,
@@ -137,16 +154,25 @@ def evolving_enable(strategies, clear_strategies, no_cron, schedule, alert_webho
         )
     except RuntimeError as exc:
         click.echo(f"\033[33m[!]\033[0m Could not install cron: {exc}", err=True)
-        click.echo("    Evolving Mode is still ON; install cron manually with "
-                   "'quantforge-cli bot cron install'.")
+        click.echo(
+            "    Evolving Mode is still ON; install cron manually with "
+            "'quantforge-cli bot cron install'."
+        )
         return
     if cron_status["installed"]:
-        click.echo(f"\033[32m[✓]\033[0m Installed {len(cron_status['lines'])} cron line(s)"
-                   f" on schedule '{schedule}'.")
+        click.echo(
+            f"\033[32m[✓]\033[0m Installed {len(cron_status['lines'])} cron line(s)"
+            f" on schedule '{schedule}'."
+        )
 
 
 @evolving_group.command("disable")
-@click.option("--remove-strategy", "remove_strategies", multiple=True, help="Strategy to drop from allow-list")
+@click.option(
+    "--remove-strategy",
+    "remove_strategies",
+    multiple=True,
+    help="Strategy to drop from allow-list",
+)
 @click.option("--keep-cron", is_flag=True, help="Don't uninstall the cron block")
 def evolving_disable(remove_strategies, keep_cron):
     """Turn off Evolving Mode and (by default) remove the cron block.
@@ -167,6 +193,7 @@ def evolving_disable(remove_strategies, keep_cron):
         return
     try:
         from quantforge import cron_helper
+
         cron_helper.remove()
     except RuntimeError as exc:
         click.echo(f"\033[33m[!]\033[0m Could not touch cron: {exc}", err=True)
@@ -175,6 +202,7 @@ def evolving_disable(remove_strategies, keep_cron):
 
 
 # ─── bot cron … (explicit lifecycle, optional) ───────────────────────────────
+
 
 @bot_group.group("cron")
 def cron_group():
@@ -185,13 +213,16 @@ def cron_group():
 def cron_status():
     """Show whether our managed cron block is installed."""
     from quantforge import cron_helper
+
     s = cron_helper.status()
     if s["installed"]:
         click.echo(f"\033[32mInstalled\033[0m — {len(s['lines'])} line(s):")
         for line in s["lines"]:
             click.echo(f"    {line}")
     else:
-        click.echo("\033[33mNot installed\033[0m. Run `bot cron install` or `bot evolving enable`.")
+        click.echo(
+            "\033[33mNot installed\033[0m. Run `bot cron install` or `bot evolving enable`."
+        )
 
 
 @cron_group.command("install")
@@ -200,6 +231,7 @@ def cron_status():
 def cron_install_cmd(schedule, alert_webhook_url):
     """Install the cron block for whatever strategies the allow-list currently has."""
     from quantforge import cron_helper
+
     state = evolving.load_state()
     if not state["strategies"]:
         raise click.ClickException(
@@ -218,15 +250,22 @@ def cron_install_cmd(schedule, alert_webhook_url):
 def cron_uninstall_cmd():
     """Remove the managed cron block. Leaves the rest of crontab alone."""
     from quantforge import cron_helper
+
     cron_helper.remove()
     click.echo("\033[32m[✓]\033[0m Cron block removed.")
 
 
 # ─── bot status / cycle ──────────────────────────────────────────────────────
 
+
 @bot_group.command("status")
 @click.argument("strategy_id", required=False)
-@click.option("--ops-dir", type=click.Path(file_okay=False), default=str(DEFAULT_OPS_DIR), show_default=True)
+@click.option(
+    "--ops-dir",
+    type=click.Path(file_okay=False),
+    default=str(DEFAULT_OPS_DIR),
+    show_default=True,
+)
 @click.option("--json", "as_json", is_flag=True, help="machine-readable output")
 def bot_status(strategy_id, ops_dir, as_json):
     """Snapshot the current bot subsystem state for a strategy.
@@ -258,12 +297,24 @@ def bot_status(strategy_id, ops_dir, as_json):
 
 @bot_group.command("cycle")
 @click.argument("strategy_id")
-@click.option("--ops-dir", type=click.Path(file_okay=False), default=str(DEFAULT_OPS_DIR), show_default=True)
-@click.option("--mode", default="paper", show_default=True, type=click.Choice(["paper", "shadow", "live"]))
+@click.option(
+    "--ops-dir",
+    type=click.Path(file_okay=False),
+    default=str(DEFAULT_OPS_DIR),
+    show_default=True,
+)
+@click.option(
+    "--mode",
+    default="paper",
+    show_default=True,
+    type=click.Choice(["paper", "shadow", "live"]),
+)
 @click.option("--alert-jsonl", "alert_jsonl_path", type=click.Path(dir_okay=False))
 @click.option("--alert-webhook-url", "alert_webhook_url")
 @click.option("--alert-on-success", is_flag=True)
-def bot_cycle(strategy_id, ops_dir, mode, alert_jsonl_path, alert_webhook_url, alert_on_success):
+def bot_cycle(
+    strategy_id, ops_dir, mode, alert_jsonl_path, alert_webhook_url, alert_on_success
+):
     """Run one full preflight → auto-tune → risk → audit cycle.
 
     Refuses if Evolving Mode is off for this strategy. Writes

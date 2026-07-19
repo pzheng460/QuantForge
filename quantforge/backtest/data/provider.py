@@ -84,7 +84,9 @@ class DataProvider(ABC):
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df.set_index("timestamp", inplace=True)
             else:
-                raise ValueError("DataFrame must have a 'timestamp' column or DatetimeIndex")
+                raise ValueError(
+                    "DataFrame must have a 'timestamp' column or DatetimeIndex"
+                )
 
         # Remove timezone info if present
         if df.index.tz is not None:

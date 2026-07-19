@@ -119,8 +119,9 @@ def get_strategy_source(name: str):
 def rename_strategy(name: str, new_name: str):
     """Rename a strategy file."""
     import re
+
     # Sanitize new_name
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', new_name.removesuffix('.pine'))
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", new_name.removesuffix(".pine"))
     old_file = _PINE_STRATEGIES_DIR / f"{name}.pine"
     new_file = _PINE_STRATEGIES_DIR / f"{safe_name}.pine"
     if not old_file.exists():

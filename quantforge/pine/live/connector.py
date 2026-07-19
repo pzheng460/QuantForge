@@ -133,7 +133,10 @@ def fetch_klines(
     while current < end_ms:
         chunk = _retry_transient(
             lambda: exchange.fetch_ohlcv(
-                symbol, timeframe, since=current, limit=page_limit,
+                symbol,
+                timeframe,
+                since=current,
+                limit=page_limit,
             ),
             label=f"{exchange_id}.fetch_ohlcv({symbol},{timeframe})",
             transient_errors=transient_errors,
@@ -178,14 +181,21 @@ def fetch_warmup_bars(
     end_ms = int(now.timestamp() * 1000)
 
     raw = fetch_klines(
-        symbol=symbol, exchange_id=exchange_id, timeframe=timeframe,
-        since_ms=since_ms, end_ms=end_ms,
+        symbol=symbol,
+        exchange_id=exchange_id,
+        timeframe=timeframe,
+        since_ms=since_ms,
+        end_ms=end_ms,
     )
 
     bars = [
         BarData(
-            open=b[1], high=b[2], low=b[3], close=b[4],
-            volume=b[5], time=b[0] // 1000,
+            open=b[1],
+            high=b[2],
+            low=b[3],
+            close=b[4],
+            volume=b[5],
+            time=b[0] // 1000,
         )
         for b in raw[-num_bars:]
     ]
@@ -424,10 +434,12 @@ class CcxtConnector:
             # Futures on UTA: ccxt's fetch_positions routes through Classic
             # v2 mix which UTA rejects with 40085. Call UTA endpoint directly.
             try:
-                resp = self._exchange.privateUtaGetV3PositionCurrentPosition({
-                    "symbol": self._bitget_uta_symbol(),
-                    "category": category,
-                })
+                resp = self._exchange.privateUtaGetV3PositionCurrentPosition(
+                    {
+                        "symbol": self._bitget_uta_symbol(),
+                        "category": category,
+                    }
+                )
                 data = resp.get("data") or {}
                 # Bitget UTA returns either a list under data.list / data or
                 # a single object — be defensive about shape.
@@ -437,14 +449,16 @@ class CcxtConnector:
                 if isinstance(positions, dict):
                     positions = [positions]
                 for p in positions:
-                    qty = float(p.get("total") or p.get("size") or p.get("contracts") or 0)
+                    qty = float(
+                        p.get("total") or p.get("size") or p.get("contracts") or 0
+                    )
                     if qty > 0:
                         # holdSide: long/short on Bitget; entryPrice / openPriceAvg
                         side = p.get("holdSide") or p.get("side")
-                        entry = float(
-                            p.get("openPriceAvg") or p.get("entryPrice") or 0
+                        entry = float(p.get("openPriceAvg") or p.get("entryPrice") or 0)
+                        upnl = float(
+                            p.get("unrealisedPL") or p.get("unrealizedPnl") or 0
                         )
-                        upnl = float(p.get("unrealisedPL") or p.get("unrealizedPnl") or 0)
                         return {
                             "side": side,
                             "contracts": qty,
@@ -471,4 +485,3 @@ class CcxtConnector:
                     "unrealizedPnl": float(pos.get("unrealizedPnl", 0)),
                 }
         return None
-

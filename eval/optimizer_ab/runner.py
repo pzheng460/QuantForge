@@ -38,9 +38,7 @@ CANONICAL_SKILL = PROJECT_ROOT / ".claude" / "skills" / "quantforge-optimizer"
 FINAL_RE = re.compile(r"FINAL_OUTPUT:\s*([^\s\"'\\]+)")
 
 
-_DATE_RANGE_RE = re.compile(
-    r"--start\s+\d{4}-\d{2}-\d{2}\s+--end\s+\d{4}-\d{2}-\d{2}"
-)
+_DATE_RANGE_RE = re.compile(r"--start\s+\d{4}-\d{2}-\d{2}\s+--end\s+\d{4}-\d{2}-\d{2}")
 
 
 def _sanitize_dates(text: str, train_start: str, train_end: str) -> str:
@@ -68,9 +66,11 @@ def stage_skill(method_dir, work_root, train_start=None, train_end=None):
     # Air-gap hardening: rewrite any hardcoded date ranges in SKILL.md and
     # script docstrings so the agent cannot accidentally copy them.
     if train_start and train_end:
-        for path in [staged / "SKILL.md",
-                     *(staged / "scripts").glob("*.py"),
-                     *(staged / "references").glob("*.md")]:
+        for path in [
+            staged / "SKILL.md",
+            *(staged / "scripts").glob("*.py"),
+            *(staged / "references").glob("*.md"),
+        ]:
             if not path.is_file():
                 continue
             try:
@@ -107,10 +107,20 @@ def split_train_window(train_start: str, train_end: str, train_fraction: float =
     }
 
 
-def build_prompt(skill_dir, src, work_path, output_path,
-                 symbol, timeframe, exchange,
-                 train_start, train_end, max_iters, seed,
-                 internal_split=None):
+def build_prompt(
+    skill_dir,
+    src,
+    work_path,
+    output_path,
+    symbol,
+    timeframe,
+    exchange,
+    train_start,
+    train_end,
+    max_iters,
+    seed,
+    internal_split=None,
+):
     internal_split = internal_split or split_train_window(train_start, train_end)
     return (
         "You are an expert quantitative trading strategy optimizer.\n\n"
@@ -190,11 +200,13 @@ def invoke_agent(prompt, provider, model, max_turns, timeout_s, log_path):
     )
     proc = subprocess.Popen(
         cmd,
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         cwd=str(PROJECT_ROOT),
         env=os.environ.copy(),
-        text=True, bufsize=1,
+        text=True,
+        bufsize=1,
     )
     proc.stdin.write(prompt)
     proc.stdin.close()
@@ -313,7 +325,8 @@ def _validation_commands(commands, internal_split=None):
     validation_start = (internal_split or {}).get("validation_start")
     validation_end = (internal_split or {}).get("validation_end")
     return [
-        cmd for cmd in commands
+        cmd
+        for cmd in commands
         if (
             "validation" in cmd.lower()
             or "_val" in cmd.lower()
@@ -334,7 +347,8 @@ def _fit_or_validation_commands(commands, internal_split=None):
     if not all([fit_start, fit_end, validation_start, validation_end]):
         return []
     return [
-        cmd for cmd in commands
+        cmd
+        for cmd in commands
         if (
             _uses_date_range(cmd, fit_start, fit_end)
             or _uses_date_range(cmd, validation_start, validation_end)
@@ -354,7 +368,8 @@ def summarize_trial_audit(stream, optimized, work_pine, internal_split=None):
     work_name = Path(work_pine).name
     split_commands = set(_fit_or_validation_commands(commands, internal_split))
     candidate_commands = [
-        cmd for cmd in commands
+        cmd
+        for cmd in commands
         if (
             work_name not in cmd
             or "candidate" in cmd.lower()
@@ -414,7 +429,8 @@ def main():
     trial_id = f"{a.method}__{src.stem}__{a.regime}__s{a.seed}__{uuid.uuid4().hex[:6]}"
     work_root = Path(tempfile.mkdtemp(prefix=f"qf_ab_{trial_id}_"))
     skill_dir = stage_skill(
-        method_dir, work_root,
+        method_dir,
+        work_root,
         train_start=str(train["start"]),
         train_end=str(train["end"]),
     )
@@ -430,11 +446,15 @@ def main():
     internal_split = split_train_window(str(train["start"]), str(train["end"]))
 
     prompt = build_prompt(
-        skill_dir, src, work_pine, out_pine,
+        skill_dir,
+        src,
+        work_pine,
+        out_pine,
         defaults.get("symbol", "BTC/USDT:USDT"),
         defaults.get("timeframe", "1h"),
         defaults.get("exchange", "bitget"),
-        str(train["start"]), str(train["end"]),
+        str(train["start"]),
+        str(train["end"]),
         int(trial_cfg.get("max_iterations", 5)),
         a.seed,
         internal_split,
@@ -451,8 +471,10 @@ def main():
     finished = datetime.now(timezone.utc).isoformat()
 
     final = extract_final(stream)
-    optimized = final if (final and Path(final).exists()) else (
-        str(out_pine) if out_pine.exists() else None
+    optimized = (
+        final
+        if (final and Path(final).exists())
+        else (str(out_pine) if out_pine.exists() else None)
     )
     cost = extract_cost(stream)
     audit = summarize_trial_audit(stream, optimized, work_pine, internal_split)
@@ -487,7 +509,9 @@ def main():
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(record, indent=2))
     status = "OK" if optimized else "FAIL"
-    print(f"[runner:{status}] {trial_id} rc={rc} cost=${cost:.2f}  optimized={optimized!r}")
+    print(
+        f"[runner:{status}] {trial_id} rc={rc} cost=${cost:.2f}  optimized={optimized!r}"
+    )
     return 0 if optimized else 1
 
 

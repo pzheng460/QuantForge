@@ -37,9 +37,13 @@ def run_bot_preflight(
     if cron_file:
         checks["cron"] = _check_cron(cron_file, strategy_id, errors)
     if registry_path or require_promoted:
-        checks["registry"] = _check_registry(strategy_id, registry_path, require_promoted, errors)
+        checks["registry"] = _check_registry(
+            strategy_id, registry_path, require_promoted, errors
+        )
     if mode == "live":
-        checks["live_policy"] = _check_live_policy(policy_path, request_path, approvals_path, errors)
+        checks["live_policy"] = _check_live_policy(
+            policy_path, request_path, approvals_path, errors
+        )
 
     report = {
         "checked_at": datetime.now(UTC).isoformat(),
@@ -65,16 +69,31 @@ def _check_job(
     path = Path(job_file)
     if not path.exists():
         errors.append("job_file_not_found")
-        return {"job": None, "check": {"passed": False, "path": str(path), "reason": "job_file_not_found"}}
+        return {
+            "job": None,
+            "check": {
+                "passed": False,
+                "path": str(path),
+                "reason": "job_file_not_found",
+            },
+        }
     try:
         jobs = load_job_file(path)
     except Exception as exc:
         errors.append("job_file_invalid")
-        return {"job": None, "check": {"passed": False, "path": str(path), "reason": str(exc)}}
-    matches = [job for job in jobs if job.strategy == strategy_id or job.job_id == strategy_id]
+        return {
+            "job": None,
+            "check": {"passed": False, "path": str(path), "reason": str(exc)},
+        }
+    matches = [
+        job for job in jobs if job.strategy == strategy_id or job.job_id == strategy_id
+    ]
     if not matches:
         errors.append("job_not_found")
-        return {"job": None, "check": {"passed": False, "path": str(path), "reason": "job_not_found"}}
+        return {
+            "job": None,
+            "check": {"passed": False, "path": str(path), "reason": "job_not_found"},
+        }
     job = matches[0]
     return {
         "job": job,
@@ -116,7 +135,9 @@ def _check_windows(job: AutoTuneJob | None, errors: list[str]) -> dict[str, Any]
     return {"passed": not invalid, "windows": job.windows, "invalid": invalid}
 
 
-def _check_cron(cron_file: str | Path, strategy_id: str, errors: list[str]) -> dict[str, Any]:
+def _check_cron(
+    cron_file: str | Path, strategy_id: str, errors: list[str]
+) -> dict[str, Any]:
     path = Path(cron_file)
     if not path.exists():
         errors.append("cron_file_not_found")
@@ -143,7 +164,11 @@ def _check_registry(
         if require_promoted:
             errors.append("promoted_version_missing")
         return {"passed": not require_promoted, "promoted": None}
-    return {"passed": True, "promoted": current.version_id, "pine_path": current.pine_path}
+    return {
+        "passed": True,
+        "promoted": current.version_id,
+        "pine_path": current.pine_path,
+    }
 
 
 def _check_live_policy(
@@ -154,11 +179,21 @@ def _check_live_policy(
 ) -> dict[str, Any]:
     if not policy_path or not request_path:
         errors.append("live_policy_files_missing")
-        return {"passed": False, "allowed": False, "violations": ["live_policy_files_missing"]}
+        return {
+            "passed": False,
+            "allowed": False,
+            "violations": ["live_policy_files_missing"],
+        }
     if not Path(policy_path).exists() or not Path(request_path).exists():
         errors.append("live_policy_files_not_found")
-        return {"passed": False, "allowed": False, "violations": ["live_policy_files_not_found"]}
-    report = evaluate_live_policy(policy_path, request_path, approvals_path=approvals_path)
+        return {
+            "passed": False,
+            "allowed": False,
+            "violations": ["live_policy_files_not_found"],
+        }
+    report = evaluate_live_policy(
+        policy_path, request_path, approvals_path=approvals_path
+    )
     if not report["allowed"]:
         errors.extend(report["violations"])
     return {

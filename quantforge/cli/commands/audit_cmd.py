@@ -17,13 +17,25 @@ def audit_group():
 
 @audit_group.command("build")
 @click.argument("strategy_id")
-@click.option("--auto-tune", "auto_tune_path", default=None, type=click.Path(path_type=Path))
-@click.option("--promotion", "promotion_path", default=None, type=click.Path(path_type=Path))
+@click.option(
+    "--auto-tune", "auto_tune_path", default=None, type=click.Path(path_type=Path)
+)
+@click.option(
+    "--promotion", "promotion_path", default=None, type=click.Path(path_type=Path)
+)
 @click.option("--shadow", "shadow_path", default=None, type=click.Path(path_type=Path))
 @click.option("--risk", "risk_path", default=None, type=click.Path(path_type=Path))
 @click.option("--json-out", default=None, type=click.Path(path_type=Path))
 @click.option("--markdown-out", default=None, type=click.Path(path_type=Path))
-def build_cmd(strategy_id, auto_tune_path, promotion_path, shadow_path, risk_path, json_out, markdown_out):
+def build_cmd(
+    strategy_id,
+    auto_tune_path,
+    promotion_path,
+    shadow_path,
+    risk_path,
+    json_out,
+    markdown_out,
+):
     """Build a JSON/Markdown audit report."""
     report = build_audit_report(
         strategy_id,

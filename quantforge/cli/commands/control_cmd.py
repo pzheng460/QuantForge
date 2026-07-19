@@ -21,13 +21,17 @@ def control_group():
 @click.option("--state", "state_path", default=None, type=click.Path(path_type=Path))
 def apply_report_cmd(report, strategy_id, state_path):
     """Apply an auto-tune report to trading control state."""
-    decision = apply_auto_tune_report(report, state_path=state_path, strategy_id=strategy_id)
+    decision = apply_auto_tune_report(
+        report, state_path=state_path, strategy_id=strategy_id
+    )
     click.echo(json.dumps(decision.__dict__, indent=2))
 
 
 @control_group.command("set")
 @click.argument("strategy_id")
-@click.argument("action", type=click.Choice(["observe", "pause", "reduce", "resume", "reoptimize"]))
+@click.argument(
+    "action", type=click.Choice(["observe", "pause", "reduce", "resume", "reoptimize"])
+)
 @click.option("--state", "state_path", default=None, type=click.Path(path_type=Path))
 def set_cmd(strategy_id, action, state_path):
     """Set control action manually."""

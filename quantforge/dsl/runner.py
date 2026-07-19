@@ -36,9 +36,12 @@ def _bridge_to_legacy(
 
     class _BaseSignalCore:
         """Minimal base for bridging declarative strategies."""
+
         HOLD, BUY, SELL, CLOSE = 0, 1, -1, 2
 
-        def __init__(self, config, min_holding_bars=4, cooldown_bars=2, signal_confirmation=1):
+        def __init__(
+            self, config, min_holding_bars=4, cooldown_bars=2, signal_confirmation=1
+        ):
             self._config = config
             self._min_holding_bars = min_holding_bars
             self._cooldown_bars = cooldown_bars

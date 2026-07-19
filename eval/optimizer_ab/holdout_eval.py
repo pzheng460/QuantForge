@@ -17,8 +17,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_ROOT = Path(__file__).resolve().parent
 
 BARS_PER_YEAR = {
-    "1m": 525600, "3m": 175200, "5m": 105120, "15m": 35040,
-    "30m": 17520, "1h": 8760, "2h": 4380, "4h": 2190, "1d": 365,
+    "1m": 525600,
+    "3m": 175200,
+    "5m": 105120,
+    "15m": 35040,
+    "30m": 17520,
+    "1h": 8760,
+    "2h": 4380,
+    "4h": 2190,
+    "1d": 365,
 }
 
 
@@ -31,10 +38,25 @@ def backtest(pine_path, symbol, exchange, timeframe, start, end):
     from quantforge.pine.interpreter.runtime import PineRuntime
     from quantforge.pine.parser.parser import parse
 
-    raw = _fetch_ohlcv(symbol=symbol, exchange_id=exchange, timeframe=timeframe,
-                       start=start, end=end, warmup_bars=500)
-    bars = [BarData(open=b[1], high=b[2], low=b[3], close=b[4],
-                    volume=b[5], time=int(b[0]) // 1000) for b in raw]
+    raw = _fetch_ohlcv(
+        symbol=symbol,
+        exchange_id=exchange,
+        timeframe=timeframe,
+        start=start,
+        end=end,
+        warmup_bars=500,
+    )
+    bars = [
+        BarData(
+            open=b[1],
+            high=b[2],
+            low=b[3],
+            close=b[4],
+            volume=b[5],
+            time=int(b[0]) // 1000,
+        )
+        for b in raw
+    ]
     ast = parse(pine_path.read_text())
     return PineRuntime(ExecutionContext(bars=bars)).run(ast), bars
 
@@ -43,8 +65,11 @@ def _window_start_idx(bars, start_date):
     """First bar index whose time >= start_date (UTC midnight). Bars before
     this index are warmup data the runtime processed only to initialize
     indicators; their trades/equity must be excluded from window metrics."""
-    start_unix = int(datetime.strptime(start_date, "%Y-%m-%d").replace(
-        tzinfo=timezone.utc).timestamp())
+    start_unix = int(
+        datetime.strptime(start_date, "%Y-%m-%d")
+        .replace(tzinfo=timezone.utc)
+        .timestamp()
+    )
     for i, b in enumerate(bars):
         if b.time >= start_unix:
             return i
@@ -66,8 +91,11 @@ def max_drawdown(equity):
 def sharpe(equity, bars_per_year):
     if len(equity) < 2:
         return 0.0
-    rets = [(equity[i] - equity[i - 1]) / equity[i - 1]
-            for i in range(1, len(equity)) if equity[i - 1] > 0]
+    rets = [
+        (equity[i] - equity[i - 1]) / equity[i - 1]
+        for i in range(1, len(equity))
+        if equity[i - 1] > 0
+    ]
     if not rets:
         return 0.0
     m = sum(rets) / len(rets)
@@ -99,7 +127,9 @@ def evaluate(pine_path, symbol, exchange, timeframe, start, end):
     eq = eq_full[win_idx:] if win_idx < len(eq_full) else []
     trades = [t for t in trades_full if getattr(t, "entry_bar", -1) >= win_idx]
 
-    initial = float(eq[0]) if eq else float(getattr(result, "initial_capital", 100000.0))
+    initial = (
+        float(eq[0]) if eq else float(getattr(result, "initial_capital", 100000.0))
+    )
     net = sum(getattr(t, "pnl", 0.0) for t in trades)
     n = len(trades)
     wins = sum(1 for t in trades if getattr(t, "pnl", 0) > 0)
@@ -150,7 +180,11 @@ def main():
     print(f"[holdout] OOS {holdout['start']}..{holdout['end']}  {pine.name}")
     oos_m = evaluate(pine, sym, ex, tf, str(holdout["start"]), str(holdout["end"]))
 
-    pf_ratio = (oos_m["profit_factor"] / is_m["profit_factor"]) if is_m["profit_factor"] > 0 else None
+    pf_ratio = (
+        (oos_m["profit_factor"] / is_m["profit_factor"])
+        if is_m["profit_factor"] > 0
+        else None
+    )
 
     trial["holdout"] = {
         "status": "ok",
@@ -161,7 +195,9 @@ def main():
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
     }
     Path(a.trial).write_text(json.dumps(trial, indent=2))
-    print(f"[holdout:OK] {trial['trial_id']}  IS Sharpe={is_m['sharpe']:.2f}  OOS Sharpe={oos_m['sharpe']:.2f}")
+    print(
+        f"[holdout:OK] {trial['trial_id']}  IS Sharpe={is_m['sharpe']:.2f}  OOS Sharpe={oos_m['sharpe']:.2f}"
+    )
     return 0
 
 

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -56,8 +55,11 @@ def engines_group():
 
 
 @engines_group.command("list")
-@click.option("--via-server", is_flag=True,
-              help="Query the web server's in-memory engine state instead of the persist file.")
+@click.option(
+    "--via-server",
+    is_flag=True,
+    help="Query the web server's in-memory engine state instead of the persist file.",
+)
 @click.option("--json", "as_json", is_flag=True)
 def list_cmd(via_server: bool, as_json: bool):
     """List engines (their configs + last persisted performance)."""
@@ -79,14 +81,16 @@ def list_cmd(via_server: bool, as_json: bool):
     if not engines:
         click.echo(f"(no engines registered in {ENGINES_FILE})")
         return
-    click.echo(f"{'engine_id':<10}  {'strategy':<22}  {'symbol':<18}  {'tf':<4}  status   trades  return%")
+    click.echo(
+        f"{'engine_id':<10}  {'strategy':<22}  {'symbol':<18}  {'tf':<4}  status   trades  return%"
+    )
     click.echo("-" * 88)
     for e in engines:
         perf = e.get("performance") or {}
         status = e.get("status", "?")
         trades = perf.get("total_trades", "—")
         ret = perf.get("return_pct")
-        ret_s = f"{ret*100:+.2f}" if isinstance(ret, (int, float)) else "—"
+        ret_s = f"{ret * 100:+.2f}" if isinstance(ret, (int, float)) else "—"
         click.echo(
             f"{e.get('engine_id', '?'):<10}  {e.get('strategy', '?'):<22}  "
             f"{e.get('symbol', '?'):<18}  {e.get('timeframe', '?'):<4}  "
@@ -120,11 +124,15 @@ def performance_cmd(strategy: str | None, as_json: bool):
         return
     for name, perf in targets.items():
         click.echo(f"\n=== {name} ===")
-        click.echo(f"  trades:    {perf.get('total_trades', 0)}  "
-                   f"win_rate:  {perf.get('win_rate', 0):.1%}  "
-                   f"PF: {perf.get('profit_factor', 0):.2f}")
-        click.echo(f"  return:    {perf.get('return_pct', 0)*100:+.2f}%  "
-                   f"max_dd:    {perf.get('max_drawdown', 0)*100:.2f}%")
+        click.echo(
+            f"  trades:    {perf.get('total_trades', 0)}  "
+            f"win_rate:  {perf.get('win_rate', 0):.1%}  "
+            f"PF: {perf.get('profit_factor', 0):.2f}"
+        )
+        click.echo(
+            f"  return:    {perf.get('return_pct', 0) * 100:+.2f}%  "
+            f"max_dd:    {perf.get('max_drawdown', 0) * 100:.2f}%"
+        )
         last_bar = perf.get("last_bar_at")
         if last_bar:
             click.echo(f"  last bar:  {last_bar}")
@@ -139,11 +147,23 @@ def performance_cmd(strategy: str | None, as_json: bool):
 @click.option("--leverage", type=int, default=1)
 @click.option("--position-size", type=float, default=100.0)
 @click.option("--warmup-bars", type=int, default=500)
-@click.option("--via-server", is_flag=True,
-              help="Start through the web API (engine appears in `engines list`). "
-                   "Without this flag, runs in the foreground via `pine.cli live`.")
-def start_cmd(pine_file, symbol, exchange, timeframe, demo, leverage,
-              position_size, warmup_bars, via_server):
+@click.option(
+    "--via-server",
+    is_flag=True,
+    help="Start through the web API (engine appears in `engines list`). "
+    "Without this flag, runs in the foreground via `pine.cli live`.",
+)
+def start_cmd(
+    pine_file,
+    symbol,
+    exchange,
+    timeframe,
+    demo,
+    leverage,
+    position_size,
+    warmup_bars,
+    via_server,
+):
     """Start a live engine. Without --via-server runs in foreground."""
     if via_server:
         try:
@@ -160,7 +180,9 @@ def start_cmd(pine_file, symbol, exchange, timeframe, demo, leverage,
                     "warmup_bars": warmup_bars,
                 },
             )
-            click.echo(f"started engine_id={res.get('engine_id')} status={res.get('status')}")
+            click.echo(
+                f"started engine_id={res.get('engine_id')} status={res.get('status')}"
+            )
         except _http.ServerUnreachable as e:
             click.echo(str(e), err=True)
             sys.exit(2)
@@ -168,14 +190,23 @@ def start_cmd(pine_file, symbol, exchange, timeframe, demo, leverage,
 
     # Foreground via pine.cli live
     cmd = [
-        sys.executable, "-m", "quantforge.pine.cli", "live",
+        sys.executable,
+        "-m",
+        "quantforge.pine.cli",
+        "live",
         pine_file,
-        "--symbol", symbol,
-        "--exchange", exchange,
-        "--timeframe", timeframe,
-        "--leverage", str(leverage),
-        "--position-size", str(position_size),
-        "--warmup-bars", str(warmup_bars),
+        "--symbol",
+        symbol,
+        "--exchange",
+        exchange,
+        "--timeframe",
+        timeframe,
+        "--leverage",
+        str(leverage),
+        "--position-size",
+        str(position_size),
+        "--warmup-bars",
+        str(warmup_bars),
     ]
     cmd.append("--demo" if demo else "--no-demo")
     if not demo:

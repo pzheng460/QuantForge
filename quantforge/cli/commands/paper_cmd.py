@@ -18,7 +18,9 @@ def paper_group():
 
 @paper_group.command("signal")
 @click.argument("strategy_id")
-@click.option("--role", required=True, type=click.Choice(["promoted", "paper", "shadow"]))
+@click.option(
+    "--role", required=True, type=click.Choice(["promoted", "paper", "shadow"])
+)
 @click.option("--side", required=True, type=click.Choice(["buy", "sell"]))
 @click.option("--price", required=True, type=float)
 @click.option("--quantity", required=True, type=float)
@@ -61,19 +63,30 @@ def signal_cmd(
 
 @paper_group.command("summary")
 @click.argument("strategy_id")
-@click.option("--role", default=None, type=click.Choice(["promoted", "paper", "shadow"]))
+@click.option(
+    "--role", default=None, type=click.Choice(["promoted", "paper", "shadow"])
+)
 @click.option("--ledger", "ledger_path", default=None, type=click.Path(path_type=Path))
 @click.option("--initial-equity", default=100_000.0, type=float)
 def summary_cmd(strategy_id, role, ledger_path, initial_equity):
     """Print paper/shadow ledger summary."""
-    summary = PaperLedger(ledger_path, initial_equity=initial_equity).summary(strategy_id, role=role)
+    summary = PaperLedger(ledger_path, initial_equity=initial_equity).summary(
+        strategy_id, role=role
+    )
     click.echo(json.dumps(summary, indent=2, sort_keys=True))
 
 
 @paper_group.command("shadow-run")
 @click.argument("strategy_id")
-@click.option("--events", "events_path", required=True, type=click.Path(exists=True, path_type=Path))
-@click.option("--registry", "registry_path", default=None, type=click.Path(path_type=Path))
+@click.option(
+    "--events",
+    "events_path",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+)
+@click.option(
+    "--registry", "registry_path", default=None, type=click.Path(path_type=Path)
+)
 @click.option("--ledger", "ledger_path", default=None, type=click.Path(path_type=Path))
 @click.option("--initial-equity", default=100_000.0, type=float)
 @click.option("--fee-rate", default=0.0, type=float)
