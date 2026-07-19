@@ -7,15 +7,15 @@ from pathlib import Path
 
 import click
 
-from quantforge.approvals import ApprovalQueue
-from quantforge.deployment import (
+from quantforge.evolving.approvals import ApprovalQueue
+from quantforge.evolving.deployment import (
     DeploymentError,
     DeploymentRegistry,
     DeploymentStatus,
     build_live_command,
 )
-from quantforge.deployment_pipeline import run_promotion_pipeline
-from quantforge.shadow import run_shadow_comparison
+from quantforge.evolving.deployment_pipeline import run_promotion_pipeline
+from quantforge.evolving.shadow import run_shadow_comparison
 
 
 @click.group("deployment")

@@ -12,6 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from quantforge import evolving
+from quantforge.evolving import switch
 
 
 def test_known_strategy_names_returns_real_pine_files():
@@ -46,7 +47,7 @@ def test_bot_evolving_enable_rejects_unknown_strategy(monkeypatch, tmp_path):
     """The CLI should refuse to flip the switch on a typo'd strategy."""
     from quantforge.cli.main import cli
 
-    monkeypatch.setattr(evolving, "STATE_PATH", tmp_path / "evolving.json")
+    monkeypatch.setattr(switch, "STATE_PATH", tmp_path / "evolving.json")
     runner = CliRunner()
     result = runner.invoke(
         cli, ["bot", "evolving", "enable", "--strategy", "ema_cross", "--no-cron"]
@@ -63,7 +64,7 @@ def test_bot_evolving_enable_rejects_unknown_strategy(monkeypatch, tmp_path):
 def test_bot_evolving_enable_accepts_known_strategy(monkeypatch, tmp_path):
     from quantforge.cli.main import cli
 
-    monkeypatch.setattr(evolving, "STATE_PATH", tmp_path / "evolving.json")
+    monkeypatch.setattr(switch, "STATE_PATH", tmp_path / "evolving.json")
     runner = CliRunner()
     result = runner.invoke(
         cli, ["bot", "evolving", "enable", "--strategy", "ema_crossover", "--no-cron"]

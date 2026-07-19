@@ -29,7 +29,7 @@ DEFAULT_SCHEDULE = "*/30 * * * *"  # every 30 minutes
 
 def _repo_root() -> Path:
     """Best guess at the QuantForge checkout root for `cd` in the cron line."""
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parents[2]
 
 
 def _cli_binary() -> str:

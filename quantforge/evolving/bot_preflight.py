@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from quantforge.auto_tune_scheduler import AutoTuneJob, load_job_file
-from quantforge.deployment import DeploymentRegistry
-from quantforge.live_policy import evaluate_live_policy
+from quantforge.evolving.auto_tune_scheduler import AutoTuneJob, load_job_file
+from quantforge.evolving.deployment import DeploymentRegistry
+from quantforge.evolving.live_policy import evaluate_live_policy
 
 
 def run_bot_preflight(

@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from quantforge.deployment import DeploymentRegistry, DeploymentStatus
-from quantforge.paper_ledger import PaperLedger
-from quantforge.shadow import MetricEvaluator, run_shadow_comparison
+from quantforge.evolving.deployment import DeploymentRegistry, DeploymentStatus
+from quantforge.evolving.paper_ledger import PaperLedger
+from quantforge.evolving.shadow import MetricEvaluator, run_shadow_comparison
 
 
 def run_promotion_pipeline(

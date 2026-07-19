@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from quantforge import evolving
-from quantforge.trading_control import TradingControl
+from quantforge.evolving.trading_control import TradingControl
 
 router = APIRouter()
 

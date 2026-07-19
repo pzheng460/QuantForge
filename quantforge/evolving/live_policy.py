@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from quantforge.approvals import ApprovalQueue, ApprovalRequired
+from quantforge.evolving.approvals import ApprovalQueue, ApprovalRequired
 
 
 def evaluate_live_policy(

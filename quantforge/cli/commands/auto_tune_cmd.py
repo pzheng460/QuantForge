@@ -8,7 +8,7 @@ import click
 
 from pathlib import Path
 
-from quantforge.auto_tune_scheduler import (
+from quantforge.evolving.auto_tune_scheduler import (
     AutoTuneJob,
     load_job_file,
     run_daemon,

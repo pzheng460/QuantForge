@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from quantforge.trading_control import TradingControl
+from quantforge.evolving.trading_control import TradingControl
 
 
 @dataclass(frozen=True)

@@ -249,7 +249,7 @@ def _run_live(args: argparse.Namespace) -> None:
 def _apply_live_control(args: argparse.Namespace, strategy_id: str) -> None:
     if getattr(args, "ignore_control", False):
         return
-    from quantforge.trading_control import TradingControl
+    from quantforge.evolving.trading_control import TradingControl
 
     state = TradingControl(getattr(args, "control_state", None)).get_action(strategy_id)
     action = state.get("action", "resume")

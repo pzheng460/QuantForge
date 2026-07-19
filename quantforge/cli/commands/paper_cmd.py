@@ -7,8 +7,8 @@ from pathlib import Path
 
 import click
 
-from quantforge.paper_ledger import PaperLedger
-from quantforge.paper_shadow_runner import run_shadow_observation
+from quantforge.evolving.paper_ledger import PaperLedger
+from quantforge.evolving.paper_shadow_runner import run_shadow_observation
 
 
 @click.group("paper")

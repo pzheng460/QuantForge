@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from quantforge import cron_helper
+from quantforge.evolving import cron_helper
 
 
 @pytest.fixture

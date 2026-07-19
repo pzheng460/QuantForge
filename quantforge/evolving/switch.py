@@ -37,7 +37,7 @@ STATE_PATH = Path.home() / ".quantforge" / "evolving.json"
 
 # Canonical Pine strategy directory — single source of truth for what strategy
 # names are real. We resolve it from the package root so it follows the repo.
-PINE_STRATEGIES_DIR = Path(__file__).resolve().parent / "pine" / "strategies"
+PINE_STRATEGIES_DIR = Path(__file__).resolve().parent.parent / "pine" / "strategies"
 
 
 def known_strategy_names() -> list[str]:

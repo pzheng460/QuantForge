@@ -68,7 +68,7 @@ def evolving_status(as_json: bool):
     state = evolving.load_state()
     cron_state: dict = {"installed": False, "lines": []}
     try:
-        from quantforge import cron_helper
+        from quantforge.evolving import cron_helper
 
         cron_state = cron_helper.status()
     except (RuntimeError, FileNotFoundError):
@@ -145,7 +145,7 @@ def evolving_enable(strategies, clear_strategies, no_cron, schedule, alert_webho
         click.echo("    Cron: not touched (--no-cron). Schedule manually if needed.")
         return
     try:
-        from quantforge import cron_helper
+        from quantforge.evolving import cron_helper
 
         cron_status = cron_helper.install(
             state["strategies"],
@@ -192,7 +192,7 @@ def evolving_disable(remove_strategies, keep_cron):
         click.echo("    Cron: left in place (--keep-cron).")
         return
     try:
-        from quantforge import cron_helper
+        from quantforge.evolving import cron_helper
 
         cron_helper.remove()
     except RuntimeError as exc:
@@ -212,7 +212,7 @@ def cron_group():
 @cron_group.command("status")
 def cron_status():
     """Show whether our managed cron block is installed."""
-    from quantforge import cron_helper
+    from quantforge.evolving import cron_helper
 
     s = cron_helper.status()
     if s["installed"]:
@@ -230,7 +230,7 @@ def cron_status():
 @click.option("--alert-webhook-url")
 def cron_install_cmd(schedule, alert_webhook_url):
     """Install the cron block for whatever strategies the allow-list currently has."""
-    from quantforge import cron_helper
+    from quantforge.evolving import cron_helper
 
     state = evolving.load_state()
     if not state["strategies"]:
@@ -249,7 +249,7 @@ def cron_install_cmd(schedule, alert_webhook_url):
 @cron_group.command("uninstall")
 def cron_uninstall_cmd():
     """Remove the managed cron block. Leaves the rest of crontab alone."""
-    from quantforge import cron_helper
+    from quantforge.evolving import cron_helper
 
     cron_helper.remove()
     click.echo("\033[32m[✓]\033[0m Cron block removed.")
@@ -274,7 +274,7 @@ def bot_status(strategy_id, ops_dir, as_json):
     pending approvals, ledger summary. Requires Evolving Mode to be on.
     """
     _require_evolving(strategy_id)
-    from quantforge.bot_status import build_bot_status
+    from quantforge.evolving.bot_status import build_bot_status
 
     ops = Path(ops_dir)
     try:
@@ -321,7 +321,7 @@ def bot_cycle(
     ops_dir/{audit,status,cycle}.json and appends to alerts.jsonl.
     """
     _require_evolving(strategy_id)
-    from quantforge.bot_cycle import run_bot_cycle
+    from quantforge.evolving.bot_cycle import run_bot_cycle
 
     ops = Path(ops_dir)
     ops.mkdir(parents=True, exist_ok=True)

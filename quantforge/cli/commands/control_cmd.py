@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from quantforge.trading_control import TradingControl, apply_auto_tune_report
+from quantforge.evolving.trading_control import TradingControl, apply_auto_tune_report
 
 
 @click.group("control")

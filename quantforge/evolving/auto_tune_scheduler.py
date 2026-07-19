@@ -13,8 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from quantforge.deployment_pipeline import run_promotion_pipeline
-from quantforge.trading_control import apply_auto_tune_report
+from quantforge.evolving.deployment_pipeline import run_promotion_pipeline
+from quantforge.evolving.trading_control import apply_auto_tune_report
 
 
 class CompletedProcessLike(Protocol):
@@ -152,7 +152,7 @@ def run_once(
         _append_run_event(job, run_log, "started", run_id=run_id)
         _write_heartbeat(job, "running")
         command = build_auto_tune_command(job)
-        workdir = str(cwd or Path(__file__).resolve().parents[1])
+        workdir = str(cwd or Path(__file__).resolve().parents[2])
         run = runner or _subprocess_runner
         completed = run(command, workdir)
         result = AutoTuneRunResult(

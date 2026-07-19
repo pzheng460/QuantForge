@@ -15,8 +15,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from quantforge.approvals import ApprovalQueue
-from quantforge.live_policy import evaluate_live_policy
+from quantforge.evolving.approvals import ApprovalQueue
+from quantforge.evolving.live_policy import evaluate_live_policy
 
 
 class DeploymentStatus(StrEnum):

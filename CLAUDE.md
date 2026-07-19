@@ -182,7 +182,8 @@ alerts               webhook / JSONL on cycle failure or risk action
 
 **Master switch**: `~/.quantforge/evolving.json` —
 `{ enabled: bool, strategies: [str], updated_at }`. Managed by
-`quantforge/evolving.py`. The CLI and Web UI both gate behind
+`quantforge/evolving/switch.py` (re-exported as `quantforge.evolving`).
+The CLI and Web UI both gate behind
 `evolving.is_enabled(strategy)`.
 
 **Enabling**:
@@ -219,7 +220,7 @@ The block looks like:
 # <<< quantforge-evolving-cron <<<
 ```
 Only lines between the markers are managed; the rest of the user's crontab
-is left untouched. Implementation: `quantforge/cron_helper.py`.
+is left untouched. Implementation: `quantforge/evolving/cron_helper.py`.
 
 **Persistence layout** (`~/.quantforge/`):
 - `evolving.json` — master switch

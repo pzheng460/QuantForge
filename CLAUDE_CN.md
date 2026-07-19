@@ -171,7 +171,7 @@ alerts               cycle 失败或风控动作时 webhook / JSONL 推送
 
 **主开关**：`~/.quantforge/evolving.json` ——
 `{ enabled: bool, strategies: [str], updated_at }`。由
-`quantforge/evolving.py` 管理。CLI 和 Web UI 都通过
+`quantforge/evolving/switch.py` 管理（以 `quantforge.evolving` 形式 re-export）。CLI 和 Web UI 都通过
 `evolving.is_enabled(strategy)` 做闸门。
 
 **启用方式**：
@@ -209,7 +209,7 @@ disable 加 `--keep-cron`。也可独立用 `bot cron {install, uninstall, statu
 # <<< quantforge-evolving-cron <<<
 ```
 只有两个 marker 之间的行受管理，crontab 里你自己写的其他行不会被动。
-实现：`quantforge/cron_helper.py`。
+实现：`quantforge/evolving/cron_helper.py`。
 
 **持久化布局**（`~/.quantforge/`）：
 - `evolving.json` — 主开关

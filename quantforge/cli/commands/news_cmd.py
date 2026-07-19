@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from quantforge.news_collector import (
+from quantforge.evolving.news_collector import (
     collect_events,
     collect_exchange_status_events,
     collect_microstructure_events,

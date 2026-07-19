@@ -9,13 +9,19 @@ from fastapi.testclient import TestClient
 
 from apps.dashboard.backend.main import app
 from quantforge import evolving
+from quantforge.evolving import switch
 
 
 @pytest.fixture(autouse=True)
 def isolated_state(tmp_path, monkeypatch):
-    """Each test gets its own evolving.json so they don't bleed into one another."""
+    """Each test gets its own evolving.json so they don't bleed into one another.
+
+    STATE_PATH must be patched on the `switch` module itself — the package
+    ``__init__`` only re-exports it, and the load/save functions read the
+    module-global.
+    """
     state_path = tmp_path / "evolving.json"
-    monkeypatch.setattr(evolving, "STATE_PATH", state_path)
+    monkeypatch.setattr(switch, "STATE_PATH", state_path)
     yield
 
 
@@ -64,7 +70,7 @@ def test_add_and_remove_strategy():
 def test_corrupt_state_file_falls_back_to_default(tmp_path, monkeypatch):
     bad = tmp_path / "evolving.json"
     bad.write_text("{not json")
-    monkeypatch.setattr(evolving, "STATE_PATH", bad)
+    monkeypatch.setattr(switch, "STATE_PATH", bad)
     state = evolving.load_state()
     assert state["enabled"] is False
     assert state["strategies"] == []
@@ -116,7 +122,7 @@ def test_pine_engine_refuses_to_start_when_paused():
     """If Evolving is ON for the strategy and control says PAUSE,
     PineLiveEngine.start() must raise before doing any IO."""
     from quantforge.pine.live.engine import PineLiveEngine
-    from quantforge.trading_control import TradingControl
+    from quantforge.evolving.trading_control import TradingControl
     import asyncio
 
     pine_source = 'strategy("test")\nplot(close)'
@@ -143,7 +149,7 @@ def test_pine_engine_refuses_to_start_when_paused():
 def test_pine_engine_reduces_position_size_on_reduce():
     """REDUCE action should halve position_size_usdt before fetching warmup."""
     from quantforge.pine.live.engine import PineLiveEngine
-    from quantforge.trading_control import TradingControl
+    from quantforge.evolving.trading_control import TradingControl
 
     pine_source = 'strategy("test")\nplot(close)'
     eng = PineLiveEngine(
@@ -172,7 +178,7 @@ def test_pine_engine_reduces_position_size_on_reduce():
 def test_pine_engine_ignores_control_when_evolving_off():
     """When the master switch is OFF, even a PAUSE in control_state is a no-op."""
     from quantforge.pine.live.engine import PineLiveEngine
-    from quantforge.trading_control import TradingControl
+    from quantforge.evolving.trading_control import TradingControl
 
     pine_source = 'strategy("test")\nplot(close)'
     PineLiveEngine(

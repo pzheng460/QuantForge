@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from quantforge.audit_report import build_audit_report
+from quantforge.evolving.audit_report import build_audit_report
 
 
 @click.group("audit")

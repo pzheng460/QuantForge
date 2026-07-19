@@ -6,13 +6,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from quantforge.deployment import (
+from quantforge.evolving.deployment import (
     DeploymentError,
     DeploymentRegistry,
     DeploymentStatus,
     StrategyVersion,
 )
-from quantforge.paper_ledger import PaperLedger
+from quantforge.evolving.paper_ledger import PaperLedger
 
 
 def run_shadow_observation(

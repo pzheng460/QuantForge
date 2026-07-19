@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from quantforge.deployment import (
+from quantforge.evolving.deployment import (
     DeploymentError,
     DeploymentRegistry,
     DeploymentStatus,

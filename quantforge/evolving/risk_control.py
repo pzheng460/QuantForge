@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from quantforge.deployment import DeploymentError, DeploymentRegistry
-from quantforge.paper_ledger import PaperLedger
-from quantforge.trading_control import TradingControl
+from quantforge.evolving.deployment import DeploymentError, DeploymentRegistry
+from quantforge.evolving.paper_ledger import PaperLedger
+from quantforge.evolving.trading_control import TradingControl
 
 
 @dataclass(frozen=True)

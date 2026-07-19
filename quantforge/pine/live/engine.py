@@ -137,7 +137,7 @@ class PineLiveEngine:
             )
 
         if evolving.is_enabled(self.strategy_name):
-            from quantforge.trading_control import TradingControl
+            from quantforge.evolving.trading_control import TradingControl
 
             ctrl = TradingControl().get_action(self.strategy_name)
             action = ctrl.get("action", "resume")
