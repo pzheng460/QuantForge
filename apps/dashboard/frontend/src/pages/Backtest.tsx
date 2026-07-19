@@ -372,7 +372,7 @@ export default function BacktestPage() {
                           <SelectValue placeholder="Select exchange" />
                         </SelectTrigger>
                         <SelectContent>
-                          {exchanges.map((ex: Exchange) => (
+                          {exchanges.filter((ex: Exchange) => ex.supports_backtest !== false).map((ex: Exchange) => (
                             <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>
                           ))}
                         </SelectContent>

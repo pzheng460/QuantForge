@@ -171,4 +171,12 @@ def get_exchanges():
             "maker_fee": 0.0002,
             "taker_fee": 0.0005,
         },
+        {
+            "id": "schwab",
+            "name": "Charles Schwab",
+            "default_symbol": "AAPL",
+            "maker_fee": 0.0,
+            "taker_fee": 0.0,
+            "supports_backtest": False,
+        },
     ]

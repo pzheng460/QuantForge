@@ -42,6 +42,7 @@ from apps.dashboard.backend.routers import (  # noqa: E402
     live,
     agent,
     bot,
+    brokers,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ app.include_router(optimize.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")
 app.include_router(bot.router, prefix="/api")
+app.include_router(brokers.router, prefix="/api")
 
 
 @app.get("/api/health")

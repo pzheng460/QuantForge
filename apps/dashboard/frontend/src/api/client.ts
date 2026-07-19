@@ -64,6 +64,14 @@ export const api = {
   strategySource: (name: string): Promise<{ source: string }> =>
     get(`/strategies/${name}/source`),
   exchanges: (): Promise<Exchange[]> => get('/exchanges'),
+  schwabStatus: (): Promise<{ configured: boolean; authenticated: boolean; account_selected?: boolean; detail?: string }> =>
+    get('/brokers/schwab/status'),
+  schwabAuthStart: (): Promise<{ authorization_url: string }> =>
+    get('/brokers/schwab/auth/start'),
+  schwabAccounts: (): Promise<Array<{ account_hash: string; account_type: string; display_id: string }>> =>
+    get('/brokers/schwab/accounts'),
+  selectSchwabAccount: (accountHash: string): Promise<{ selected: boolean; account_hash: string }> =>
+    post('/brokers/schwab/account', { account_hash: accountHash }),
 
   runBacktest: (req: BacktestRequest): Promise<JobStatus> =>
     post('/backtest/run', req),

@@ -14,6 +14,7 @@ import type {
 import StrategyTester from '../components/StrategyTester'
 import TradingChart from '../components/charts/TradingChart'
 import { LiveSafetyModal } from '../components/LiveSafetyModal'
+import { SchwabConnection } from '../components/SchwabConnection'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
 import type { EquityPoint, TradeRecord } from '../types'
 import { liveStartSchema, type LiveStartFormData } from '@/lib/schemas'
@@ -526,6 +527,7 @@ export default function DashboardPage() {
                       })}
                     />
                   </FormField>
+                  {exchange === 'schwab' && <SchwabConnection />}
                   <FormField label="Timeframe" error={formErrors.timeframe?.message}>
                     <Controller
                       name="timeframe"

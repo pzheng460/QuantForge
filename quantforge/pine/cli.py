@@ -207,10 +207,18 @@ def _run_live(args: argparse.Namespace) -> None:
         print("Add --confirm-live to acknowledge real money trading")
         sys.exit(1)
 
+    if args.exchange == "schwab" and args.leverage != 1:
+        print("Error: Charles Schwab equity trading requires --leverage 1")
+        sys.exit(1)
+
     if args.dry_run:
         mode_str = "DRY-RUN (no orders)"
     elif args.demo:
-        mode_str = "DEMO (exchange sandbox)"
+        mode_str = (
+            "DEMO (local paper trading)"
+            if args.exchange == "schwab"
+            else "DEMO (exchange sandbox)"
+        )
     else:
         mode_str = "LIVE (real money)"
     print(f"Pine Live Engine — {mode_str} mode")
@@ -478,7 +486,9 @@ def main() -> None:
     lv = sub.add_parser("live", help="Run Pine Script as a live trading engine")
     lv.add_argument("pine_file", help="Path to .pine file")
     lv.add_argument(
-        "--exchange", default="bitget", help="Exchange id (default: bitget)"
+        "--exchange",
+        default="bitget",
+        help="Exchange or broker id, including schwab (default: bitget)",
     )
     lv.add_argument(
         "--symbol",

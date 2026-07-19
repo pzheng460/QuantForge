@@ -549,7 +549,7 @@ export default function OptimizerPage() {
                     <SelectValue placeholder="Select exchange" />
                   </SelectTrigger>
                   <SelectContent>
-                    {exchanges.map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
+                    {exchanges.filter((ex) => ex.supports_backtest !== false).map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                   )}

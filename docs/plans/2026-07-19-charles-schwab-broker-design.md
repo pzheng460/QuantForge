@@ -38,8 +38,8 @@ idempotency under QuantForge's control.
 
 The Dashboard starts OAuth through
 `/api/brokers/schwab/auth/start` and receives the callback through
-`/api/brokers/schwab/auth/callback`. The flow validates a random state value and
-uses the application credentials configured outside the repository.
+`/api/brokers/schwab/auth/callback`. The flow validates a random, one-time state
+value and uses the application credentials configured outside the repository.
 
 Tokens are stored under `~/.quantforge/schwab/tokens.json` with user-only file
 permissions. Tokens must never appear in logs, API responses, or exception

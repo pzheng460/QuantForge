@@ -22,6 +22,7 @@ export interface Exchange {
   default_symbol: string
   maker_fee: number
   taker_fee: number
+  supports_backtest?: boolean
 }
 
 export interface TradeRecord {

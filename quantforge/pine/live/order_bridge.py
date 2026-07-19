@@ -711,7 +711,10 @@ class OrderBridge:
                 qty=qty,
                 reduce_only=reduce_only,
             )
-        except Exception:
+        except Exception as exc:
+            if exc.__class__.__name__ == "SchwabAmbiguousOrderError":
+                self._submission_enabled = False
+                raise
             logger.exception(
                 "Order submission failed: %s %s qty=%.6f", action, side, qty
             )

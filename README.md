@@ -292,12 +292,40 @@ uv run quantforge-cli audit build ema_crossover \
 
 The same Pine interpreter runs backtests and live trading — no
 transpilation between modes. Exchange connectivity goes through ccxt's
-unified API; there is no hand-written per-exchange connector code.
+unified API for crypto venues. US equities use the native Charles Schwab
+broker connector described below.
+
+### Charles Schwab
+
+Create an Individual Trader API application in the Schwab Developer Portal and
+configure its callback URL to match the Dashboard backend callback. Export the
+application credentials before starting QuantForge:
+
+```bash
+export SCHWAB_APP_KEY="..."
+export SCHWAB_APP_SECRET="..."
+export SCHWAB_CALLBACK_URL="https://127.0.0.1:8000/api/brokers/schwab/auth/callback"
+```
+
+In the Dashboard, select **Charles Schwab**, click **Connect Charles Schwab**,
+complete OAuth, and choose an account. Tokens are stored with user-only
+permissions in `~/.quantforge/schwab/tokens.json`; never commit this file.
+
+Schwab supports US stocks and ETFs on `1m`, `5m`, `15m`, `30m`, `1h`, `1d`,
+and `1w` bars. Market, limit, and stop orders plus long, short, close, cancel,
+and order-status operations are available through the connector. Fractional
+shares, options, extended-hours, bracket, and multi-leg orders are not enabled.
+
+Schwab has no exchange-style sandbox. Dashboard/CLI demo mode is local paper
+trading. Real orders require a selected account, `demo=false`, the existing
+typed strategy-name confirmation in the Dashboard, or both `--no-demo` and
+`--confirm-live` in the CLI. Equity leverage must remain `1`.
 
 ## Project Structure
 
 ```
 quantforge/
+├── brokers/         # Broker protocol and Charles Schwab integration
 ├── pine/            # Pine Script v5 parser, interpreter, optimizer,
 │                    #   live engine (primary layer)
 ├── dsl/             # Declarative Python strategy DSL (prototyping)

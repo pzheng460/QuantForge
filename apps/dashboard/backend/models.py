@@ -455,6 +455,18 @@ class LiveStartRequest(BaseModel):
     warmup_bars: int = 500
     config_override: Optional[Dict[str, Any]] = None
 
+    @model_validator(mode="after")
+    def validate_live_broker(self):
+        valid = _VALID_EXCHANGES | {"schwab"}
+        if self.exchange not in valid:
+            raise ValueError(f"exchange must be one of {valid}")
+        if self.exchange == "schwab":
+            if self.leverage != 1:
+                raise ValueError("Schwab equities require leverage=1")
+            if self.timeframe not in {"1m", "5m", "15m", "30m", "1h", "1d", "1w"}:
+                raise ValueError("Unsupported Schwab timeframe")
+        return self
+
 
 class LiveEngineOut(BaseModel):
     engine_id: str

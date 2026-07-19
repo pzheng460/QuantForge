@@ -99,6 +99,7 @@ class PineLiveEngine:
         # Runtime (created during start)
         self._runtime: PineRuntime | None = None
         self._bridge: OrderBridge | None = None
+        self._market_connector = None
 
         # State
         self._running = False
@@ -175,7 +176,32 @@ class PineLiveEngine:
         # --demo uses exchange sandbox/testnet API (e.g. Bitget UTA Demo)
         # --dry-run logs signals without submitting orders
         connector = None
-        if not self.dry_run:
+        if self.exchange == "schwab":
+            if self.leverage != 1:
+                raise RuntimeError("Schwab equities require leverage=1")
+            from quantforge.brokers.schwab import (
+                SchwabConnector,
+                credentials_from_env,
+                selected_account_hash,
+            )
+
+            schwab = SchwabConnector(
+                credentials_from_env(),
+                account_hash=selected_account_hash(),
+                symbol=self.symbol,
+            )
+            if not schwab.authenticated:
+                raise RuntimeError("Connect Charles Schwab with OAuth before starting")
+            self._market_connector = schwab
+            # Schwab has no sandbox. Demo is deliberately local paper trading.
+            if not self.dry_run and not self.demo:
+                if not schwab.account_hash:
+                    raise RuntimeError("Select a Schwab account before live trading")
+                connector = schwab
+                logger.info("SchwabConnector initialised — LIVE order submission")
+            else:
+                logger.info("SchwabConnector initialised — local paper trading")
+        elif not self.dry_run:
             try:
                 connector = CcxtConnector(
                     exchange_id=self.exchange,
@@ -288,7 +314,7 @@ class PineLiveEngine:
         # We still query the wallet once just to log it for the operator
         # ("here's what's actually sitting on the exchange"), but it does
         # NOT feed the engine's statistics.
-        if connector is not None:
+        if connector is not None and self.exchange != "schwab":
             try:
                 params = {"uta": True} if self.exchange == "bitget" else {}
                 balance = connector._exchange.fetch_balance(params)
@@ -305,7 +331,7 @@ class PineLiveEngine:
                 )
 
         self._bridge = OrderBridge(
-            demo=self.dry_run,  # Only skip orders in dry-run mode
+            demo=self.dry_run or (self.exchange == "schwab" and self.demo),
             position_size_usdt=self.position_size_usdt,
             leverage=self.leverage,
             connector=connector,
@@ -583,12 +609,26 @@ class PineLiveEngine:
         """Fetch historical bars and feed them to the interpreter."""
         logger.info("Fetching %d warmup bars...", self.warmup_bars)
 
-        bars = fetch_warmup_bars(
-            symbol=self.symbol,
-            exchange_id=self.exchange,
-            timeframe=self.timeframe,
-            num_bars=self.warmup_bars,
-        )
+        if self.exchange == "schwab":
+            rows = self._market_connector.fetch_chart_bars(self.symbol, self.timeframe)
+            bars = [
+                BarData(
+                    open=row[1],
+                    high=row[2],
+                    low=row[3],
+                    close=row[4],
+                    volume=row[5],
+                    time=row[0] // 1000,
+                )
+                for row in rows[-self.warmup_bars :]
+            ]
+        else:
+            bars = fetch_warmup_bars(
+                symbol=self.symbol,
+                exchange_id=self.exchange,
+                timeframe=self.timeframe,
+                num_bars=self.warmup_bars,
+            )
 
         if not bars:
             logger.warning("No warmup bars fetched — indicators will start cold")
@@ -627,11 +667,13 @@ class PineLiveEngine:
         import time
         import math
 
-        import ccxt
+        exchange = None
+        if self.exchange != "schwab":
+            import ccxt
 
-        exchange_cls = getattr(ccxt, self.exchange)
-        exchange = exchange_cls({"enableRateLimit": True})
-        exchange.load_markets()
+            exchange_cls = getattr(ccxt, self.exchange)
+            exchange = exchange_cls({"enableRateLimit": True})
+            exchange.load_markets()
 
         tf_sec = timeframe_to_seconds(self.timeframe)
         tf_ms = tf_sec * 1000
@@ -664,13 +706,23 @@ class PineLiveEngine:
                     else 2
                 )
                 limit = min(missing, 500)
-                ohlcv = (
-                    exchange.fetch_ohlcv(
-                        self.symbol, self.timeframe, since=since_ms, limit=limit
+                if self.exchange == "schwab":
+                    ohlcv = self._market_connector.fetch_chart_bars(
+                        self.symbol, self.timeframe
                     )
-                    if since_ms is not None
-                    else exchange.fetch_ohlcv(self.symbol, self.timeframe, limit=limit)
-                )
+                    if since_ms is not None:
+                        ohlcv = [row for row in ohlcv if row[0] >= since_ms]
+                    ohlcv = ohlcv[-limit:]
+                else:
+                    ohlcv = (
+                        exchange.fetch_ohlcv(
+                            self.symbol, self.timeframe, since=since_ms, limit=limit
+                        )
+                        if since_ms is not None
+                        else exchange.fetch_ohlcv(
+                            self.symbol, self.timeframe, limit=limit
+                        )
+                    )
                 if not ohlcv:
                     continue
 
@@ -729,6 +781,10 @@ class PineLiveEngine:
 
                 # ── Reconcile every poll iteration ─────────────────────
                 await self._reconcile_position()
+                if self.exchange == "schwab" and (
+                    connector := getattr(self._bridge, "_connector", None)
+                ):
+                    connector.reconcile_orders()
 
                 # Flush performance JSON for the dashboard
                 self._flush_performance(new_bars[-1][4])
@@ -738,7 +794,11 @@ class PineLiveEngine:
                 if tracker and self._bars_processed % 6 == 0:
                     logger.info("\n%s", tracker.summary(new_bars[-1][4]))
 
-            except Exception:
+            except Exception as exc:
+                if exc.__class__.__name__ == "SchwabAmbiguousOrderError":
+                    self._running = False
+                    logger.critical("Schwab order state is ambiguous — engine paused")
+                    raise
                 logger.exception("Error in poll loop")
 
     async def _reconcile_position(self) -> None:

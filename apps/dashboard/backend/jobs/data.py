@@ -35,6 +35,7 @@ _DEFAULT_SYMBOLS = {
     "okx": "BTC/USDT:USDT",
     "bybit": "BTC/USDT:USDT",
     "hyperliquid": "BTC/USDT:USDT",
+    "schwab": "AAPL",
 }
 
 _STRATEGIES_DIR = (
