@@ -409,32 +409,6 @@ class CcxtConnector:
         )
         return result
 
-    def submit_limit_order(
-        self, side: str, qty: float, price: float, reduce_only: bool = False
-    ) -> dict:
-        """Submit a limit order."""
-        logger.info(
-            "Submitting LIMIT %s %.6f @ %.2f %s",
-            side.upper(),
-            qty,
-            price,
-            self.symbol,
-        )
-        if self.is_bitget_uta:
-            result = self._bitget_uta_place_order(
-                side=side, qty=qty, order_type="limit", price=price,
-                reduce_only=reduce_only,
-            )
-        else:
-            params: dict = {"reduceOnly": True} if reduce_only else {}
-            result = self._exchange.create_order(
-                self.symbol, "limit", side, qty, price, params=params
-            )
-        logger.info(
-            "Order result: id=%s status=%s", result.get("id"), result.get("status")
-        )
-        return result
-
     def get_position(self) -> dict | None:
         """Get current position for the symbol.
 
@@ -498,19 +472,3 @@ class CcxtConnector:
                 }
         return None
 
-    def get_ticker_price(self) -> float:
-        """Get the current ticker price for the symbol."""
-        ticker = self._exchange.fetch_ticker(self.symbol)
-        return float(ticker.get("last", 0))
-
-
-def ohlcv_to_bar(ohlcv: list) -> BarData:
-    """Convert a single ccxt OHLCV list ``[ts, o, h, l, c, v]`` to BarData."""
-    return BarData(
-        open=ohlcv[1],
-        high=ohlcv[2],
-        low=ohlcv[3],
-        close=ohlcv[4],
-        volume=ohlcv[5],
-        time=ohlcv[0] // 1000,
-    )

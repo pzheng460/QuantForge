@@ -152,9 +152,6 @@ class ExecutionContext:
             return
         self._variables[name] = value
 
-    def has_var(self, name: str) -> bool:
-        return name in self._variables or name in self._series
-
     # --- series access ---
 
     def get_series(self, name: str) -> PineSeries:
@@ -170,12 +167,6 @@ class ExecutionContext:
             series.append(value)
         else:
             series.set_current(value)
-
-    def get_history(self, name: str, offset: int):
-        """Get historical value: name[offset]."""
-        if name in self._series:
-            return self._series[name][offset]
-        return None
 
     @property
     def total_bars(self) -> int:

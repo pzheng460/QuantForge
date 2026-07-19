@@ -51,28 +51,6 @@ class ComprehensiveReportGenerator:
         self.data_info: Dict[str, Any] = {}
         self.funding_info: Dict[str, Any] = {}
 
-    def set_data_info(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        total_bars: int,
-        btc_return: float,
-    ):
-        """Set data information."""
-        self.data_info = {
-            "start_date": start_date,
-            "end_date": end_date,
-            "total_bars": total_bars,
-        }
-        self.btc_benchmark = btc_return
-
-    def set_funding_info(self, count: int, avg_rate: float):
-        """Set funding rate information."""
-        self.funding_info = {
-            "count": count,
-            "avg_rate": avg_rate,
-        }
-
     def add_level_result(self, level: int, name: str, metrics: Dict[str, Any]):
         """Add a UQSS level backtest result."""
         self.levels_results.append({

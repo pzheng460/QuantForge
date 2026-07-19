@@ -12,21 +12,6 @@ from quantforge.pine.interpreter.series import PineSeries, is_na
 
 
 # ---------------------------------------------------------------------------
-# Internal smoothing helpers
-# ---------------------------------------------------------------------------
-
-
-def _rma_step(prev: float | None, value: float, length: int) -> float | None:
-    """Single step of RMA (Wilder smoothing): rma = (prev * (length-1) + value) / length.
-
-    This is the same as TradingView's ta.rma / Wilder's smoothing method.
-    """
-    if prev is None or is_na(prev):
-        return None
-    return (prev * (length - 1) + value) / length
-
-
-# ---------------------------------------------------------------------------
 # Stateful TA calculators (one per series)
 # ---------------------------------------------------------------------------
 

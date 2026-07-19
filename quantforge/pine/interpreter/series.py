@@ -46,10 +46,6 @@ class PineSeries:
         name = self._name or "PineSeries"
         return f"{name}({self.current}, len={len(self._data)})"
 
-    def to_list(self) -> list:
-        return list(self._data)
-
-
 def is_na(value) -> bool:
     if value is None:
         return True

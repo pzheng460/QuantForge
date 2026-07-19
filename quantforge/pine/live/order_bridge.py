@@ -94,38 +94,6 @@ class DemoTracker:
         self._entry_price = 0.0
         self._position_qty = 0.0
 
-    def restore_trades(self, trades_data: list[dict]) -> None:
-        """Restore trade history from serialized data (e.g. live_performance.json)."""
-        from datetime import datetime
-
-        for t in trades_data:
-            entry_time = t.get("entry_time", "")
-            exit_time = t.get("exit_time", "")
-            # Parse ISO timestamps to epoch
-            try:
-                et = datetime.fromisoformat(entry_time).timestamp() if entry_time else 0.0
-            except (ValueError, TypeError):
-                et = 0.0
-            try:
-                xt = datetime.fromisoformat(exit_time).timestamp() if exit_time else 0.0
-            except (ValueError, TypeError):
-                xt = 0.0
-
-            self.trades.append(VirtualTrade(
-                direction=t.get("side", "long"),
-                entry_price=t.get("entry_price", 0.0),
-                exit_price=t.get("exit_price", 0.0),
-                qty=t.get("amount", 0.0),
-                pnl=t.get("pnl", 0.0),
-                entry_time=et,
-                exit_time=xt,
-            ))
-        if self.trades:
-            logger.info(
-                "Restored %d historical trades (total PnL: $%.2f)",
-                len(self.trades), self.total_pnl,
-            )
-
     def restore_position(self, side: str, entry_price: float, qty: float) -> None:
         """Restore an open position from exchange state."""
         self._position_side = side

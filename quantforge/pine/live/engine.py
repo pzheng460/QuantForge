@@ -797,20 +797,6 @@ class PineLiveEngine:
             sc.position._mae = 0.0
             sc._entry_count = 0
 
-    def feed_bar(self, bar: BarData) -> list:
-        """Manually feed a bar (for testing or WebSocket integration).
-
-        Returns list of new orders placed during this bar.
-        """
-        if self._runtime is None:
-            raise RuntimeError(
-                "Engine not started — call start() first or setup manually"
-            )
-        new_orders = self._runtime.process_bar(bar)
-        self._bars_processed += 1
-        self._last_bar_time = bar.time
-        return new_orders
-
     @property
     def bridge(self) -> OrderBridge | None:
         return self._bridge
