@@ -10,7 +10,7 @@ Layout::
     quantforge-cli bot status   [<strategy>]
     quantforge-cli bot cycle    <strategy> [--job-file ...] [--alert-webhook-url ...]
 
-The cycle wraps ``quantforge.bot_cycle.run_bot_cycle``: preflight → auto-tune →
+The cycle wraps ``quantforge.evolving.bot_cycle.run_bot_cycle``: preflight → auto-tune →
 risk gate → write trading_control.json → audit report. See CLAUDE.md
 "Evolving Mode" section for the full pipeline picture.
 """

@@ -8,7 +8,7 @@ QuantForge is a Python 3.11+ quantitative trading platform organised around
 **three loosely-coupled pieces**:
 
 1. **Pine engine** (`quantforge/pine/`) — TradingView-compatible Pine Script
-   v5 parser, interpreter, transpiler, optimizer, and live trading engine.
+   v5 parser, interpreter, optimizer, and live trading engine.
    **All trading strategies are `.pine` files**; this is the primary layer.
 2. **DSL engine** (`quantforge/dsl/`) — a thin declarative Python API
    (`class MyStrategy(Strategy): on_bar(...)`) for quick prototypes.
@@ -244,7 +244,7 @@ frontend renders a progress bar + "≈ 2m 15s remaining · 1.23s / combo".
 
 ## Pine Script Engine (`quantforge/pine/`)
 
-Parser + interpreter + transpiler + live engine + optimizer for
+Parser + interpreter + live engine + optimizer for
 TradingView-compatible Pine Script v5.
 
 ### Pine Strategies (`quantforge/pine/strategies/`)
@@ -272,28 +272,12 @@ python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange
 # Grid optimize (over input.int / input.float ranges)
 python -m quantforge.pine.cli optimize my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
 
-# Transpile to standalone Python (no Pine dependency at runtime)
-python -m quantforge.pine.cli transpile my.pine --output strategy.py
-
 # Live (demo/sandbox)
 python -m quantforge.pine.cli live my.pine --exchange okx --demo --symbol BTC/USDT:USDT --timeframe 1h
 
 # Live (real money — requires --confirm-live)
 python -m quantforge.pine.cli live my.pine --exchange okx --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 1h --leverage 5
 ```
-
-### Pine Transpiler
-
-`quantforge/pine/transpiler/codegen.py` emits self-contained Python that
-replicates the Pine interpreter bit-for-bit. **TA mappings**: `ta.ema → _EMACalc`,
-`ta.sma → _SMACalc`, `ta.rsi → _RSICalc` (Wilder/RMA smoothing),
-`ta.macd → _MACDCalc`, `ta.atr → _ATRCalc`, `ta.adx → _ADXCalc`,
-`ta.bb → _BBCalc`, `ta.stoch → _StochCalc`, `ta.stdev → _StdevCalc`,
-`ta.crossover/crossunder → _crossover/_crossunder` (with prev-bar
-tracking), `ta.highest/lowest → _HighestCalc/_LowestCalc`,
-`ta.change → _ChangeCalc`. **Strategy mappings**:
-`strategy.entry → tracker.queue_entry()`, `strategy.close → tracker.queue_close()`
-(orders fill at next bar's open). **21 parity tests** lock this behavior.
 
 ### Pine Live Engine
 
@@ -330,7 +314,7 @@ bar; backend `_find_perf_files()` discovers and streams via
 | `StreamingRSI(period)` | RSI with Wilder/RMA smoothing |
 
 All share: `.value` (Optional[float]), `.update(...)`, `.reset()`. Used
-by DSL (`quantforge/dsl/indicators.py`) and Pine transpiler TA calculators.
+by the DSL (`quantforge/dsl/indicators.py`).
 
 ## Declarative Strategy DSL (`quantforge/dsl/`)
 

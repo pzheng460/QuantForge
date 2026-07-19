@@ -1,4 +1,4 @@
-"""Tests for quantforge.cron_helper — managed crontab block."""
+"""Tests for quantforge.evolving.cron_helper — managed crontab block."""
 
 from __future__ import annotations
 

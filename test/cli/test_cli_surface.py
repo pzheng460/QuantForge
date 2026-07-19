@@ -17,7 +17,6 @@ def test_cli_registers_project_workflows():
         "dsl",
         "engines",
         "eval",
-        "examples",
         "live",
         "optimize",
         "paper",

@@ -1,4 +1,4 @@
-"""`quantforge-cli {backtest,optimize,live,transpile}` — wrappers around
+"""`quantforge-cli {backtest,optimize,live}` — wrappers around
 quantforge.pine.cli so users have a single CLI entry point that mirrors
 every web route.
 

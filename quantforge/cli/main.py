@@ -18,7 +18,6 @@ from quantforge.cli.commands.deployment_cmd import deployment_group
 from quantforge.cli.commands.dsl_cmd import dsl_cmd
 from quantforge.cli.commands.engines_cmd import engines_group
 from quantforge.cli.commands.eval_cmd import eval_group
-from quantforge.cli.commands.examples_cmd import examples_group
 from quantforge.cli.commands.exchanges_cmd import exchanges_group
 from quantforge.cli.commands.news_cmd import news_group
 from quantforge.cli.commands.paper_cmd import paper_group
@@ -49,7 +48,6 @@ cli.add_command(audit_group)
 cli.add_command(api_group)
 cli.add_command(web_group)
 cli.add_command(dsl_cmd)
-cli.add_command(examples_group)
 cli.add_command(news_group)
 cli.add_command(paper_group)
 cli.add_command(risk_group)

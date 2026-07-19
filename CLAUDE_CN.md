@@ -7,7 +7,7 @@
 QuantForge 是基于 Python 3.11+ 的量化交易平台，由**三个松耦合模块**组成：
 
 1. **Pine 引擎** (`quantforge/pine/`) — TradingView 兼容的 Pine Script v5
-   解析器、解释器、转译器、优化器、实盘引擎。**所有交易策略都是 `.pine`
+   解析器、解释器、优化器、实盘引擎。**所有交易策略都是 `.pine`
    文件**，这是主要的策略层。
 2. **DSL 引擎** (`quantforge/dsl/`) — 一套轻量的声明式 Python API
    (`class MyStrategy(Strategy): on_bar(...)`)，用于快速原型。
@@ -234,7 +234,7 @@ in-memory job，WS 每秒推完整 status。前端渲染进度条 + "≈ 2m 15s 
 
 ## Pine Script 引擎 (`quantforge/pine/`)
 
-TradingView 兼容 Pine Script v5 的解析器 + 解释器 + 转译器 + 实盘引擎 +
+TradingView 兼容 Pine Script v5 的解析器 + 解释器 + 实盘引擎 +
 优化器。
 
 ### Pine 策略 (`quantforge/pine/strategies/`)
@@ -261,28 +261,12 @@ python -m quantforge.pine.cli backtest my.pine --symbol BTC/USDT:USDT --exchange
 # Grid 优化（对 input.int / input.float 的范围做网格搜索）
 python -m quantforge.pine.cli optimize my.pine --symbol BTC/USDT:USDT --exchange bitget --timeframe 15m --start 2026-01-01 --end 2026-03-12 --metric sharpe --top 10 --json results.json
 
-# 转译成自包含 Python（运行时不依赖 Pine 引擎）
-python -m quantforge.pine.cli transpile my.pine --output strategy.py
-
 # Live demo/sandbox
 python -m quantforge.pine.cli live my.pine --exchange okx --demo --symbol BTC/USDT:USDT --timeframe 1h
 
 # Live 实盘（需要 --confirm-live 兜底）
 python -m quantforge.pine.cli live my.pine --exchange okx --no-demo --confirm-live --symbol BTC/USDT:USDT --timeframe 1h --leverage 5
 ```
-
-### Pine 转译器
-
-`quantforge/pine/transpiler/codegen.py` 生成与 Pine 解释器逐 bit 一致的
-自包含 Python 代码。**TA 映射**：`ta.ema → _EMACalc`、`ta.sma →
-_SMACalc`、`ta.rsi → _RSICalc`（Wilder/RMA 平滑）、`ta.macd →
-_MACDCalc`、`ta.atr → _ATRCalc`、`ta.adx → _ADXCalc`、`ta.bb →
-_BBCalc`、`ta.stoch → _StochCalc`、`ta.stdev → _StdevCalc`、
-`ta.crossover/crossunder → _crossover/_crossunder`（带前一根 bar 跟踪）、
-`ta.highest/lowest → _HighestCalc/_LowestCalc`、`ta.change →
-_ChangeCalc`。**策略映射**：`strategy.entry → tracker.queue_entry()`、
-`strategy.close → tracker.queue_close()`（订单在下一根 bar 的 open 处
-成交）。**21 个 parity 测试**锁死这一行为。
 
 ### Pine 实盘引擎
 
@@ -317,7 +301,7 @@ _ChangeCalc`。**策略映射**：`strategy.entry → tracker.queue_entry()`、
 | `StreamingRSI(period)` | RSI（Wilder/RMA 平滑） |
 
 共享接口：`.value`（`Optional[float]`）、`.update(...)`、`.reset()`。被
-DSL（`quantforge/dsl/indicators.py`）和 Pine 转译器的 TA 计算器复用。
+DSL（`quantforge/dsl/indicators.py`）复用。
 
 ## 声明式 DSL (`quantforge/dsl/`)
 
