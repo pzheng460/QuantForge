@@ -32,13 +32,13 @@ uv add --dev pre-commit && pre-commit install   # 贡献代码前必装
 ```bash
 uv run pytest                                       # 全套
 
-uv run pytest quantforge/pine/tests/ -v             # 89 Pine 引擎
+uv run pytest quantforge/pine/tests/ -v             # 107 Pine 引擎
 uv run pytest quantforge/dsl/tests/ -v              # 35 DSL
 uv run pytest test/cli/ -v                          # 18 CLI 表面
-uv run pytest test/dashboard/ -v                    # 10 后端路由
+uv run pytest test/dashboard/ -v                    # 71 后端路由
 uv run pytest test/optimizer_ab/ -v                 # 26 A/B 框架
 ```
-`pytest.ini` 启用了 `asyncio_mode = auto`。总计约 178 个测试。
+`pytest.ini` 启用了 `asyncio_mode = auto`。总计约 257 个测试。
 
 ### 代码质量
 ```bash
@@ -71,11 +71,11 @@ apps/dashboard/
 │   │   │   ├── StrategyTester.tsx
 │   │   │   ├── AgentTraceViewer.tsx
 │   │   │   ├── MetricsSummary.tsx
-│   │   │   ├── charts/{TradingChart,EquityChart,DrawdownChart,HeatmapChart}.tsx
+│   │   │   ├── charts/TradingChart.tsx
 │   │   │   └── ui/                        # shadcn 原语（Button、Input 等）
 │   │   ├── api/client.ts                  # 基础路径 `/api`，ApiError 类
 │   │   ├── hooks/use-queries.ts           # React Query hooks
-│   │   ├── stores/{dashboard,backtest,optimizer,catalog}Store.ts (zustand)
+│   │   ├── stores/{dashboard,backtest,optimizer}Store.ts (zustand)
 │   │   └── types.ts
 │   └── vite.config.ts                     # dev 模式 /api → :8000 代理
 └── start.sh                                # dev (vite HMR + uvicorn --reload) | --prod (vite build + StaticFiles)
@@ -470,10 +470,6 @@ CI 来报告，不要给单点估计。
 
 - 每次代码改动之后：更新 `CLAUDE.md` 和 `CLAUDE_CN.md`，commit 并 push
   到 `dev` 分支。
-
-## CLI 使用注意
-
-- 不要在 Claude Code 里执行 `quantforge-cli monitor`（会阻塞 + TUI 风格）。
 
 ## Ruff 用法
 

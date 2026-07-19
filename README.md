@@ -353,58 +353,40 @@ uv run quantforge-cli audit build ema_crossover \
   --markdown-out eval/optimizer_ab/results/audit_report.md
 ```
 
-## Web Callbacks
-
-Expose FastAPI endpoints alongside a running strategy:
-
-```python
-from quantforge.web import create_strategy_app
-from quantforge.config import WebConfig
-
-class MyStrategy(Strategy):
-    web_app = create_strategy_app(title="My Strategy API")
-
-    @web_app.post("/toggle")
-    async def toggle(self, payload: dict = Body(...)):
-        self.signal = payload.get("signal", True)
-        return {"signal": self.signal}
-
-# In config:
-web_config = WebConfig(enabled=True, host="127.0.0.1", port=9000)
-```
-
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Exchange    │────▶│  PublicConnector  │────▶│  Strategy   │
-│  WebSocket   │     │  (Market Data)   │     │  (Your Code)│
-└─────────────┘     └──────────────────┘     └──────┬──────┘
-                                                     │
-┌─────────────┐     ┌──────────────────┐            │
-│  Exchange    │◀───│  PrivateConnector │◀───────────┘
-│  REST API    │     │  (OMS / EMS)     │   create_order()
-└─────────────┘     └──────────────────┘
+┌──────────────┐     ┌────────────────────┐     ┌──────────────────┐
+│  .pine file   │────▶│  Pine interpreter   │────▶│  OrderBridge     │
+│  (strategy)   │     │  (backtest & live)  │     │  strategy.entry/ │
+└──────────────┘     └────────────────────┘     │  close/exit      │
+                                                  └────────┬─────────┘
+┌──────────────┐     ┌────────────────────┐              │
+│  Exchange     │◀───│  CcxtConnector      │◀─────────────┘
+│  (via ccxt)   │     │  (orders, klines,  │   create_order()
+└──────────────┘     │   positions)       │
+                      └────────────────────┘
 ```
 
-- **PublicConnector**: Streams market data (BookL1, Kline, Trade)
-- **PrivateConnector**: Manages orders, positions, account state
-- **OMS (Order Management System)**: Tracks order lifecycle
-- **EMS (Execution System)**: Submits orders, handles fills
+The same Pine interpreter runs backtests and live trading — no
+transpilation between modes. Exchange connectivity goes through ccxt's
+unified API; there is no hand-written per-exchange connector code.
 
 ## Project Structure
 
 ```
 quantforge/
-├── core/           # MessageBus, Clock, config
-├── exchange/       # Exchange connectors (Binance, OKX, Bybit, Bitget, Hyperliquid)
-├── indicator/      # Indicator framework with warmup
-├── backtest/       # Backtesting engine & analysis
-├── web/            # Embedded strategy web interface
-└── schema/         # Data models (msgspec Structs)
+├── pine/            # Pine Script v5 parser, interpreter, transpiler,
+│                    #   optimizer, live engine (primary layer)
+├── dsl/             # Declarative Python strategy DSL (prototyping)
+├── indicators/      # Streaming indicators (EMA, RSI, ATR, ADX, BB, ...)
+├── backtest/        # Data cache, validation, Monte Carlo simulation
+├── cli/             # quantforge-cli command group
+└── *.py             # Evolving-mode subsystem (auto-tune, deployment,
+                     #   risk control, paper/shadow ledger, alerts)
 
-strategy/           # Strategy implementations
-apps/dashboard/     # Product dashboard backend + frontend
+apps/dashboard/      # FastAPI backend + React/Vite frontend
+eval/optimizer_ab/   # TiMi optimizer A/B evaluation harness
 ```
 
 ## Attribution

@@ -34,13 +34,13 @@ uv add --dev pre-commit && pre-commit install   # required for contributions
 ```bash
 uv run pytest                                       # full suite
 
-uv run pytest quantforge/pine/tests/ -v             # 89 Pine engine tests
+uv run pytest quantforge/pine/tests/ -v             # 107 Pine engine tests
 uv run pytest quantforge/dsl/tests/ -v              # 35 DSL tests
 uv run pytest test/cli/ -v                          # 18 CLI surface tests
-uv run pytest test/dashboard/ -v                    # 10 backend router tests
+uv run pytest test/dashboard/ -v                    # 71 backend router tests
 uv run pytest test/optimizer_ab/ -v                 # 26 A/B harness tests
 ```
-`pytest.ini` enables `asyncio_mode = auto`. Total ≈ 178 tests.
+`pytest.ini` enables `asyncio_mode = auto`. Total ≈ 257 tests.
 
 ### Code Quality
 ```bash
@@ -74,11 +74,11 @@ apps/dashboard/
 │   │   │   ├── StrategyTester.tsx
 │   │   │   ├── AgentTraceViewer.tsx
 │   │   │   ├── MetricsSummary.tsx
-│   │   │   ├── charts/{TradingChart,EquityChart,DrawdownChart,HeatmapChart}.tsx
+│   │   │   ├── charts/TradingChart.tsx
 │   │   │   └── ui/                        # shadcn primitives (Button, Input, etc.)
 │   │   ├── api/client.ts                  # `/api` base, ApiError class
 │   │   ├── hooks/use-queries.ts           # React Query hooks
-│   │   ├── stores/{dashboard,backtest,optimizer,catalog}Store.ts (zustand)
+│   │   ├── stores/{dashboard,backtest,optimizer}Store.ts (zustand)
 │   │   └── types.ts
 │   └── vite.config.ts                     # proxies /api → :8000 in dev
 └── start.sh                                # dev (vite HMR + uvicorn --reload) | --prod (vite build + StaticFiles)
@@ -490,11 +490,6 @@ are *replicate indices*, not reproducible random seeds — report median
 
 - After every code change: update `CLAUDE.md` and `CLAUDE_CN.md`, then
   commit and push to the `dev` branch.
-
-## CLI Usage Warnings
-
-- Do not run `quantforge-cli monitor` from inside Claude Code (it's
-  blocking + TUI-flavored).
 
 ## Ruff Usage
 
