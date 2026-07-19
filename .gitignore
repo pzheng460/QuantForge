@@ -37,17 +37,19 @@ yaml-config/
 *.log
 *.json
 *.html
-appendonlydir/node_modules/
 node_modules/
 appendonlydir/
 apps/dashboard/*.log
 apps/dashboard/*.pid
 apps/dashboard/frontend/dist/
 apps/dashboard/frontend/node_modules/
-web/*.log
-web/*.pid
-web/frontend/dist/
-web/frontend/node_modules/
+
+# Frontend build config must stay tracked despite blanket *.json / *.html
+!apps/dashboard/frontend/package.json
+!apps/dashboard/frontend/package-lock.json
+!apps/dashboard/frontend/tsconfig.json
+!apps/dashboard/frontend/components.json
+!apps/dashboard/frontend/index.html
 
 # Strategy artifacts
 strategy/**/*.log
@@ -56,3 +58,6 @@ strategy/results/
 # QuantForge local ops state
 .quantforge/
 quantforge_ops/
+
+# Run artifacts
+eval/optimizer_ab/results/
