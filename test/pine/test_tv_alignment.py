@@ -4,7 +4,7 @@ These tests fetch real market data from Bitget and compare the Pine interpreter'
 output against known TradingView results. They are slow (network I/O) and marked
 with @pytest.mark.slow.
 
-Run with: uv run python -m pytest quantforge/pine/tests/test_tv_alignment.py -v
+Run with: uv run python -m pytest test/pine/test_tv_alignment.py -v
 Skip slow: uv run python -m pytest quantforge/ -v -m "not slow"
 
 Reference values were manually recorded from TradingView on 2026-03-12.

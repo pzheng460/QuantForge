@@ -34,8 +34,8 @@ uv add --dev pre-commit && pre-commit install   # required for contributions
 ```bash
 uv run pytest                                       # full suite
 
-uv run pytest quantforge/pine/tests/ -v             # 107 Pine engine tests
-uv run pytest quantforge/dsl/tests/ -v              # 35 DSL tests
+uv run pytest test/pine/ -v                         # 107 Pine engine tests
+uv run pytest test/dsl/ -v                          # 35 DSL tests
 uv run pytest test/cli/ -v                          # 18 CLI surface tests
 uv run pytest test/dashboard/ -v                    # 71 backend router tests
 uv run pytest test/optimizer_ab/ -v                 # 26 A/B harness tests
@@ -259,7 +259,7 @@ AI-optimized outputs land in `quantforge/pine/strategies/optimized/`
 (not currently exposed by `/api/strategies` — by design, kept as
 checkpoints, not live candidates).
 
-Test fixtures in `quantforge/pine/tests/fixtures/`:
+Test fixtures in `test/pine/fixtures/`:
 `ema_cross.pine`, `rsi_strategy.pine`, `rsi_mean_revert.pine`,
 `macd_cross.pine`, `bb_strategy.pine`, `ema_cross_5_13.pine`.
 

@@ -32,8 +32,8 @@ uv add --dev pre-commit && pre-commit install   # 贡献代码前必装
 ```bash
 uv run pytest                                       # 全套
 
-uv run pytest quantforge/pine/tests/ -v             # 107 Pine 引擎
-uv run pytest quantforge/dsl/tests/ -v              # 35 DSL
+uv run pytest test/pine/ -v                         # 107 Pine 引擎
+uv run pytest test/dsl/ -v                          # 35 DSL
 uv run pytest test/cli/ -v                          # 18 CLI 表面
 uv run pytest test/dashboard/ -v                    # 71 后端路由
 uv run pytest test/optimizer_ab/ -v                 # 26 A/B 框架
@@ -248,7 +248,7 @@ TradingView 兼容 Pine Script v5 的解析器 + 解释器 + 转译器 + 实盘�
 AI 优化产出的 `.pine` 文件存放在 `quantforge/pine/strategies/optimized/`
 （目前 `/api/strategies` 不暴露 — 作为 checkpoint 保留，不算 live 候选）。
 
-测试 fixture 在 `quantforge/pine/tests/fixtures/`：
+测试 fixture 在 `test/pine/fixtures/`：
 `ema_cross.pine`, `rsi_strategy.pine`, `rsi_mean_revert.pine`,
 `macd_cross.pine`, `bb_strategy.pine`, `ema_cross_5_13.pine`。
 
