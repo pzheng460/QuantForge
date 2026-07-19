@@ -339,28 +339,6 @@ class EMACross(Strategy):
 `add_indicator` 支持的名称：`ema`, `sma`, `rsi`, `atr`, `adx`, `bb`,
 `roc`。35 个测试。
 
-## Backtest 数据基础设施 (`quantforge/backtest/`)
-
-### 本地缓存
-`quantforge/backtest/data/database.py::KlineDatabase` — SQLite 缓存，
-路径 `~/.quantforge/data/klines.db`。API：`save / load / has_data /
-get_gaps / stats`。唯一约束 `(exchange, symbol, interval, timestamp)`。
-通过 `calendar.timegm()` 保证时区安全。
-
-`quantforge/backtest/data/cached_provider.py::CachedDataProvider.fetch()`
-先查缓存、只拉缺失段。`ValidatedData.fetch_and_validate()` 跨交易所
-对比，返回 `{primary_data, validation_report, anomalies, is_valid}`。
-
-### 蒙特卡洛 & 压力测试 — `quantforge/backtest/simulation/`
-
-| 模块 | 类 | 用途 |
-|---|---|---|
-| `bootstrap.py` | `BlockBootstrap` | 对数收益的块自助 |
-| `monte_carlo.py` | `GBMGenerator` | 几何布朗运动路径 |
-| `monte_carlo.py` | `JumpDiffusionGenerator` | Merton 跳跃扩散 |
-| `stress_test.py` | `StressTestGenerator` | 崩盘 / 暴涨 / 波动率情景 |
-| `report.py` | `SimulationReport` | 分布统计 + 绘图 |
-
 ## 支持的交易所
 
 | Exchange | ccxt id | Maker | Taker |

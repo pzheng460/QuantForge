@@ -352,29 +352,6 @@ class EMACross(Strategy):
 Supported indicator names (passed to `add_indicator`): `ema`, `sma`,
 `rsi`, `atr`, `adx`, `bb`, `roc`. 35 tests.
 
-## Backtest Data Infrastructure (`quantforge/backtest/`)
-
-### Local cache
-`quantforge/backtest/data/database.py::KlineDatabase` — SQLite cache at
-`~/.quantforge/data/klines.db`. API: `save / load / has_data / get_gaps
-/ stats`. Unique constraint on `(exchange, symbol, interval, timestamp)`.
-TZ-safe via `calendar.timegm()`.
-
-`quantforge/backtest/data/cached_provider.py::CachedDataProvider.fetch()`
-returns cached bars + only fetches gaps from exchange.
-`ValidatedData.fetch_and_validate()` cross-checks across exchanges and
-returns `{primary_data, validation_report, anomalies, is_valid}`.
-
-### Monte Carlo & stress testing — `quantforge/backtest/simulation/`
-
-| Module | Class | Purpose |
-|---|---|---|
-| `bootstrap.py` | `BlockBootstrap` | Block bootstrap on log-returns |
-| `monte_carlo.py` | `GBMGenerator` | Geometric Brownian Motion paths |
-| `monte_carlo.py` | `JumpDiffusionGenerator` | Merton jump diffusion |
-| `stress_test.py` | `StressTestGenerator` | Crash / spike / vol scenarios |
-| `report.py` | `SimulationReport` | Distribution stats + plots |
-
 ## Supported Exchanges
 
 | Exchange | ccxt id | Maker | Taker |
