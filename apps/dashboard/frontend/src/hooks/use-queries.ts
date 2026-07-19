@@ -88,15 +88,6 @@ export function useCancelBacktest() {
 
 // ─── Optimizer queries ──────────────────────────────────────────────────────
 
-export function useOptimizeStatus(jobId: string | null, enabled: boolean) {
-  return useQuery({
-    queryKey: ['optimize', jobId],
-    queryFn: () => api.getOptimizeStatus(jobId!),
-    enabled: !!jobId && enabled,
-    refetchInterval: 2000,
-  })
-}
-
 export function useRunOptimize() {
   return useMutation({
     mutationFn: (req: OptimizeRequest) => api.runOptimize(req),

@@ -309,13 +309,6 @@ export interface LivePerformance {
   trades: LiveTrade[]
 }
 
-export interface LiveStrategyStatus {
-  strategy: string
-  display_name: string
-  is_active: boolean
-  performance?: LivePerformance
-}
-
 // ─── Live engine management types ───────────────────────────────────────────
 
 export interface LiveStartRequest {

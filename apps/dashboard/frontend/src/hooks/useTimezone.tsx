@@ -54,20 +54,3 @@ export function fmtDateTz(iso: string | undefined, tz: string): string {
   return `${mon} ${day}, ${year}, ${h}`
 }
 
-/** Format an ISO timestamp as "YYYY-MM-DD" in the given timezone */
-export function fmtDateShortTz(iso: string | undefined, tz: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-CA', { timeZone: tz }) // en-CA gives YYYY-MM-DD
-}
-
-/** Format an ISO timestamp as "YYYY-MM-DD HH:mm:ss" in the given timezone */
-export function fmtTimeTz(iso: string | undefined, tz: string): string {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '-'
-  const date = d.toLocaleDateString('en-CA', { timeZone: tz })
-  const time = d.toLocaleTimeString('en-GB', { timeZone: tz, hour12: false })
-  return `${date} ${time}`
-}

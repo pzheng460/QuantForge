@@ -6,7 +6,6 @@ import type {
   OptimizeRequest,
   OptimizeJobStatus,
   LivePerformance,
-  LiveStrategyStatus,
   LiveStartRequest,
   LiveEngineOut,
   AgentRunRequest,
@@ -81,9 +80,6 @@ export const api = {
   cancelOptimize: (jobId: string): Promise<void> =>
     post(`/optimize/cancel/${jobId}`, {}),
 
-
-  liveStrategies: (): Promise<LiveStrategyStatus[]> => get('/live/strategies'),
-  livePerformance: (): Promise<LivePerformance> => get('/live/performance'),
 
   // Live engine management
   startLive: (req: LiveStartRequest): Promise<LiveEngineOut> =>
