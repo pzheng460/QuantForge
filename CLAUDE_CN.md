@@ -52,7 +52,11 @@ uvx ruff format               # format
 apps/dashboard/
 ├── backend/
 │   ├── main.py              # FastAPI 应用；prod 模式下挂载 frontend/dist/
-│   ├── jobs.py              # _fetch_ohlcv / _resolve_pine_source / _run_pine_optimize / _run_wfo / _run_three_stage
+│   ├── jobs/                # 后台任务包（__init__ 作 facade）
+│   │   ├── registry.py      #   内存任务表 + 取消机制
+│   │   ├── data.py          #   _fetch_ohlcv / _resolve_pine_source / 日期区间
+│   │   ├── backtest.py      #   run_backtest_job / _run_pine_backtest
+│   │   └── optimize.py      #   run_optimize_job / _run_wfo / _run_three_stage
 │   ├── live_engines.py      # in-memory 引擎管理器（start/stop/list）
 │   ├── models.py            # Pydantic 请求/响应模型
 │   └── routers/

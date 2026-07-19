@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from apps.dashboard.backend.main import app
 from apps.dashboard.backend import jobs
+from apps.dashboard.backend.jobs import data as jobs_data
 
 
 @pytest.fixture
@@ -66,7 +67,7 @@ roc_threshold = input.float(-2.0, title="ROC Threshold")
 adx_threshold = input.int(-10, title="ADX Threshold")
 """,
     )
-    monkeypatch.setattr(jobs, "_STRATEGIES_DIR", strategies_dir)
+    monkeypatch.setattr(jobs_data, "_STRATEGIES_DIR", strategies_dir)
 
     source = jobs._resolve_pine_source(
         strategy="negative_input",
@@ -109,7 +110,7 @@ myfast = input.int(3, title="My Fast")
 fast = input.int(5, title="Fast")
 """,
     )
-    monkeypatch.setattr(jobs, "_STRATEGIES_DIR", strategies_dir)
+    monkeypatch.setattr(jobs_data, "_STRATEGIES_DIR", strategies_dir)
 
     source = jobs._resolve_pine_source(
         strategy="exact_input",

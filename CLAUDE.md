@@ -54,8 +54,11 @@ uvx ruff format               # format
 apps/dashboard/
 ├── backend/
 │   ├── main.py              # FastAPI app; mounts SPA from frontend/dist/ in prod
-│   ├── jobs.py              # _fetch_ohlcv, _resolve_pine_source, _run_pine_optimize,
-│   │                        #   _run_wfo, _run_three_stage
+│   ├── jobs/                # background job package (facade in __init__)
+│   │   ├── registry.py      #   in-memory job store + cancellation
+│   │   ├── data.py          #   _fetch_ohlcv, _resolve_pine_source, date ranges
+│   │   ├── backtest.py      #   run_backtest_job, _run_pine_backtest
+│   │   └── optimize.py      #   run_optimize_job, _run_wfo, _run_three_stage
 │   ├── live_engines.py      # in-memory engine manager (start/stop/list)
 │   ├── models.py            # Pydantic request/response schemas
 │   └── routers/

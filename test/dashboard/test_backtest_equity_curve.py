@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from apps.dashboard.backend import jobs
+from apps.dashboard.backend.jobs import backtest as jobs
 from apps.dashboard.backend.models import BacktestRequest
 
 
