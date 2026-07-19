@@ -57,7 +57,7 @@ except ImportError:
 
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 
 from quantforge.agent_providers import build_agent_command, resolve_model
 from apps.dashboard.backend.models import _VALID_EXCHANGES
@@ -79,19 +79,22 @@ class AgentRunRequest(BaseModel):
     model: Optional[str] = None
     max_budget_usd: float = 5.0
 
-    @validator("exchange")
+    @field_validator("exchange")
+    @classmethod
     def validate_exchange(cls, v: str) -> str:
         if v not in _VALID_EXCHANGES:
             raise ValueError(f"exchange must be one of {_VALID_EXCHANGES}")
         return v
 
-    @validator("agent_provider")
+    @field_validator("agent_provider")
+    @classmethod
     def validate_agent_provider(cls, v: str) -> str:
         from quantforge.agent_providers import normalize_provider
 
         return normalize_provider(v)
 
-    @validator("skill_path")
+    @field_validator("skill_path")
+    @classmethod
     def validate_skill_path(cls, v: str) -> str:
         skill_dir = Path.home() / ".openclaw" / "skills" / v
         if not skill_dir.exists():

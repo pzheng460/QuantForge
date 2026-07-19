@@ -33,7 +33,6 @@ def _job_to_optimize_status(job_id: str, job: dict) -> OptimizeJobStatusOut:
         grid_result=job.get("grid_result"),
         wfo_result=job.get("wfo_result"),
         full_result=job.get("full_result"),
-        heatmap_result=job.get("heatmap_result"),
     )
 
 

@@ -13,7 +13,6 @@ interface OptimizerState {
   leverage: number
   mode: 'grid' | 'ai'
   nJobs: number
-  resolution: number
 
   // Grid Job
   jobId: string | null
@@ -45,7 +44,6 @@ interface OptimizerState {
   setLeverage: (v: number) => void
   setMode: (v: 'grid' | 'ai') => void
   setNJobs: (v: number) => void
-  setResolution: (v: number) => void
   setJobId: (v: string | null) => void
   setStatus: (v: string) => void
   setJobResult: (v: OptimizeJobStatus | null) => void
@@ -72,7 +70,6 @@ export const useOptimizerStore = create<OptimizerState>((set) => ({
   leverage: 1,
   mode: 'grid',
   nJobs: 1,
-  resolution: 15,
 
   jobId: null,
   status: '',
@@ -100,7 +97,6 @@ export const useOptimizerStore = create<OptimizerState>((set) => ({
   setLeverage: (v) => set({ leverage: v }),
   setMode: (v) => set({ mode: v }),
   setNJobs: (v) => set({ nJobs: v }),
-  setResolution: (v) => set({ resolution: v }),
   setJobId: (v) => set({ jobId: v }),
   setStatus: (v) => set({ status: v }),
   setJobResult: (v) => set({ jobResult: v }),

@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator, model_validator
 
 _VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
 _VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid"}
-_VALID_MODES = {"grid", "wfo", "full", "heatmap"}
+_VALID_MODES = {"grid", "wfo", "full"}
 _VALID_TIMEFRAMES = {
     "1m",
     "3m",
@@ -229,9 +229,8 @@ class OptimizeRequest(BaseModel):
     # Optional sizing override — see BacktestRequest for semantics.
     position_size_usdt: Optional[float] = None
     metric: str = "sharpe"
-    mode: str = "grid"  # grid | wfo | full | heatmap
+    mode: str = "grid"  # grid | wfo | full
     n_jobs: int = 1
-    resolution: int = 15  # heatmap grid resolution
 
     @model_validator(mode="after")
     def check_strategy_or_source(self):
@@ -287,13 +286,6 @@ class OptimizeRequest(BaseModel):
     def validate_mode(cls, v: str) -> str:
         if v not in _VALID_MODES:
             raise ValueError(f"mode must be one of {_VALID_MODES}")
-        return v
-
-    @field_validator("resolution")
-    @classmethod
-    def validate_resolution(cls, v: int) -> int:
-        if not (3 <= v <= 50):
-            raise ValueError("resolution must be between 3 and 50")
         return v
 
 
@@ -373,29 +365,6 @@ class ThreeStageResultOut(BaseModel):
     bh_full_return: float
 
 
-class HeatmapMesaOut(BaseModel):
-    index: int
-    center_x: float
-    center_y: float
-    avg_sharpe: float
-    avg_return_pct: float
-    stability: float
-    area: int
-    frequency_label: str
-
-
-class HeatmapResultOut(BaseModel):
-    x_values: List[float]
-    y_values: List[float]
-    x_label: str
-    y_label: str
-    x_param: str
-    y_param: str
-    sharpe_grid: List[List[Optional[float]]]
-    return_grid: List[List[Optional[float]]]
-    mesas: List[HeatmapMesaOut]
-
-
 class OptimizeProgress(BaseModel):
     completed: int
     total: int
@@ -414,7 +383,6 @@ class OptimizeJobStatusOut(BaseModel):
     grid_result: Optional[GridSearchResultOut] = None
     wfo_result: Optional[WFOResultOut] = None
     full_result: Optional[ThreeStageResultOut] = None
-    heatmap_result: Optional[HeatmapResultOut] = None
 
 
 # ─── Live monitoring models ─────────────────────────────────────────────────

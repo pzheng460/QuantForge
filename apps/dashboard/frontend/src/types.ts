@@ -153,9 +153,8 @@ export interface OptimizeRequest {
   /** USDT notional per trade — see BacktestRequest. */
   position_size_usdt?: number
   metric?: string
-  mode: 'grid' | 'wfo' | 'full' | 'heatmap'
+  mode: 'grid' | 'wfo' | 'full'
   n_jobs?: number
-  resolution?: number
 }
 
 export interface GridRow {
@@ -230,29 +229,6 @@ export interface ThreeStageResult {
   bh_full_return: number
 }
 
-export interface HeatmapMesa {
-  index: number
-  center_x: number
-  center_y: number
-  avg_sharpe: number
-  avg_return_pct: number
-  stability: number
-  area: number
-  frequency_label: string
-}
-
-export interface HeatmapResult {
-  x_values: number[]
-  y_values: number[]
-  x_label: string
-  y_label: string
-  x_param: string
-  y_param: string
-  sharpe_grid: (number | null)[][]
-  return_grid: (number | null)[][]
-  mesas: HeatmapMesa[]
-}
-
 export interface OptimizeProgress {
   completed: number
   total: number
@@ -269,7 +245,6 @@ export interface OptimizeJobStatus {
   grid_result?: GridSearchResult
   wfo_result?: WFOResult
   full_result?: ThreeStageResult
-  heatmap_result?: HeatmapResult
 }
 
 // ─── Live monitoring types ──────────────────────────────────────────────────

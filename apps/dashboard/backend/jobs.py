@@ -21,8 +21,6 @@ from apps.dashboard.backend.models import (
     WFOWindowOut,
     WFOResultOut,
     ThreeStageResultOut,
-    HeatmapMesaOut,
-    HeatmapResultOut,
 )
 from quantforge.pine.live.connector import timeframe_to_seconds
 
@@ -233,7 +231,7 @@ def _resolve_date_range(
 
 
 # Derived from quantforge.pine.live.connector._TF_SECONDS so the live
-# engine and the backend's WFO/heatmap window math never disagree on
+# engine and the backend's WFO window math never disagree on
 # which timeframes exist or how long they are.
 def _build_tf_ms() -> dict[str, int]:
     from quantforge.pine.live.connector import _TF_SECONDS
@@ -1020,141 +1018,6 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
     )
 
 
-def _run_heatmap(req: OptimizeRequest) -> HeatmapResultOut:
-    """Execute 2D parameter heatmap optimization."""
-    from quantforge.pine.optimize import (
-        extract_pine_inputs,
-        run_optimization,
-    )
-    from quantforge.pine.parser.parser import parse
-
-    source = _resolve_pine_source(req.strategy, req.pine_source)
-    ast = parse(source)
-
-    inputs = extract_pine_inputs(ast)
-    if len(inputs) < 2:
-        raise ValueError(
-            "Heatmap requires at least 2 input.int() / input.float() parameters"
-        )
-
-    # Take first 2 parameters for 2D heatmap
-    x_param = inputs[0]
-    y_param = inputs[1]
-
-    start_str, end_str = _resolve_date_range(req.period, req.start_date, req.end_date)
-    symbol = req.symbol or _DEFAULT_SYMBOLS.get(req.exchange, "BTC/USDT:USDT")
-
-    start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    warmup_seconds = timeframe_to_seconds(req.timeframe) * req.warmup_bars
-    warmup_start = start_dt - timedelta(seconds=warmup_seconds)
-    since_ms = int(warmup_start.timestamp() * 1000)
-    end_ms = int(end_dt.timestamp() * 1000)
-
-    all_ohlcv = _fetch_ohlcv(req.exchange, symbol, req.timeframe, since_ms, end_ms)
-    bars = _ohlcv_to_bars(all_ohlcv)
-    start_ms = int(start_dt.timestamp() * 1000)
-    warmup_bar_count = 0
-    for bar in all_ohlcv:
-        if bar[0] >= start_ms:
-            break
-        warmup_bar_count += 1
-
-    # Generate 2D grid
-    def generate_param_range(param, resolution):
-        lo = (
-            param.minval
-            if param.minval is not None
-            else max(1, param.defval - abs(param.defval) * 0.5)
-        )
-        hi = (
-            param.maxval
-            if param.maxval is not None
-            else param.defval + abs(param.defval) * 0.5
-        )
-
-        if param.input_type == "int":
-            lo, hi = int(lo), int(hi)
-            step = max(1, (hi - lo) // (resolution - 1))
-            values = list(range(lo, hi + 1, step))
-            if len(values) > resolution:
-                values = values[:resolution]
-        else:
-            step = (hi - lo) / (resolution - 1) if resolution > 1 else 0
-            values = [lo + i * step for i in range(resolution)]
-
-        return values
-
-    x_values = generate_param_range(x_param, req.resolution)
-    y_values = generate_param_range(y_param, req.resolution)
-
-    # Build 2D grid
-    grid_2d = []
-    for x_val in x_values:
-        for y_val in y_values:
-            params = {x_param.var_name: x_val, y_param.var_name: y_val}
-            # Set other params to defaults
-            for inp in inputs[2:]:
-                params[inp.var_name] = inp.defval
-            grid_2d.append(params)
-
-    # Run optimization
-    results = run_optimization(
-        ast=ast,
-        bars=bars,
-        grid=grid_2d,
-        warmup_count=warmup_bar_count,
-        metric="sharpe",
-        position_size_usdt=req.position_size_usdt,
-        leverage=req.leverage,
-    )
-
-    # Build result grids
-    sharpe_grid = [[None for _ in y_values] for _ in x_values]
-    return_grid = [[None for _ in y_values] for _ in x_values]
-
-    for result in results:
-        x_val = result.params[x_param.var_name]
-        y_val = result.params[y_param.var_name]
-
-        try:
-            x_idx = x_values.index(x_val)
-            y_idx = y_values.index(y_val)
-            sharpe_grid[x_idx][y_idx] = _safe_float(result.sharpe)
-            return_grid[x_idx][y_idx] = _safe_float(result.return_pct * 100)
-        except ValueError:
-            continue  # Skip if value not in expected range
-
-    # Find mesa regions (simplified: just find top performer)
-    mesas = []
-    best_result = max(results, key=lambda r: r.sharpe) if results else None
-    if best_result:
-        mesas.append(
-            HeatmapMesaOut(
-                index=0,
-                center_x=best_result.params[x_param.var_name],
-                center_y=best_result.params[y_param.var_name],
-                avg_sharpe=_safe_float(best_result.sharpe),
-                avg_return_pct=_safe_float(best_result.return_pct * 100),
-                stability=1.0,  # Simplified
-                area=1,
-                frequency_label="Peak",
-            )
-        )
-
-    return HeatmapResultOut(
-        x_values=x_values,
-        y_values=y_values,
-        x_label=x_param.title,
-        y_label=y_param.title,
-        x_param=x_param.var_name,
-        y_param=y_param.var_name,
-        sharpe_grid=sharpe_grid,
-        return_grid=return_grid,
-        mesas=mesas,
-    )
-
-
 def _run_pine_optimize(
     req: OptimizeRequest, job_id: str | None = None
 ) -> GridSearchResultOut:
@@ -1277,10 +1140,6 @@ async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
             result = await asyncio.to_thread(_run_three_stage, req)
             check_cancelled(job_id)
             _jobs[job_id]["full_result"] = result
-        elif req.mode == "heatmap":
-            result = await asyncio.to_thread(_run_heatmap, req)
-            check_cancelled(job_id)
-            _jobs[job_id]["heatmap_result"] = result
         else:
             raise ValueError(f"Unknown optimization mode: {req.mode}")
 

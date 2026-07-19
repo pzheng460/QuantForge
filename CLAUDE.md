@@ -55,7 +55,7 @@ apps/dashboard/
 ├── backend/
 │   ├── main.py              # FastAPI app; mounts SPA from frontend/dist/ in prod
 │   ├── jobs.py              # _fetch_ohlcv, _resolve_pine_source, _run_pine_optimize,
-│   │                        #   _run_wfo, _run_three_stage, _run_heatmap
+│   │                        #   _run_wfo, _run_three_stage
 │   ├── live_engines.py      # in-memory engine manager (start/stop/list)
 │   ├── models.py            # Pydantic request/response schemas
 │   └── routers/
