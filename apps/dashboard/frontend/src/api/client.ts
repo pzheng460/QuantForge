@@ -64,10 +64,10 @@ export const api = {
   strategySource: (name: string): Promise<{ source: string }> =>
     get(`/strategies/${name}/source`),
   exchanges: (): Promise<Exchange[]> => get('/exchanges'),
-  schwabStatus: (): Promise<{ configured: boolean; authenticated: boolean; account_selected?: boolean; detail?: string }> =>
+  schwabStatus: (): Promise<{ configured: boolean; authenticated: boolean; trading_authenticated?: boolean; market_data_authenticated?: boolean; account_selected?: boolean; detail?: string }> =>
     get('/brokers/schwab/status'),
-  schwabAuthStart: (): Promise<{ authorization_url: string }> =>
-    get('/brokers/schwab/auth/start'),
+  schwabAuthStart: (product: 'trading' | 'market_data'): Promise<{ authorization_url: string; product: string }> =>
+    get(`/brokers/schwab/auth/start?product=${product}`),
   schwabAccounts: (): Promise<Array<{ account_hash: string; account_type: string; display_id: string }>> =>
     get('/brokers/schwab/accounts'),
   selectSchwabAccount: (accountHash: string): Promise<{ selected: boolean; account_hash: string }> =>

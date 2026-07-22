@@ -181,20 +181,23 @@ class PineLiveEngine:
                 raise RuntimeError("Schwab equities require leverage=1")
             from quantforge.brokers.schwab import (
                 SchwabConnector,
-                credentials_from_env,
+                credentials_for,
                 selected_account_hash,
             )
 
             schwab = SchwabConnector(
-                credentials_from_env(),
+                credentials_for("trading"),
+                market_credentials=credentials_for("market_data"),
                 account_hash=selected_account_hash(),
                 symbol=self.symbol,
             )
-            if not schwab.authenticated:
-                raise RuntimeError("Connect Charles Schwab with OAuth before starting")
+            if not schwab.market_data_authenticated:
+                raise RuntimeError("Authorize Schwab Market Data before starting")
             self._market_connector = schwab
             # Schwab has no sandbox. Demo is deliberately local paper trading.
             if not self.dry_run and not self.demo:
+                if not schwab.trading_authenticated:
+                    raise RuntimeError("Authorize Schwab Trading before live trading")
                 if not schwab.account_hash:
                     raise RuntimeError("Select a Schwab account before live trading")
                 connector = schwab

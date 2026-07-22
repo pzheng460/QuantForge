@@ -12,7 +12,7 @@ interface Account {
 }
 
 export function SchwabConnection() {
-  const [status, setStatus] = useState<{ configured: boolean; authenticated: boolean; account_selected?: boolean; detail?: string }>()
+  const [status, setStatus] = useState<{ configured: boolean; authenticated: boolean; trading_authenticated?: boolean; market_data_authenticated?: boolean; account_selected?: boolean; detail?: string }>()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [selected, setSelected] = useState('')
   const [error, setError] = useState('')
@@ -21,7 +21,7 @@ export function SchwabConnection() {
     try {
       const next = await api.schwabStatus()
       setStatus(next)
-      if (next.authenticated) setAccounts(await api.schwabAccounts())
+      if (next.trading_authenticated) setAccounts(await api.schwabAccounts())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -31,7 +31,7 @@ export function SchwabConnection() {
     let active = true
     api.schwabStatus()
       .then(async (next) => {
-        const nextAccounts = next.authenticated ? await api.schwabAccounts() : []
+        const nextAccounts = next.trading_authenticated ? await api.schwabAccounts() : []
         if (active) {
           setStatus(next)
           setAccounts(nextAccounts)
@@ -43,9 +43,9 @@ export function SchwabConnection() {
     return () => { active = false }
   }, [])
 
-  const connect = async () => {
+  const connect = async (product: 'trading' | 'market_data') => {
     try {
-      const { authorization_url } = await api.schwabAuthStart()
+      const { authorization_url } = await api.schwabAuthStart(product)
       window.location.assign(authorization_url)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -71,11 +71,15 @@ export function SchwabConnection() {
         </Badge>
       </div>
       {!status?.configured && <p className="text-[10px] text-destructive">{status?.detail}</p>}
-      {!status?.authenticated ? (
-        <Button type="button" size="sm" className="w-full h-7" disabled={!status?.configured} onClick={connect}>
-          Connect Charles Schwab
+      <div className="grid grid-cols-2 gap-1">
+        <Button type="button" size="sm" className="h-7" variant={status?.market_data_authenticated ? 'outline' : 'default'} disabled={!status?.configured} onClick={() => connect('market_data')}>
+          {status?.market_data_authenticated ? 'Market ✓' : 'Authorize Market'}
         </Button>
-      ) : (
+        <Button type="button" size="sm" className="h-7" variant={status?.trading_authenticated ? 'outline' : 'default'} disabled={!status?.configured} onClick={() => connect('trading')}>
+          {status?.trading_authenticated ? 'Trading ✓' : 'Authorize Trading'}
+        </Button>
+      </div>
+      {status?.trading_authenticated && (
         <Select value={selected} onValueChange={choose}>
           <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={status.account_selected ? 'Account selected' : 'Select account'} /></SelectTrigger>
           <SelectContent>

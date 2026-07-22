@@ -53,3 +53,36 @@ def test_hour_bars_are_aggregated_from_thirty_minute_candles(tmp_path, monkeypat
     assert connector.fetch_chart_bars("AAPL", "1h") == [
         [0, 10.0, 14.0, 9.0, 13.0, 5.0]
     ]
+
+
+def test_market_data_and_trading_use_separate_access_tokens(tmp_path):
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"AAPL": {"quote": {"lastPrice": 200}}}
+
+    class Session:
+        def __init__(self):
+            self.headers = []
+
+        def request(self, _method, _url, **kwargs):
+            self.headers.append(kwargs["headers"])
+            return Response()
+
+    session = Session()
+    connector = SchwabConnector(
+        _credentials(),
+        market_credentials=SchwabCredentials(
+            "market-key", "market-secret", "https://localhost/callback"
+        ),
+        token_path=tmp_path / "trading.json",
+        market_token_path=tmp_path / "market.json",
+        session=session,
+        access_token="trading-token",
+        market_access_token="market-token",
+    )
+
+    assert connector.get_quote_price("AAPL") == 200
+    assert session.headers[0]["Authorization"] == "Bearer market-token"

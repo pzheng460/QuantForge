@@ -15,12 +15,17 @@ from quantforge.brokers.schwab import (
     SchwabAuthError,
     SchwabConnector,
     SchwabOAuthClient,
-    credentials_from_env,
+    SchwabTokenStore,
+    credentials_for,
 )
 
 router = APIRouter(prefix="/brokers/schwab", tags=["brokers"])
-_pending_states: dict[str, float] = {}
+_pending_states: dict[str, tuple[float, str]] = {}
 _CONFIG_PATH = Path.home() / ".quantforge/schwab/config.json"
+_TOKEN_PATHS = {
+    "trading": Path.home() / ".quantforge/schwab/tokens-trading.json",
+    "market_data": Path.home() / ".quantforge/schwab/tokens-market-data.json",
+}
 
 
 class AccountSelection(BaseModel):
@@ -45,7 +50,9 @@ def _save_config(config: dict) -> None:
 def _connector() -> SchwabConnector:
     config = _load_config()
     return SchwabConnector(
-        credentials_from_env(), account_hash=config.get("account_hash")
+        credentials_for("trading"),
+        market_credentials=credentials_for("market_data"),
+        account_hash=config.get("account_hash"),
     )
 
 
@@ -58,31 +65,41 @@ def status():
     return {
         "configured": True,
         "authenticated": connector.authenticated,
+        "trading_authenticated": connector.trading_authenticated,
+        "market_data_authenticated": connector.market_data_authenticated,
         "account_selected": bool(connector.account_hash),
     }
 
 
 @router.get("/auth/start")
-def auth_start():
+def auth_start(product: str = Query("trading")):
+    if product not in _TOKEN_PATHS:
+        raise HTTPException(status_code=400, detail="Unknown Schwab product")
     try:
-        oauth = SchwabOAuthClient(credentials_from_env())
+        oauth = SchwabOAuthClient(
+            credentials_for(product),
+            token_store=SchwabTokenStore(_TOKEN_PATHS[product]),
+        )
         url, state = oauth.authorization_url()
     except SchwabAuthError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    _pending_states[state] = time.time() + 600
-    return {"authorization_url": url}
+    _pending_states[state] = (time.time() + 600, product)
+    return {"authorization_url": url, "product": product}
 
 
 @router.get("/auth/callback")
 def auth_callback(code: str = Query(...), state: str = Query(...)):
-    expires_at = _pending_states.pop(state, 0)
+    expires_at, product = _pending_states.pop(state, (0, ""))
     if expires_at < time.time():
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
     try:
-        SchwabOAuthClient(credentials_from_env()).exchange_code(code)
+        SchwabOAuthClient(
+            credentials_for(product),
+            token_store=SchwabTokenStore(_TOKEN_PATHS[product]),
+        ).exchange_code(code)
     except SchwabAuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url="/?schwab=connected", status_code=302)
+    return RedirectResponse(url=f"/?schwab={product}-connected", status_code=302)
 
 
 @router.get("/accounts")

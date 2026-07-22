@@ -9,6 +9,7 @@ import math
 import os
 import secrets
 import time
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -174,42 +175,87 @@ class SchwabConnector:
         self,
         credentials: SchwabCredentials,
         *,
+        market_credentials: SchwabCredentials | None = None,
         account_hash: str | None = None,
         symbol: str | None = None,
         token_path: str | Path | None = None,
+        market_token_path: str | Path | None = None,
         session=None,
         access_token: str | None = None,
+        market_access_token: str | None = None,
     ) -> None:
         self.credentials = credentials
+        self.market_credentials = market_credentials or credentials
         self.account_hash = account_hash
         self.symbol = self.normalize_symbol(symbol) if symbol else None
         self.session = session or requests.Session()
-        self.token_store = SchwabTokenStore(token_path)
+        self.token_store = SchwabTokenStore(
+            token_path or Path.home() / ".quantforge/schwab/tokens-trading.json"
+        )
         self.oauth = SchwabOAuthClient(
             credentials, token_store=self.token_store, session=self.session
         )
         self._token = self.token_store.load() or {}
+        use_shared_token = market_credentials is None and market_token_path is None
+        self.market_token_store = (
+            self.token_store
+            if use_shared_token
+            else SchwabTokenStore(
+                market_token_path
+                or Path.home() / ".quantforge/schwab/tokens-market-data.json"
+            )
+        )
+        self.market_oauth = (
+            self.oauth
+            if use_shared_token
+            else SchwabOAuthClient(
+                self.market_credentials,
+                token_store=self.market_token_store,
+                session=self.session,
+            )
+        )
+        self._market_token = (
+            self._token if use_shared_token else self.market_token_store.load() or {}
+        )
         self._tracked_orders: dict[str, str] = {}
         if access_token:
             self._token = {"access_token": access_token, "expires_in": 1800}
+        if market_access_token:
+            self._market_token = {
+                "access_token": market_access_token,
+                "expires_in": 1800,
+            }
 
     @property
     def authenticated(self) -> bool:
+        return self.trading_authenticated and self.market_data_authenticated
+
+    @property
+    def trading_authenticated(self) -> bool:
         return bool(self._token.get("access_token"))
 
-    def _access_token(self) -> str:
-        token = self._token
+    @property
+    def market_data_authenticated(self) -> bool:
+        return bool(self._market_token.get("access_token"))
+
+    def _access_token(self, *, market_data: bool = False) -> str:
+        token = self._market_token if market_data else self._token
+        oauth = self.market_oauth if market_data else self.oauth
+        token_store = self.market_token_store if market_data else self.token_store
         obtained = float(token.get("obtained_at", time.time()))
         expires = float(token.get("expires_in", 1800))
         if time.time() >= obtained + expires - 60:
             refresh_token = token.get("refresh_token")
             if not refresh_token:
                 raise SchwabAuthError("Schwab authorization is required")
-            token = self.oauth.refresh(str(refresh_token))
+            token = oauth.refresh(str(refresh_token))
             if not token.get("refresh_token"):
                 token["refresh_token"] = refresh_token
-                self.token_store.save(token)
-            self._token = token
+                token_store.save(token)
+            if market_data:
+                self._market_token = token
+            else:
+                self._token = token
         value = token.get("access_token")
         if not value:
             raise SchwabAuthError("Schwab authorization is required")
@@ -217,7 +263,7 @@ class SchwabConnector:
 
     def _request(self, method: str, url: str, **kwargs):
         headers = {
-            "Authorization": f"Bearer {self._access_token()}",
+            "Authorization": f"Bearer {self._access_token(market_data=url.startswith(MARKET_DATA_BASE))}",
             "Accept": "application/json",
         }
         if "json" in kwargs:
@@ -523,16 +569,43 @@ class SchwabConnector:
         return self.account_hash
 
 
-def credentials_from_env() -> SchwabCredentials:
+def credentials_for(product: str = "trading") -> SchwabCredentials:
+    """Load product credentials from env, falling back to Dynaconf secrets."""
+    if product not in {"trading", "market_data"}:
+        raise ValueError(f"Unknown Schwab product: {product}")
+    prefix = "SCHWAB_TRADING" if product == "trading" else "SCHWAB_MARKET_DATA"
     values = {
-        "app_key": os.environ.get("SCHWAB_APP_KEY", ""),
-        "app_secret": os.environ.get("SCHWAB_APP_SECRET", ""),
+        "app_key": os.environ.get(f"{prefix}_APP_KEY")
+        or os.environ.get("SCHWAB_APP_KEY", ""),
+        "app_secret": os.environ.get(f"{prefix}_APP_SECRET")
+        or os.environ.get("SCHWAB_APP_SECRET", ""),
         "callback_url": os.environ.get("SCHWAB_CALLBACK_URL", ""),
     }
+    try:
+        secrets_path = Path(__file__).resolve().parents[2] / ".keys/.secrets.toml"
+        with secrets_path.open("rb") as handle:
+            schwab = tomllib.load(handle).get("SCHWAB") or {}
+        product_config = schwab.get(product.upper()) or {}
+        values["app_key"] = values["app_key"] or product_config.get("CLIENT_ID", "")
+        values["app_secret"] = values["app_secret"] or product_config.get(
+            "CLIENT_SECRET", ""
+        )
+        values["callback_url"] = values["callback_url"] or schwab.get(
+            "CALLBACK_URL", ""
+        )
+    except (FileNotFoundError, OSError, tomllib.TOMLDecodeError, AttributeError, TypeError):
+        pass
     missing = [name for name, value in values.items() if not value]
     if missing:
-        raise SchwabAuthError("Missing Schwab configuration: " + ", ".join(missing))
+        raise SchwabAuthError(
+            f"Missing Schwab {product} configuration: " + ", ".join(missing)
+        )
     return SchwabCredentials(**values)
+
+
+def credentials_from_env() -> SchwabCredentials:
+    """Backward-compatible alias for trading credentials."""
+    return credentials_for("trading")
 
 
 def selected_account_hash() -> str | None:

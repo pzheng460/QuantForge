@@ -30,6 +30,8 @@ def test_status_does_not_expose_environment_secrets(monkeypatch, tmp_path):
     assert response.json() == {
         "configured": True,
         "authenticated": False,
+        "trading_authenticated": False,
+        "market_data_authenticated": False,
         "account_selected": False,
     }
     assert "secret" not in response.text

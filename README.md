@@ -298,18 +298,27 @@ broker connector described below.
 ### Charles Schwab
 
 Create an Individual Trader API application in the Schwab Developer Portal and
-configure its callback URL to match the Dashboard backend callback. Export the
-application credentials before starting QuantForge:
+configure its callback URL to match the Dashboard backend callback. Store the
+two product credentials in `.keys/.secrets.toml`:
 
-```bash
-export SCHWAB_APP_KEY="..."
-export SCHWAB_APP_SECRET="..."
-export SCHWAB_CALLBACK_URL="https://127.0.0.1:8000/api/brokers/schwab/auth/callback"
+```toml
+[SCHWAB]
+CALLBACK_URL = "https://127.0.0.1:8000/api/brokers/schwab/auth/callback"
+
+[SCHWAB.MARKET_DATA]
+CLIENT_ID = "..."
+CLIENT_SECRET = "..."
+
+[SCHWAB.TRADING]
+CLIENT_ID = "..."
+CLIENT_SECRET = "..."
 ```
 
-In the Dashboard, select **Charles Schwab**, click **Connect Charles Schwab**,
-complete OAuth, and choose an account. Tokens are stored with user-only
-permissions in `~/.quantforge/schwab/tokens.json`; never commit this file.
+Start the Dashboard with `./apps/dashboard/start.sh --https`. The first browser
+visit may require accepting the local self-signed certificate. Select
+**Charles Schwab**, authorize Market Data and Trading separately, then choose an
+account. Tokens are stored with user-only permissions in
+`~/.quantforge/schwab/tokens-*.json`; never commit these files.
 
 Schwab supports US stocks and ETFs on `1m`, `5m`, `15m`, `30m`, `1h`, `1d`,
 and `1w` bars. Market, limit, and stop orders plus long, short, close, cancel,
