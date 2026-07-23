@@ -49,16 +49,17 @@ def test_strategies_list_nonempty_and_well_formed(client):
     assert r.status_code == 200
     body = r.json()
     assert isinstance(body, list)
-    assert len(body) > 0, (
-        "expected at least one .pine file under quantforge/pine/strategies/"
-    )
+    assert len(body) > 0
     sample = body[0]
-    assert {"name", "display_name", "config_fields"} <= set(sample)
-    # config_fields is the list of parsed input.int/input.float params; at
-    # least one well-known strategy should have a populated one.
-    assert any(len(s["config_fields"]) > 0 for s in body), (
-        "no strategy has parsed input parameters — Pine parser path is broken"
-    )
+    assert {
+        "name",
+        "display_name",
+        "config_fields",
+        "config_schema",
+        "engine",
+    } <= set(sample)
+    assert sample["engine"] == "python"
+    assert any(len(s["config_fields"]) > 0 for s in body)
 
 
 def test_strategy_by_name_404_on_missing(client):
@@ -66,14 +67,12 @@ def test_strategy_by_name_404_on_missing(client):
     assert r.status_code == 404
 
 
-def test_strategy_source_returns_pine_declaration(client):
+def test_strategy_source_is_not_exposed(client):
     list_r = client.get("/api/strategies")
     name = list_r.json()[0]["name"]
     r = client.get(f"/api/strategies/{name}/source")
-    assert r.status_code == 200
-    source = r.json()["source"]
-    # Every valid Pine strategy file starts with `strategy("...")` somewhere.
-    assert "strategy(" in source
+    assert r.status_code == 404
+    assert "not available" in r.json()["detail"]
 
 
 # ─── Agent router ────────────────────────────────────────────────────────────

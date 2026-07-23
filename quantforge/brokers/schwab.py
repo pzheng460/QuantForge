@@ -370,6 +370,35 @@ class SchwabConnector:
                 return float(value)
         raise SchwabError(f"Schwab returned no usable price for {symbol}")
 
+    def get_option_chain(
+        self,
+        symbol: str,
+        *,
+        contract_type: str = "ALL",
+        strike_count: int = 20,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict:
+        """Return Schwab's current option chain without reshaping away quote fields."""
+        symbol = self.normalize_symbol(symbol)
+        contract_type = contract_type.upper()
+        if contract_type not in {"ALL", "CALL", "PUT"}:
+            raise ValueError("contract_type must be ALL, CALL, or PUT")
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "contractType": contract_type,
+            "strikeCount": max(1, min(int(strike_count), 100)),
+            "includeUnderlyingQuote": "true",
+            "strategy": "SINGLE",
+        }
+        if from_date:
+            params["fromDate"] = from_date
+        if to_date:
+            params["toDate"] = to_date
+        return self._request(
+            "GET", f"{MARKET_DATA_BASE}/chains", params=params
+        ).json()
+
     def fetch_bars(
         self,
         symbol: str,
@@ -511,6 +540,59 @@ class SchwabConnector:
         if not order_id:
             raise SchwabAmbiguousOrderError(
                 "Schwab accepted an order without returning an order id; trading paused"
+            )
+        self._tracked_orders[order_id] = "accepted"
+        return BrokerOrder(order_id=order_id, status="accepted")
+
+    def place_option_order(
+        self,
+        *,
+        symbol: str,
+        instruction: str,
+        quantity: int,
+        order_type: str = "LIMIT",
+        price: float | None = None,
+    ) -> BrokerOrder:
+        """Submit one OCC option contract order through the selected account."""
+        account = self._require_account()
+        instruction = instruction.upper()
+        if instruction not in {
+            "BUY_TO_OPEN",
+            "SELL_TO_OPEN",
+            "BUY_TO_CLOSE",
+            "SELL_TO_CLOSE",
+        }:
+            raise ValueError(f"Unsupported option instruction: {instruction}")
+        if quantity <= 0 or int(quantity) != quantity:
+            raise ValueError("option quantity must be a positive whole number")
+        order_type = order_type.upper()
+        if order_type not in {"MARKET", "LIMIT"}:
+            raise ValueError("option order type must be MARKET or LIMIT")
+        payload: dict[str, Any] = {
+            "orderType": order_type,
+            "session": "NORMAL",
+            "duration": "DAY",
+            "orderStrategyType": "SINGLE",
+            "orderLegCollection": [
+                {
+                    "instruction": instruction,
+                    "quantity": int(quantity),
+                    "instrument": {"symbol": symbol.strip(), "assetType": "OPTION"},
+                }
+            ],
+        }
+        if order_type == "LIMIT":
+            if price is None or price <= 0:
+                raise ValueError("limit option order requires a positive price")
+            payload["price"] = str(price)
+        response = self._request(
+            "POST", f"{TRADER_BASE}/accounts/{account}/orders", json=payload
+        )
+        location = response.headers.get("Location", "")
+        order_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+        if not order_id:
+            raise SchwabAmbiguousOrderError(
+                "Schwab accepted an option order without returning an order id"
             )
         self._tracked_orders[order_id] = "accepted"
         return BrokerOrder(order_id=order_id, status="accepted")

@@ -1,135 +1,39 @@
-"""Strategy listing and schema endpoints.
-
-All strategies are Pine Script files in quantforge/pine/strategies/.
-These endpoints return Pine strategy metadata with extracted input parameters.
-"""
+"""Read-only Python strategy registry and configuration schemas."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException
-
-from apps.dashboard.backend.models import SchemaField, StrategySchema
 
 router = APIRouter()
 
-_PINE_STRATEGIES_DIR = (
-    Path(__file__).resolve().parents[4] / "quantforge" / "pine" / "strategies"
-)
+def _strategies() -> list[dict]:
+    import quantforge.strategies  # noqa: F401
+    from quantforge.strategy import list_strategies
 
-
-def _parse_pine_schema(pine_path: Path) -> StrategySchema:
-    """Parse a .pine file and extract strategy metadata + input parameters."""
-    name = pine_path.stem
-    title = name.replace("_", " ").title()
-    text = pine_path.read_text()
-
-    # Extract title from strategy() declaration
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("strategy("):
-            try:
-                start = stripped.index('"') + 1
-                end = stripped.index('"', start)
-                title = stripped[start:end]
-            except ValueError:
-                pass
-            break
-
-    # Extract input parameters using the Pine parser
-    config_fields: list[SchemaField] = []
-    try:
-        from quantforge.pine.parser.parser import parse
-        from quantforge.pine.optimize import extract_pine_inputs
-
-        ast = parse(text)
-        inputs = extract_pine_inputs(ast)
-        for inp in inputs:
-            config_fields.append(
-                SchemaField(
-                    name=inp.var_name,
-                    type="int" if inp.input_type == "int" else "float",
-                    default=int(inp.defval) if inp.input_type == "int" else inp.defval,
-                    label=inp.title,
-                    min=inp.minval,
-                    max=inp.maxval,
-                    step=inp.step,
-                )
-            )
-    except Exception:
-        pass
-
-    return StrategySchema(
-        name=name,
-        display_name=title,
-        default_interval="1h",
-        config_fields=config_fields,
-        filter_fields=[],
-    )
-
-
-def _list_pine_strategies() -> list[StrategySchema]:
-    """Scan .pine files and extract strategy metadata."""
-    results = []
-    if not _PINE_STRATEGIES_DIR.exists():
-        return results
-    for f in sorted(_PINE_STRATEGIES_DIR.glob("*.pine")):
-        try:
-            results.append(_parse_pine_schema(f))
-        except Exception:
-            # Fallback: minimal schema
-            results.append(
-                StrategySchema(
-                    name=f.stem,
-                    display_name=f.stem.replace("_", " ").title(),
-                    default_interval="1h",
-                    config_fields=[],
-                    filter_fields=[],
-                )
-            )
-    return results
+    return list_strategies()
 
 
 @router.get("/strategies")
 def get_strategies():
-    """Return all Pine Script strategies."""
-    return _list_pine_strategies()
+    return _strategies()
 
 
 @router.get("/strategies/{name}")
 def get_strategy_schema(name: str):
-    """Return metadata for a single Pine strategy."""
-    for s in _list_pine_strategies():
-        if s.name == name:
+    for s in _strategies():
+        if s["name"] == name:
             return s
     raise HTTPException(status_code=404, detail=f"Strategy '{name}' not found")
 
 
 @router.get("/strategies/{name}/source")
-def get_strategy_source(name: str):
-    """Return the Pine Script source code for a strategy."""
-    pine_file = _PINE_STRATEGIES_DIR / f"{name}.pine"
-    if not pine_file.exists():
+def strategy_source_is_not_exposed(name: str):
+    if not any(s["name"] == name for s in _strategies()):
         raise HTTPException(status_code=404, detail=f"Strategy '{name}' not found")
-    return {"source": pine_file.read_text()}
-
-
-@router.post("/strategies/{name}/rename")
-def rename_strategy(name: str, new_name: str):
-    """Rename a strategy file."""
-    import re
-
-    # Sanitize new_name
-    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", new_name.removesuffix(".pine"))
-    old_file = _PINE_STRATEGIES_DIR / f"{name}.pine"
-    new_file = _PINE_STRATEGIES_DIR / f"{safe_name}.pine"
-    if not old_file.exists():
-        raise HTTPException(404, f"Strategy '{name}' not found")
-    if new_file.exists():
-        raise HTTPException(409, f"Strategy '{safe_name}' already exists")
-    old_file.rename(new_file)
-    return {"old_name": name, "new_name": safe_name}
+    raise HTTPException(
+        status_code=404,
+        detail="Strategy source editing is not available; configure the published schema",
+    )
 
 
 @router.get("/exchanges")
