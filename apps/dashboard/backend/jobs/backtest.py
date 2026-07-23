@@ -1,4 +1,4 @@
-"""Backtest job runner: Pine interpreter over fetched klines → BacktestResultOut."""
+"""Python strategy backtest job runner."""
 
 from __future__ import annotations
 
@@ -6,12 +6,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from apps.dashboard.backend.jobs.data import (
-    _apply_sizing_override,
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
-    _ohlcv_to_bars,
     _resolve_date_range,
-    _resolve_pine_source,
     _TF_MS,
 )
 from apps.dashboard.backend.jobs.registry import (
@@ -24,15 +21,15 @@ from apps.dashboard.backend.models import (
     BacktestResultOut,
     TradeOut,
 )
-from quantforge.pine.live.connector import timeframe_to_seconds
+from apps.dashboard.backend.jobs.data import timeframe_to_seconds
 
 
 async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
-    """Run a Pine Script backtest in the background and store the result."""
+    """Run a Python strategy backtest in the background and store the result."""
     _jobs[job_id]["status"] = "running"
 
     try:
-        result = await asyncio.to_thread(_run_pine_backtest, req)
+        result = await asyncio.to_thread(_run_python_backtest, req)
         check_cancelled(job_id)
         _jobs[job_id]["result"] = result
         _jobs[job_id]["status"] = "completed"
@@ -49,14 +46,13 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
         )
 
 
-def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
-    """Execute a Pine Script backtest synchronously (called from thread pool)."""
-    from quantforge.pine.interpreter.context import ExecutionContext
-    from quantforge.pine.interpreter.runtime import PineRuntime
-    from quantforge.pine.parser.parser import parse
-
-    source = _resolve_pine_source(req.strategy, req.pine_source, req.config_override)
-    ast = parse(source)
+def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
+    """Execute a registered Python strategy synchronously."""
+    import quantforge.strategies  # noqa: F401
+    from quantforge.backtest import BacktestConfig, run_backtest
+    from quantforge.options import run_covered_call_approximation
+    from quantforge.strategy import get_strategy
+    from quantforge.strategy.bar import BarStrategy
 
     start_str, end_str = _resolve_date_range(req.period, req.start_date, req.end_date)
     symbol = req.symbol or _DEFAULT_SYMBOLS.get(req.exchange, "BTC/USDT:USDT")
@@ -69,8 +65,6 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
     end_ms = int(end_dt.timestamp() * 1000)
 
     all_ohlcv = _fetch_ohlcv(req.exchange, symbol, req.timeframe, since_ms, end_ms)
-    bars = _ohlcv_to_bars(all_ohlcv)
-
     # Find the bar index where actual backtest period starts (after warmup)
     start_ms = int(start_dt.timestamp() * 1000)
     warmup_bar_count = 0
@@ -79,24 +73,39 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
             break
         warmup_bar_count += 1
 
-    # Run backtest in incremental mode so we can override Pine's default
-    # qty/equity *after* init but *before* any bars are processed — this is
-    # how the live engine aligns sizing too (see PineLiveEngine.start).
-    ctx = ExecutionContext()
-    runtime = PineRuntime(ctx)
-    runtime.init_incremental(ast)
-    _apply_sizing_override(runtime, req.position_size_usdt, req.leverage)
-    for bar in bars[:warmup_bar_count]:
-        runtime.process_bar(bar)
-    if warmup_bar_count and runtime.strategy_ctx:
-        runtime.strategy_ctx.reset_trading_state()
-    for bar in bars[warmup_bar_count:]:
-        runtime.process_bar(bar)
-    result = runtime.finalize()
-
-    # Filter out trades from warmup period
-    all_trades = result.trades
-    trades = [t for t in all_trades if t.entry_bar >= warmup_bar_count]
+    strategy_cls = get_strategy(req.strategy)
+    initial_capital = req.position_size_usdt or 100_000
+    if issubclass(strategy_cls, BarStrategy):
+        result = run_backtest(
+            strategy_cls,
+            all_ohlcv,
+            strategy_config=req.config_override,
+            config=BacktestConfig(
+                initial_capital=initial_capital,
+                allocation_pct=getattr(strategy_cls, "allocation_pct", 1),
+            ),
+            warmup_bars=warmup_bar_count,
+        )
+        data_quality = "historical_market_data"
+    elif req.strategy == "tsla_nvda_options":
+        option_config = strategy_cls.config_model(**(req.config_override or {}))
+        approximation = run_covered_call_approximation(
+            all_ohlcv[warmup_bar_count:],
+            initial_capital=initial_capital,
+            dte=max(option_config.dte_min, min(30, option_config.dte_max)),
+            target_delta=(
+                option_config.entry_delta_min + option_config.entry_delta_max
+            )
+            / 2,
+            coverage_ratio=option_config.coverage_ratio,
+        )
+        result = approximation.result
+        all_ohlcv = all_ohlcv[warmup_bar_count:]
+        warmup_bar_count = 0
+        data_quality = approximation.quality
+    else:
+        raise ValueError(f"{req.strategy} does not provide a backtest adapter")
+    trades = result.trades
     initial_capital = result.initial_capital
 
     # Recompute metrics on filtered trades
@@ -282,18 +291,18 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
 
     def _trade_pnl_pct(trade) -> float:
-        notional = trade.entry_price * abs(trade.qty)
+        notional = trade.entry_price * abs(trade.quantity)
         return trade.pnl / notional * 100 if notional > 0 else 0.0
 
     # Trades
     trades_out = [
         TradeOut(
             timestamp=_trade_time_iso(t.entry_bar),
-            side="buy" if t.direction.value == "long" else "sell",
+            side="buy" if t.direction == "long" else "sell",
             price=t.entry_price,
             exit_price=t.exit_price,
-            amount=abs(t.qty),
-            fee=0.0,
+            amount=abs(t.quantity),
+            fee=t.fee,
             pnl=t.pnl,
             pnl_pct=_trade_pnl_pct(t),
             entry_time=_trade_time_iso(t.entry_bar),
@@ -301,11 +310,11 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
             bars_held=t.exit_bar - t.entry_bar,
             mfe=t.mfe,
             mae=t.mae,
-            mfe_pct=(t.mfe / (t.entry_price * t.qty) * 100)
-            if t.entry_price > 0 and t.qty > 0
+            mfe_pct=(t.mfe / (t.entry_price * t.quantity) * 100)
+            if t.entry_price > 0 and t.quantity > 0
             else 0.0,
-            mae_pct=(t.mae / (t.entry_price * t.qty) * 100)
-            if t.entry_price > 0 and t.qty > 0
+            mae_pct=(t.mae / (t.entry_price * t.quantity) * 100)
+            if t.entry_price > 0 and t.quantity > 0
             else 0.0,
         )
         for t in trades
@@ -367,9 +376,14 @@ def _run_pine_backtest(req: BacktestRequest) -> BacktestResultOut:
         drawdown_curve=drawdown_curve_out,
         monthly_returns=monthly_returns,
         trades=trades_out,
-        strategy=req.strategy or "pine_script",
+        strategy=req.strategy,
         exchange=req.exchange,
         period_start=start_str,
         period_end=end_str,
-        config_name="Pine Default",
+        config_name=(
+            f"Python {strategy_cls.version}"
+            if data_quality == "historical_market_data"
+            else f"Python {strategy_cls.version} ({data_quality})"
+        ),
+        data_quality=data_quality,
     )

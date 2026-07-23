@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import uuid4
 
@@ -31,7 +32,10 @@ class OrderIntent:
     reduce_only: bool = False
     quote_bid: float | None = None
     quote_ask: float | None = None
+    quote_timestamp: datetime | None = None
+    leverage: float = 1
     intent_id: str = field(default_factory=lambda: uuid4().hex)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,4 +44,3 @@ class MultiLegOrderIntent:
     legs: tuple[OrderIntent, ...]
     net_limit_price: float | None = None
     intent_id: str = field(default_factory=lambda: uuid4().hex)
-

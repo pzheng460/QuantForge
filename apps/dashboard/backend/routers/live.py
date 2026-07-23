@@ -1,7 +1,7 @@
-"""Live monitoring & engine management endpoints.
+"""Live monitoring and trusted Python engine management endpoints.
 
 Provides read-only performance monitoring (JSON file scanning) plus
-start/stop control for PineLiveEngine instances running as asyncio
+start/stop control for Python live-engine instances running as asyncio
 tasks inside the FastAPI process.
 """
 
@@ -132,33 +132,12 @@ async def ws_live_performance(ws: WebSocket):
 
 @router.post("/live/start", response_model=LiveEngineOut)
 async def start_live(req: LiveStartRequest) -> LiveEngineOut:
-    """Start a new PineLiveEngine as an asyncio task."""
+    """Start a registered Python strategy; every order passes hard risk checks."""
     from apps.dashboard.backend.live_engines import list_engines, start_engine
-
-    # ── LIVE-mode safety gate ────────────────────────────────────────────────
-    # When demo=false the user is about to risk real money. The frontend's
-    # confirmation modal asks them to type the strategy name; we re-check
-    # that here so a stripped-frontend / curl caller can't bypass the prompt.
-    if not req.demo:
-        expected = (req.strategy or "").strip()
-        if not expected:
-            raise HTTPException(
-                status_code=400,
-                detail="LIVE mode requires a named strategy (cannot be raw pine_source).",
-            )
-        if (req.confirm_live or "").strip() != expected:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"LIVE mode confirmation required: set confirm_live='{expected}' "
-                    "in the request body. The dashboard UI does this for you via "
-                    "the safety modal."
-                ),
-            )
 
     # Prevent duplicate engines for the same strategy
     for eng in list_engines():
-        if eng["strategy"] == (req.strategy or "custom_strategy") and eng["status"] in (
+        if eng["strategy"] == req.strategy and eng["status"] in (
             "warmup",
             "running",
         ):
@@ -170,7 +149,6 @@ async def start_live(req: LiveStartRequest) -> LiveEngineOut:
     try:
         engine_id = await start_engine(
             strategy=req.strategy,
-            pine_source=req.pine_source,
             exchange=req.exchange,
             symbol=req.symbol,
             timeframe=req.timeframe,
@@ -179,6 +157,12 @@ async def start_live(req: LiveStartRequest) -> LiveEngineOut:
             leverage=req.leverage,
             warmup_bars=req.warmup_bars,
             config_override=req.config_override,
+            risk_limits={
+                "max_order_notional": req.max_order_notional,
+                "max_spread_pct": req.max_spread_pct,
+                "max_leverage": req.max_leverage,
+                "max_daily_new_positions": req.max_daily_new_positions,
+            },
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

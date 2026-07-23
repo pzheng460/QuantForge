@@ -1,22 +1,14 @@
-"""Shared data plumbing: Pine source / date-range resolution and OHLCV fetching."""
+"""Shared date-range and multi-asset OHLCV data plumbing."""
 
 from __future__ import annotations
 
+import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Callable, TypeVar
 
-
-def _apply_sizing_override(
-    runtime, position_size_usdt: Optional[float], leverage: float
-) -> None:
-    """Thin shim around ``PineRuntime.apply_sizing_override`` — keeps the
-    backend-side call sites stable while routing through the single source
-    of truth so every backtest/optimize/live path produces the same trades
-    for the same params.
-    """
-    runtime.apply_sizing_override(position_size_usdt, leverage)
-
+T = TypeVar("T")
 
 _PERIOD_DAYS = {
     "1w": 7,
@@ -38,105 +30,123 @@ _DEFAULT_SYMBOLS = {
     "schwab": "AAPL",
 }
 
-_STRATEGIES_DIR = (
-    Path(__file__).resolve().parents[4] / "quantforge" / "pine" / "strategies"
-)
+_TF_SECONDS = {
+    "1m": 60,
+    "3m": 180,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "2h": 7200,
+    "4h": 14400,
+    "6h": 21600,
+    "12h": 43200,
+    "1d": 86400,
+    "1w": 604800,
+}
+_TF_MS = {name: seconds * 1000 for name, seconds in _TF_SECONDS.items()}
 
 
-def _apply_config_override(source: str, config_override: Optional[dict] = None) -> str:
-    # Apply config_override: replace input default values
-    if config_override:
-        import json
-        import re
-
-        number_pattern = r"-?(?:\d+(?:\.\d*)?|\.\d+)"
-        string_pattern = r'"(?:\\.|[^"\\])*"'
-        bool_pattern = r"(?:true|false)"
-        literal_pattern = rf"(?:{number_pattern}|{string_pattern}|{bool_pattern})"
-
-        def pine_literal(value: Any) -> str:
-            if isinstance(value, bool):
-                return "true" if value else "false"
-            if isinstance(value, (int, float)):
-                return str(value)
-            return json.dumps(str(value))
-
-        for var_name, value in config_override.items():
-            replacement = pine_literal(value)
-            defval_pattern = (
-                rf"(^\s*{re.escape(var_name)}\s*=\s*"
-                rf"input\.(?:int|float|bool|string)\([^\n)]*\bdefval\s*=\s*)"
-                rf"({literal_pattern})"
-            )
-            source, count = re.subn(
-                defval_pattern,
-                lambda match, replacement=replacement: f"{match.group(1)}{replacement}",
-                source,
-                flags=re.MULTILINE,
-            )
-            if count:
-                continue
-
-            positional_pattern = (
-                rf"(^\s*{re.escape(var_name)}\s*=\s*"
-                rf"input\.(?:int|float|bool|string)\(\s*)"
-                rf"({literal_pattern})"
-            )
-            source = re.sub(
-                positional_pattern,
-                lambda match, replacement=replacement: f"{match.group(1)}{replacement}",
-                source,
-                flags=re.MULTILINE,
-            )
-
-    return source
-
-
-def _resolve_pine_source(
-    strategy: Optional[str],
-    pine_source: Optional[str],
-    config_override: Optional[dict] = None,
-) -> str:
-    """Return Pine Script source from either raw source or strategy file name."""
-    if pine_source:
-        return _apply_config_override(pine_source, config_override)
-
-    pine_file = _STRATEGIES_DIR / f"{strategy}.pine"
-    if not pine_file.exists():
-        raise FileNotFoundError(f"Strategy file not found: {pine_file}")
-
-    return _apply_config_override(pine_file.read_text(), config_override)
+def timeframe_to_seconds(timeframe: str) -> int:
+    try:
+        return _TF_SECONDS[timeframe]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported timeframe: {timeframe}") from exc
 
 
 def _resolve_date_range(
-    period: Optional[str],
-    start_date: Optional[str],
-    end_date: Optional[str],
+    period: str | None, start_date: str | None, end_date: str | None
 ) -> tuple[str, str]:
-    """Return (start_str, end_str) from either explicit dates or period shorthand."""
     if start_date:
         return start_date, end_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     days = _PERIOD_DAYS.get(period or "1y", 365)
-    end_dt = (
+    end = (
         datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         if end_date
         else datetime.now(timezone.utc)
     )
-    start_dt = end_dt - timedelta(days=days)
-    return start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d")
+    return (end - timedelta(days=days)).strftime("%Y-%m-%d"), end.strftime(
+        "%Y-%m-%d"
+    )
 
 
-# Derived from quantforge.pine.live.connector._TF_SECONDS so the live
-# engine and the backend's WFO window math never disagree on
-# which timeframes exist or how long they are.
-def _build_tf_ms() -> dict[str, int]:
-    from quantforge.pine.live.connector import _TF_SECONDS
+def _retry(
+    operation: Callable[[], T],
+    errors: tuple[type[BaseException], ...],
+    attempts: int = 3,
+) -> T:
+    last_error: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except errors as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(2**attempt)
+    assert last_error is not None
+    raise last_error
 
-    return {tf: secs * 1000 for tf, secs in _TF_SECONDS.items()}
+
+def _fetch_crypto_ohlcv(
+    exchange_id: str,
+    symbol: str,
+    timeframe: str,
+    since_ms: int,
+    end_ms: int,
+) -> list[list]:
+    import ccxt
+
+    exchange_cls = getattr(ccxt, exchange_id, None)
+    if exchange_cls is None:
+        raise ValueError(f"Exchange '{exchange_id}' not found in ccxt")
+    exchange = exchange_cls({"enableRateLimit": True, "timeout": 30_000})
+    transient = (
+        ccxt.NetworkError,
+        ccxt.RequestTimeout,
+        TimeoutError,
+        ConnectionError,
+    )
+    _retry(exchange.load_markets, transient)
+    page_limit = 1000
+    bar_ms = timeframe_to_seconds(timeframe) * 1000
+    seen: set[int] = set()
+    rows: list[list] = []
+    cursor = since_ms
+    while cursor < end_ms:
+        chunk = _retry(
+            lambda: exchange.fetch_ohlcv(
+                symbol, timeframe, since=cursor, limit=page_limit
+            ),
+            transient,
+        )
+        if not chunk:
+            cursor += bar_ms * page_limit
+            continue
+        for row in chunk:
+            if since_ms <= row[0] < end_ms and row[0] not in seen:
+                rows.append(row)
+                seen.add(row[0])
+        cursor = max(cursor + 1, chunk[-1][0] + 1)
+    return sorted(rows, key=lambda row: row[0])
 
 
-_TF_MS = _build_tf_ms()
+def _fetch_schwab_ohlcv(
+    symbol: str, timeframe: str, since_ms: int, end_ms: int
+) -> list[list]:
+    from quantforge.brokers.schwab import SchwabConnector, credentials_for
+
+    config_path = Path.home() / ".quantforge/schwab/config.json"
+    try:
+        account_hash = json.loads(config_path.read_text()).get("account_hash")
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        account_hash = None
+    connector = SchwabConnector(
+        credentials_for("trading"),
+        market_credentials=credentials_for("market_data"),
+        account_hash=account_hash,
+    )
+    rows = connector.fetch_chart_bars(symbol, timeframe)
+    return [row for row in rows if since_ms <= row[0] < end_ms]
 
 
 def _fetch_ohlcv(
@@ -146,39 +156,12 @@ def _fetch_ohlcv(
     since_ms: int,
     end_ms: int,
 ) -> list[list]:
-    """Fetch OHLCV bars — delegates to the shared :func:`fetch_klines`.
-
-    Both backtest and live engines use the same pager so they agree on
-    which bars belong to a given time range (no off-by-one or dedup
-    discrepancies at boundaries).
-    """
-    from quantforge.pine.live.connector import fetch_klines
-
-    rows = fetch_klines(
-        symbol=symbol,
-        exchange_id=exchange_id,
-        timeframe=timeframe,
-        since_ms=since_ms,
-        end_ms=end_ms,
-        page_limit=200,
-    )
-    if not rows:
-        raise ValueError("No OHLCV data returned from exchange")
-    return rows
-
-
-def _ohlcv_to_bars(all_ohlcv: list[list]) -> list:
-    """Convert raw OHLCV lists to BarData objects."""
-    from quantforge.pine.interpreter.context import BarData
-
-    return [
-        BarData(
-            open=bar[1],
-            high=bar[2],
-            low=bar[3],
-            close=bar[4],
-            volume=bar[5],
-            time=bar[0] // 1000,
+    if exchange_id == "schwab":
+        rows = _fetch_schwab_ohlcv(symbol, timeframe, since_ms, end_ms)
+    else:
+        rows = _fetch_crypto_ohlcv(
+            exchange_id, symbol, timeframe, since_ms, end_ms
         )
-        for bar in all_ohlcv
-    ]
+    if not rows:
+        raise ValueError("No OHLCV data returned")
+    return rows

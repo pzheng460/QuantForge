@@ -1,1 +1,0 @@
-"""Pine Script builtin functions."""

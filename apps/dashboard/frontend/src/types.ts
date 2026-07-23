@@ -14,6 +14,9 @@ export interface StrategySchema {
   default_interval: string
   config_fields: SchemaField[]
   filter_fields: SchemaField[]
+  engine?: 'python'
+  version?: string
+  config_schema?: Record<string, unknown>
 }
 
 export interface Exchange {
@@ -110,6 +113,7 @@ export interface BacktestResult {
   period_start: string
   period_end: string
   config_name: string
+  data_quality?: 'historical_market_data' | 'approximate_unvalidated'
 }
 
 export interface JobStatus {
@@ -120,8 +124,7 @@ export interface JobStatus {
 }
 
 export interface BacktestRequest {
-  strategy?: string
-  pine_source?: string
+  strategy: string
   exchange: string
   symbol?: string
   timeframe?: string
@@ -130,8 +133,7 @@ export interface BacktestRequest {
   end_date?: string
   leverage?: number
   warmup_bars?: number
-  /** USDT allocation bound to Pine initial capital. Leave undefined
-   * to use Pine's declared default_qty (TV-compatible behavior). */
+  /** Quote-currency allocation per position. */
   position_size_usdt?: number
   mesa_index?: number
   config_override?: Record<string, number | string | boolean>
@@ -141,8 +143,7 @@ export interface BacktestRequest {
 // ─── Optimizer types ──────────────────────────────────────────────────────────
 
 export interface OptimizeRequest {
-  strategy?: string
-  pine_source?: string
+  strategy: string
   exchange: string
   symbol?: string
   timeframe?: string
@@ -288,18 +289,19 @@ export interface LivePerformance {
 // ─── Live engine management types ───────────────────────────────────────────
 
 export interface LiveStartRequest {
-  strategy?: string
-  pine_source?: string
+  strategy: string
   exchange: string
   symbol?: string
   timeframe?: string
   demo: boolean
-  /** Required when demo=false. Must equal `strategy` for the backend to accept. */
-  confirm_live?: string
   position_size_usdt: number
   leverage: number
   warmup_bars: number
   config_override?: Record<string, number>
+  max_order_notional?: number
+  max_spread_pct?: number
+  max_leverage?: number
+  max_daily_new_positions?: number
 }
 
 export interface LiveEngineOut {
@@ -320,8 +322,7 @@ export interface LiveEngineOut {
 
 export interface AgentRunRequest {
   skill_path: string  // e.g., "quantforge-optimizer"
-  strategy?: string
-  pine_source?: string
+  strategy: string
   exchange: string
   symbol?: string
   timeframe?: string

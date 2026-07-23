@@ -6,19 +6,15 @@ Facade over the submodules so routers and callers keep importing from
 (``jobs.backtest`` / ``jobs.optimize``), not this package.
 """
 
-from apps.dashboard.backend.jobs.backtest import run_backtest_job, _run_pine_backtest
+from apps.dashboard.backend.jobs.backtest import run_backtest_job, _run_python_backtest
 from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _PERIOD_DAYS,
-    _STRATEGIES_DIR,
-    _apply_config_override,
     _fetch_ohlcv,
-    _ohlcv_to_bars,
     _resolve_date_range,
-    _resolve_pine_source,
 )
 from apps.dashboard.backend.jobs.optimize import (
-    _run_pine_optimize,
+    _run_python_optimize,
     _run_three_stage,
     _run_wfo,
     run_optimize_job,
@@ -43,15 +39,11 @@ __all__ = [
     # compat facade for tests and internal callers
     "_DEFAULT_SYMBOLS",
     "_PERIOD_DAYS",
-    "_STRATEGIES_DIR",
-    "_apply_config_override",
     "_fetch_ohlcv",
     "_jobs",
-    "_ohlcv_to_bars",
     "_resolve_date_range",
-    "_resolve_pine_source",
-    "_run_pine_backtest",
-    "_run_pine_optimize",
+    "_run_python_backtest",
+    "_run_python_optimize",
     "_run_three_stage",
     "_run_wfo",
 ]

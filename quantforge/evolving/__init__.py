@@ -9,7 +9,6 @@ trading_control → audit_report → alerts) are sibling submodules.
 """
 
 from quantforge.evolving.switch import (
-    PINE_STRATEGIES_DIR,
     STATE_PATH,
     EvolvingState,
     UnknownStrategyError,
@@ -24,7 +23,6 @@ from quantforge.evolving.switch import (
 )
 
 __all__ = [
-    "PINE_STRATEGIES_DIR",
     "STATE_PATH",
     "EvolvingState",
     "UnknownStrategyError",

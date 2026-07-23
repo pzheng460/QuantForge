@@ -69,8 +69,7 @@ router = APIRouter()
 
 class AgentRunRequest(BaseModel):
     skill_path: str  # e.g., "quantforge-optimizer"
-    strategy: Optional[str] = None
-    pine_source: Optional[str] = None
+    strategy: str
     exchange: str = "bitget"
     symbol: Optional[str] = None
     timeframe: str = "1h"

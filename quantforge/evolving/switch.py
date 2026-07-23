@@ -1,10 +1,10 @@
-"""Evolving Mode — global gate for the autonomous strategy-tune-and-deploy loop.
+"""Evolving Mode — global gate for automated parameter tuning and controls.
 
 Evolving Mode is the umbrella flag for everything in the
 ``quantforge/{bot_cycle,auto_tune_scheduler,risk_control,trading_control,…}``
 subsystem. When OFF (the default), the bot CLI commands refuse to run and the
-live Pine engine ignores ``trading_control.json``. When ON, the cycle can
-re-optimise, deploy, and override Pine engine behaviour (pause new entries,
+live engine ignores ``trading_control.json``. When ON, the cycle can
+re-optimise and override engine behaviour (pause new entries,
 reduce position size, etc.) per-strategy.
 
 State lives in a single JSON file ``~/.quantforge/evolving.json``::
@@ -18,8 +18,7 @@ State lives in a single JSON file ``~/.quantforge/evolving.json``::
 * ``enabled`` is the global master switch. If false, nothing in the bot
   subsystem activates regardless of per-strategy entries.
 * ``strategies`` is the allow-list of strategy names that are under evolving
-  control. Strategies *not* in this list are unaffected even when the master
-  switch is on — they run as plain manual Pine engines.
+control. Strategies not in this list are unaffected.
 
 Default behaviour is conservative: a fresh install has no file at all, which
 ``is_enabled()`` treats identically to ``{"enabled": false}``.
@@ -35,20 +34,16 @@ from typing import Iterable, List, TypedDict
 
 STATE_PATH = Path.home() / ".quantforge" / "evolving.json"
 
-# Canonical Pine strategy directory — single source of truth for what strategy
-# names are real. We resolve it from the package root so it follows the repo.
-PINE_STRATEGIES_DIR = Path(__file__).resolve().parent.parent / "pine" / "strategies"
-
-
 def known_strategy_names() -> list[str]:
-    """Return the strategy names that currently exist as ``.pine`` files."""
-    if not PINE_STRATEGIES_DIR.exists():
-        return []
-    return sorted(p.stem for p in PINE_STRATEGIES_DIR.glob("*.pine"))
+    """Return names published by the trusted Python strategy registry."""
+    import quantforge.strategies  # noqa: F401
+    from quantforge.strategy import list_strategies
+
+    return [item["name"] for item in list_strategies()]
 
 
 class UnknownStrategyError(ValueError):
-    """Raised when a strategy name doesn't correspond to a real .pine file.
+    """Raised when a strategy name is not registered.
 
     The .suggestions attribute holds a short list of close matches the caller
     can surface to the user.
@@ -62,9 +57,9 @@ class UnknownStrategyError(ValueError):
 
 
 def validate_strategy_name(name: str) -> str:
-    """Verify ``name`` matches an on-disk .pine file. Returns the name on success.
+    """Verify ``name`` matches a registered Python strategy.
 
-    Raises :class:`UnknownStrategyError` with close-match suggestions if not.
+    Raises ``UnknownStrategyError`` with close-match suggestions if not.
     """
     known = known_strategy_names()
     if name in known:

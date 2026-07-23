@@ -2,8 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { Activity, Loader2, Play, Square } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { api } from '../api/client'
-import { useBacktestStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/backtestStore'
+import { useBacktestStore } from '../stores/backtestStore'
 import { useCatalog } from '../hooks/useCatalog'
 import { useBacktestStatus, useRunBacktest, useCancelBacktest } from '../hooks/use-queries'
 import type { BacktestRequest, StrategySchema, Exchange } from '../types'
@@ -16,7 +15,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Sidebar,
   SidebarContent,
@@ -75,49 +73,6 @@ function useResizablePanel(defaultHeight: number) {
   return { height, onPointerDown }
 }
 
-// ─── Pine parameter parsing ─────────────────────────────────────────────────
-
-interface PineParam {
-  name: string
-  type: 'int' | 'float'
-  value: number
-  title: string
-  min?: number
-  max?: number
-  step?: number
-}
-
-function parsePineParams(source: string): PineParam[] {
-  const params: PineParam[] = []
-  const re = /^(\w+)\s*=\s*input\.(int|float)\((.+)\)/gm
-  let m
-  while ((m = re.exec(source))) {
-    const [, name, type, argsStr] = m
-    const defMatch = argsStr.match(/^(-?\d+\.?\d*)/)
-    if (!defMatch) continue
-    const ptype = type as 'int' | 'float'
-    const value = ptype === 'int' ? parseInt(defMatch[1]) : parseFloat(defMatch[1])
-    const titleMatch = argsStr.match(/title\s*=\s*"([^"]*)"/)
-    const title = titleMatch ? titleMatch[1] : name
-    const minMatch = argsStr.match(/minval\s*=\s*(-?\d+\.?\d*)/)
-    const min = minMatch ? parseFloat(minMatch[1]) : undefined
-    const maxMatch = argsStr.match(/maxval\s*=\s*(-?\d+\.?\d*)/)
-    const max = maxMatch ? parseFloat(maxMatch[1]) : undefined
-    const stepMatch = argsStr.match(/step\s*=\s*(\d+\.?\d*)/)
-    const step = stepMatch ? parseFloat(stepMatch[1]) : undefined
-    params.push({ name, type: ptype, value, title, min, max, step })
-  }
-  return params
-}
-
-function updatePineParam(source: string, paramName: string, newValue: number): string {
-  const re = new RegExp(
-    `(${paramName}\\s*=\\s*input\\.(?:int|float)\\()(-?\\d+\\.?\\d*)`,
-  )
-  return source.replace(re, `$1${newValue}`)
-}
-
-
 // ─── Main Backtest page ─────────────────────────────────────────────────────
 
 export default function BacktestPage() {
@@ -126,8 +81,7 @@ export default function BacktestPage() {
   // Zustand store — UI state only (persists across tab switches)
   const {
     selectedStrategy, setSelectedStrategy,
-    source, setSource,
-    pineParams, setPineParams,
+    strategyParams, setStrategyParams,
     exchange, setExchange,
     symbol, setSymbol,
     timeframe, setTimeframe,
@@ -185,9 +139,6 @@ export default function BacktestPage() {
   // Resizable bottom panel
   const { height: bottomHeight, onPointerDown: onDragStart } = useResizablePanel(280)
 
-  // Track whether source change is from param update (skip re-parse)
-  const paramUpdateRef = useRef(false)
-
   // Set default strategy on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
@@ -197,41 +148,25 @@ export default function BacktestPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategies, initialized])
 
-  // When selected strategy changes, fetch its source
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleStrategyChange = useCallback((name: string) => {
     setSelectedStrategy(name)
-    if (name === CUSTOM_KEY) {
-      setSource(DEFAULT_PINE)
-      setPineParams(parsePineParams(DEFAULT_PINE))
-    } else {
-      api.strategySource(name).then(({ source: src }) => {
-        setSource(src)
-        setPineParams(parsePineParams(src))
-      })
-    }
-  }, [])
+    const schema = strategies.find((item) => item.name === name)
+    setStrategyParams((schema?.config_fields ?? []).map((field) => ({
+      name: field.name,
+      type: field.type === 'int' ? 'int' : 'float',
+      value: Number(field.default ?? 0),
+      title: field.label || field.name,
+      min: field.min,
+      max: field.max,
+      step: field.step,
+    })))
+  }, [setSelectedStrategy, setStrategyParams, strategies])
 
-  // When source text changes directly, re-parse params
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleSourceChange = useCallback((newSource: string) => {
-    setSource(newSource)
-    if (paramUpdateRef.current) {
-      paramUpdateRef.current = false
-      return
-    }
-    setPineParams(parsePineParams(newSource))
-  }, [])
-
-  // When a param value is changed, update source text
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
-    paramUpdateRef.current = true
-    setSource((prev: string) => updatePineParam(prev, paramName, newValue))
-    setPineParams((prev: PineParam[]) =>
+    setStrategyParams((prev) =>
       prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p)),
     )
-  }, [])
+  }, [setStrategyParams])
 
   // Submit backtest via React Query mutation — triggered after Zod validation
   const onValidSubmit = useCallback((data: BacktestFormData) => {
@@ -249,7 +184,7 @@ export default function BacktestPage() {
     setError(null)
     setStatus('pending')
     const req: BacktestRequest = {
-      pine_source: source,
+      strategy: selectedStrategy,
       exchange: data.exchange,
       symbol: data.symbol,
       timeframe: data.timeframe,
@@ -257,13 +192,16 @@ export default function BacktestPage() {
       end_date: data.endDate,
       warmup_bars: data.warmupBars,
       position_size_usdt: data.positionSizeUsdt,
+      config_override: Object.fromEntries(
+        strategyParams.map((param) => [param.name, param.value]),
+      ),
     }
     runBacktestMutation.mutate(req, {
       onSuccess: (job) => setJobId(job.job_id),
       onError: (e) => { setError(String(e)); setLoading(false) },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source])
+  }, [selectedStrategy, strategyParams])
 
   const handleCancel = useCallback(() => {
     if (!jobId) return
@@ -296,7 +234,6 @@ export default function BacktestPage() {
                       <SelectValue placeholder="-- Select --" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={CUSTOM_KEY}>Custom Script</SelectItem>
                       {strategies.map((s: StrategySchema) => (
                         <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>
                       ))}
@@ -307,33 +244,14 @@ export default function BacktestPage() {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {/* Pine Script editor */}
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Pine Script</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <div className="px-2">
-                <Textarea
-                  value={source}
-                  onChange={(e) => handleSourceChange(e.target.value)}
-                  className="text-[11px] font-mono resize-y"
-                  spellCheck={false}
-                  placeholder="Enter Pine Script code..."
-                  rows={12}
-                  style={{ minHeight: 120, maxHeight: 400 }}
-                />
-              </div>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          {/* Parameters (parsed from Pine source) */}
-          {pineParams.length > 0 && (
+          {strategyParams.length > 0 && (
             <SidebarGroup>
               <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">
-                {`Parameters (${pineParams.length})`}
+                {`Parameters (${strategyParams.length})`}
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <div className="space-y-0 px-2">
-                  {pineParams.map((p) => (
+                  {strategyParams.map((p) => (
                     <div key={p.name} className="flex flex-col gap-0.5 py-1">
                       <Label>{p.title}</Label>
                       <Input
@@ -460,7 +378,7 @@ export default function BacktestPage() {
                     className="text-xs h-8"
                     min={0}
                     step="any"
-                    placeholder="leave empty for Pine defaults"
+                    placeholder="use strategy default"
                     {...register('positionSizeUsdt', {
                       setValueAs: (v) =>
                         v === '' || v === undefined || v === null
@@ -515,7 +433,7 @@ export default function BacktestPage() {
               size="sm"
               className="w-full"
               onClick={handleSubmit(onValidSubmit)}
-              disabled={loading || !source.trim()}
+              disabled={loading || !selectedStrategy}
             >
               {loading ? (
                 <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
@@ -554,7 +472,7 @@ export default function BacktestPage() {
               ) : (
                 <div className="flex flex-col items-center gap-3 text-muted-foreground">
                   <Activity className="h-12 w-12 stroke-1" />
-                  <span className="text-sm">Select a strategy or write Pine Script, then click Run Backtest</span>
+                  <span className="text-sm">Select a Python strategy, adjust parameters, then run the backtest</span>
                 </div>
               )}
             </div>

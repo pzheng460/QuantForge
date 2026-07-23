@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # ─── Logging: capture INFO from quantforge.* loggers ─────────────────────────
-# Without this, all `logging.getLogger("quantforge.pine.live.engine")` INFO
+# Keep live-engine and broker lifecycle logs visible in the service console.
 # calls (warmup progress, order submission, leverage set, etc.) get dropped
 # silently because uvicorn only configures its own logger. In live trading
 # this means we have ZERO observability into what the engine is doing.

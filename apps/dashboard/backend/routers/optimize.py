@@ -1,4 +1,4 @@
-"""Optimizer job endpoints (Pine Script grid search)."""
+"""Python strategy optimizer job endpoints."""
 
 from __future__ import annotations
 

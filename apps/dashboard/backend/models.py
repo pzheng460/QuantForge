@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
-_VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid"}
+_VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid", "schwab"}
 _VALID_MODES = {"grid", "wfo", "full"}
 _VALID_TIMEFRAMES = {
     "1m",
@@ -47,8 +47,7 @@ def _validate_date_range(start_date: Optional[str], end_date: Optional[str]) -> 
 
 
 class BacktestRequest(BaseModel):
-    strategy: Optional[str] = None  # Pine strategy file name (from strategies dir)
-    pine_source: Optional[str] = None  # Raw Pine Script source code
+    strategy: str
     exchange: str = "bitget"
     symbol: Optional[str] = None
     timeframe: str = "1h"
@@ -57,19 +56,16 @@ class BacktestRequest(BaseModel):
     end_date: Optional[str] = None  # YYYY-MM-DD
     leverage: float = 1.0
     warmup_bars: int = 500
-    # Optional sizing override — when set, Pine's initial capital is bound to
-    # ``position_size_usdt`` so percent/fixed/cash sizing is applied against
-    # the user allocation. Leverage is exchange margin metadata, not Pine
-    # notional sizing. ``None`` keeps Pine's own default_qty_type/value.
+    # Optional capital allocation for this strategy run.
     position_size_usdt: Optional[float] = None
     mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
     filter_override: Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
-    def check_strategy_or_source(self):
-        if not self.strategy and not self.pine_source:
-            raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+    def check_request(self):
+        if not self.strategy.strip():
+            raise ValueError("strategy is required")
         _validate_date_range(self.start_date, self.end_date)
         return self
 
@@ -185,6 +181,7 @@ class BacktestResultOut(BaseModel):
     period_start: str
     period_end: str
     config_name: str
+    data_quality: str = "historical_market_data"
 
 
 class JobStatusOut(BaseModel):
@@ -216,8 +213,7 @@ class StrategySchema(BaseModel):
 
 
 class OptimizeRequest(BaseModel):
-    strategy: Optional[str] = None  # Pine strategy file name
-    pine_source: Optional[str] = None  # Raw Pine Script source code
+    strategy: str
     exchange: str = "bitget"
     symbol: Optional[str] = None
     timeframe: str = "1h"
@@ -233,9 +229,9 @@ class OptimizeRequest(BaseModel):
     n_jobs: int = 1
 
     @model_validator(mode="after")
-    def check_strategy_or_source(self):
-        if not self.strategy and not self.pine_source:
-            raise ValueError("Either 'strategy' or 'pine_source' must be provided")
+    def check_request(self):
+        if not self.strategy.strip():
+            raise ValueError("strategy is required")
         _validate_date_range(self.start_date, self.end_date)
         return self
 
@@ -439,21 +435,19 @@ class LiveStrategyStatusOut(BaseModel):
 
 
 class LiveStartRequest(BaseModel):
-    strategy: Optional[str] = None
-    pine_source: Optional[str] = None
+    strategy: str
     exchange: str = "bitget"
     symbol: Optional[str] = None
     timeframe: str = "1h"
     demo: bool = True
-    # Safety gate for LIVE mode (demo=false). The frontend modal asks the
-    # user to type the strategy name to confirm; the backend re-checks here.
-    # If demo=false and confirm_live is anything other than the strategy
-    # name, /live/start refuses with 400.
-    confirm_live: Optional[str] = None
     position_size_usdt: float = 100.0
     leverage: int = 1
     warmup_bars: int = 500
     config_override: Optional[Dict[str, Any]] = None
+    max_order_notional: float = Field(default=10_000, gt=0)
+    max_spread_pct: float = Field(default=0.15, gt=0, le=1)
+    max_leverage: float = Field(default=3, ge=1)
+    max_daily_new_positions: int = Field(default=10, ge=1)
 
     @model_validator(mode="after")
     def validate_live_broker(self):
@@ -489,8 +483,7 @@ class LiveEngineOut(BaseModel):
 
 class AgentRunRequest(BaseModel):
     skill_path: str  # e.g., "quantforge-optimizer"
-    strategy: Optional[str] = None
-    pine_source: Optional[str] = None
+    strategy: str
     exchange: str = "bitget"
     symbol: Optional[str] = None
     timeframe: str = "1h"

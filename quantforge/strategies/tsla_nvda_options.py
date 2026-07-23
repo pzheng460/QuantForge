@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import Field, model_validator
 
 from quantforge.strategy import Strategy, StrategyConfig, register_strategy
+from quantforge.options.manager import OptionManager, OptionManagerInput
 
 
 class TslaNvdaOptionsConfig(StrategyConfig):
@@ -33,3 +34,15 @@ class TslaNvdaOptionsManager(Strategy):
     version = "1.0.0"
     config_model = TslaNvdaOptionsConfig
 
+    def on_event(self, ctx, event):
+        if not isinstance(event, OptionManagerInput):
+            return []
+        manager = OptionManager(
+            dte_min=self.config.dte_min,
+            dte_max=self.config.dte_max,
+            delta_min=self.config.entry_delta_min,
+            delta_max=self.config.entry_delta_max,
+            earnings_buffer_days=self.config.earnings_buffer_days,
+            profit_take=self.config.profit_take,
+        )
+        return [manager.evaluate(event)]

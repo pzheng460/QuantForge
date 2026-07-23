@@ -61,8 +61,6 @@ async function del<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export const api = {
   strategies: (): Promise<StrategySchema[]> => get('/strategies'),
-  strategySource: (name: string): Promise<{ source: string }> =>
-    get(`/strategies/${name}/source`),
   exchanges: (): Promise<Exchange[]> => get('/exchanges'),
   schwabStatus: (): Promise<{ configured: boolean; authenticated: boolean; trading_authenticated?: boolean; market_data_authenticated?: boolean; account_selected?: boolean; detail?: string }> =>
     get('/brokers/schwab/status'),

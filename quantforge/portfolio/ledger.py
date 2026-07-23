@@ -22,6 +22,9 @@ class PortfolioLedger:
         position = self.positions.get(instrument_id)
         return position.quantity if position else 0
 
+    def remove_position(self, instrument_id: InstrumentId) -> Position | None:
+        return self.positions.pop(instrument_id, None)
+
     def apply_fill(
         self, instrument: Instrument, side: OrderSide, quantity: float, price: float
     ) -> None:
@@ -34,12 +37,15 @@ class PortfolioLedger:
         if current is None:
             current = Position(instrument)
             self.positions[instrument.id] = current
-        if signed > 0 and new_qty > 0:
+        if old_qty == 0 or (old_qty > 0) == (signed > 0):
             current.average_price = (
-                old_qty * current.average_price + quantity * price
-            ) / new_qty
+                abs(old_qty) * current.average_price + quantity * price
+            ) / abs(new_qty)
+        elif new_qty != 0 and (old_qty > 0) != (new_qty > 0):
+            current.average_price = price
         current.quantity = new_qty
         self.cash[instrument.currency] = self.cash.get(instrument.currency, 0) - (
             signed * price * instrument.multiplier
         )
-
+        if new_qty == 0:
+            self.remove_position(instrument.id)

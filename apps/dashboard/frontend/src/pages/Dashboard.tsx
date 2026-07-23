@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { api, subscribeLivePerformance } from '../api/client'
-import { useDashboardStore, CUSTOM_KEY, DEFAULT_PINE } from '../stores/dashboardStore'
+import { subscribeLivePerformance } from '../api/client'
+import { useDashboardStore } from '../stores/dashboardStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
 import { useLiveEngines, useStartLive, useStopLive, useDeleteLive } from '../hooks/use-queries'
@@ -13,7 +13,6 @@ import type {
 } from '../types'
 import StrategyTester from '../components/StrategyTester'
 import TradingChart from '../components/charts/TradingChart'
-import { LiveSafetyModal } from '../components/LiveSafetyModal'
 import { SchwabConnection } from '../components/SchwabConnection'
 import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
 import type { EquityPoint, TradeRecord } from '../types'
@@ -24,7 +23,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -33,45 +31,6 @@ import {
 } from '@/components/ui/sidebar'
 import { ResizableSidebarShell } from '@/components/ResizableSidebarShell'
 import { ResizeHandle } from '@/components/ResizeHandle'
-
-// ─── Pine parameter parsing ─────────────────────────────────────────────────
-
-interface PineParam {
-  name: string; type: 'int' | 'float'; value: number; title: string
-  min?: number; max?: number; step?: number
-}
-
-function parsePineParams(source: string): PineParam[] {
-  const params: PineParam[] = []
-  const re = /^(\w+)\s*=\s*input\.(int|float)\((.+)\)/gm
-  let match
-  while ((match = re.exec(source))) {
-    const [, name, type, argsStr] = match
-    const defMatch = argsStr.match(/^(-?\d+(?:\.\d+)?)/)
-    if (!defMatch) continue
-    const ptype = type as 'int' | 'float'
-    const value = ptype === 'int' ? parseInt(defMatch[1]) : parseFloat(defMatch[1])
-    const titleMatch = argsStr.match(/title\s*=\s*"([^"]*)"/)
-    const title = titleMatch ? titleMatch[1] : name
-    const minMatch = argsStr.match(/minval\s*=\s*(-?\d+(?:\.\d+)?)/)
-    const maxMatch = argsStr.match(/maxval\s*=\s*(-?\d+(?:\.\d+)?)/)
-    const stepMatch = argsStr.match(/step\s*=\s*(\d+(?:\.\d+)?)/)
-    params.push({
-      name, type: ptype, value, title,
-      min: minMatch ? parseFloat(minMatch[1]) : undefined,
-      max: maxMatch ? parseFloat(maxMatch[1]) : undefined,
-      step: stepMatch ? parseFloat(stepMatch[1]) : undefined,
-    })
-  }
-  return params
-}
-
-function updatePineParam(source: string, paramName: string, newValue: number): string {
-  return source.replace(
-    new RegExp(`(${paramName}\\s*=\\s*input\\.(?:int|float)\\()(-?\\d+(?:\\.\\d+)?)`),
-    `$1${newValue}`,
-  )
-}
 
 // ─── Status badge ───────────────────────────────────────────────────────────
 
@@ -307,8 +266,7 @@ export default function DashboardPage() {
   // Zustand store — UI state only, no data-fetching state
   const {
     selectedStrategy, setSelectedStrategy,
-    source, setSource,
-    pineParams, setPineParams,
+    strategyParams, setStrategyParams,
     exchange, setExchange,
     symbol, setSymbol,
     timeframe, setTimeframe,
@@ -320,8 +278,7 @@ export default function DashboardPage() {
     initialized, setInitialized,
   } = useDashboardStore(useShallow((s) => ({
     selectedStrategy: s.selectedStrategy, setSelectedStrategy: s.setSelectedStrategy,
-    source: s.source, setSource: s.setSource,
-    pineParams: s.pineParams, setPineParams: s.setPineParams,
+    strategyParams: s.strategyParams, setStrategyParams: s.setStrategyParams,
     exchange: s.exchange, setExchange: s.setExchange,
     symbol: s.symbol, setSymbol: s.setSymbol,
     timeframe: s.timeframe, setTimeframe: s.setTimeframe,
@@ -360,8 +317,6 @@ export default function DashboardPage() {
     },
   })
 
-  const paramUpdateRef = useRef(false)
-
   const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
 
   useEffect(() => {
@@ -373,27 +328,21 @@ export default function DashboardPage() {
   const handleStrategyChange = useCallback((name: string) => {
     setSelectedStrategy(name)
     setFormValue('strategy', name)
-    if (name === CUSTOM_KEY) { setSource(DEFAULT_PINE); setPineParams(parsePineParams(DEFAULT_PINE)) }
-    else { api.strategySource(name).then(({ source: src }) => { setSource(src); setPineParams(parsePineParams(src)) }) }
-  }, [setFormValue])
+    const schema = strategies.find((item) => item.name === name)
+    setStrategyParams((schema?.config_fields ?? []).map((field) => ({
+      name: field.name,
+      type: field.type === 'int' ? 'int' : 'float',
+      value: Number(field.default ?? 0),
+      title: field.label || field.name,
+      min: field.min,
+      max: field.max,
+      step: field.step,
+    })))
+  }, [setFormValue, setSelectedStrategy, setStrategyParams, strategies])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleSourceChange = useCallback((val: string) => {
-    setSource(val)
-    if (paramUpdateRef.current) { paramUpdateRef.current = false; return }
-    setPineParams(parsePineParams(val))
-  }, [])
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
-    paramUpdateRef.current = true
-    setSource((prev) => updatePineParam(prev, paramName, newValue))
-    setPineParams((prev) => prev.map((p) => p.name === paramName ? { ...p, value: newValue } : p))
-  }, [])
-
-  // Pending LIVE submission — populated when user clicks Start with demo=off
-  // and is consumed when they confirm in LiveSafetyModal.
-  const [pendingLiveReq, setPendingLiveReq] = useState<LiveStartRequest | null>(null)
+    setStrategyParams((prev) => prev.map((p) => p.name === paramName ? { ...p, value: newValue } : p))
+  }, [setStrategyParams])
 
   const submitLiveReq = useCallback((req: LiveStartRequest) => {
     startLiveMutation.mutate(req, { onError: (e) => setStartError(String(e)) })
@@ -411,7 +360,7 @@ export default function DashboardPage() {
 
     setStartError(null)
     const req: LiveStartRequest = {
-      pine_source: source,
+      strategy: selectedStrategy,
       exchange: data.exchange,
       symbol: data.symbol,
       timeframe: data.timeframe,
@@ -419,21 +368,12 @@ export default function DashboardPage() {
       leverage: data.leverage,
       warmup_bars: data.warmupBars,
       demo: data.demo,
-    }
-    if (selectedStrategy !== CUSTOM_KEY && selectedStrategy) req.strategy = selectedStrategy
-
-    // LIVE mode → defer to the safety modal. Demo mode → submit immediately.
-    if (!data.demo) {
-      if (!req.strategy) {
-        setStartError('LIVE mode requires a named strategy (cannot use custom inline Pine).')
-        return
-      }
-      setPendingLiveReq(req)
-      return
+      config_override: Object.fromEntries(
+        strategyParams.map((param) => [param.name, param.value]),
+      ),
     }
     submitLiveReq(req)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, selectedStrategy, submitLiveReq])
+  }, [selectedStrategy, strategyParams, submitLiveReq, setDemo, setExchange, setLeverage, setPositionSize, setStartError, setSymbol, setTimeframe, setWarmupBars])
 
   const handleStop = useCallback((engineId: string) => {
     stopLiveMutation.mutate(engineId, { onError: (e) => setStartError(String(e)) })
@@ -461,7 +401,6 @@ export default function DashboardPage() {
                         <SelectValue placeholder="-- Select --" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={CUSTOM_KEY}>Custom Pine Script</SelectItem>
                         {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -470,21 +409,12 @@ export default function DashboardPage() {
               </SidebarGroupContent>
             </SidebarGroup>
 
-            <SidebarGroup>
-              <SidebarGroupLabel>Pine Script</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <Textarea className="w-full font-mono text-[11px] resize-y" spellCheck={false} rows={10}
-                  style={{ minHeight: 100, maxHeight: 300 }} value={source}
-                  onChange={(e) => handleSourceChange(e.target.value)} disabled={!!activeEngine} />
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            {pineParams.length > 0 && (
+            {strategyParams.length > 0 && (
               <SidebarGroup>
-                <SidebarGroupLabel>{`Parameters (${pineParams.length})`}</SidebarGroupLabel>
+                <SidebarGroupLabel>{`Parameters (${strategyParams.length})`}</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <div className="space-y-0">
-                    {pineParams.map((p) => (
+                    {strategyParams.map((p) => (
                       <div key={p.name} className="flex flex-col gap-0.5 py-1">
                         <Label>{p.title}</Label>
                         <Input type="number" className="text-xs h-7" value={p.value}
@@ -575,7 +505,7 @@ export default function DashboardPage() {
                         {!field.value && (
                           <div className="mt-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10.5px] text-destructive leading-snug">
                             <span className="font-semibold">⚠ LIVE mode</span> — Start will place real orders.
-                            You'll be asked to confirm by typing the strategy name.
+                            Orders are submitted automatically after hard risk checks.
                           </div>
                         )}
                       </>
@@ -659,7 +589,7 @@ export default function DashboardPage() {
                 Stop {activeEngine.strategy}
               </Button>
             ) : (
-              <Button size="sm" className="w-full" disabled={startLiveMutation.isPending || !source.trim()} onClick={handleSubmit(onValidStart)}>
+              <Button size="sm" className="w-full" disabled={startLiveMutation.isPending || !selectedStrategy} onClick={handleSubmit(onValidStart)}>
                 {startLiveMutation.isPending ? 'Starting...' : 'Start Live Trading'}
               </Button>
             )}
@@ -671,22 +601,6 @@ export default function DashboardPage() {
           <LiveReportPanel activeEngine={activeEngine} />
         </SidebarInset>
 
-        {/* LIVE-mode safety modal — only opens when user submits with demo=off */}
-        <LiveSafetyModal
-          open={!!pendingLiveReq}
-          strategy={pendingLiveReq?.strategy ?? ''}
-          exchange={pendingLiveReq?.exchange ?? ''}
-          symbol={pendingLiveReq?.symbol ?? ''}
-          positionSize={pendingLiveReq?.position_size_usdt ?? 0}
-          leverage={pendingLiveReq?.leverage ?? 1}
-          onCancel={() => setPendingLiveReq(null)}
-          onConfirm={() => {
-            if (!pendingLiveReq) return
-            const req = { ...pendingLiveReq, confirm_live: pendingLiveReq.strategy }
-            setPendingLiveReq(null)
-            submitLiveReq(req)
-          }}
-        />
     </ResizableSidebarShell>
   )
 }

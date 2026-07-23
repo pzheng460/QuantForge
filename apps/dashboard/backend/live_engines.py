@@ -1,12 +1,4 @@
-"""Live engine manager with file-based persistence.
-
-Manages PineLiveEngine instances as asyncio tasks within the FastAPI
-event loop.  Each engine is tracked in ``_engines`` with its config,
-status, and asyncio task handle.
-
-Engine configs are persisted to ``~/.quantforge/live/engines.json`` so
-that running engines automatically restart after uvicorn reload / restart.
-"""
+"""Trusted Python live-engine lifecycle and persistence."""
 
 from __future__ import annotations
 
@@ -18,149 +10,220 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from quantforge.pine.live.engine import PineLiveEngine
+from quantforge.adapters import (
+    CcxtExecutionAdapter,
+    PollingBarFeed,
+    SchwabExecutionAdapter,
+)
+from quantforge.adapters.ccxt import CcxtConnector, fetch_warmup_bars
+from quantforge.brokers.schwab import SchwabConnector, credentials_for
+from quantforge.domain.instruments import (
+    AssetClass,
+    CryptoDerivative,
+    CryptoSpot,
+    Equity,
+    InstrumentId,
+)
+from quantforge.execution import ExecutionService, PaperExecutionAdapter
+from quantforge.live import PythonLiveEngine
+from quantforge.portfolio.ledger import PortfolioLedger, Position
+from quantforge.risk.engine import RiskEngine, RiskLimits
+from quantforge.strategy.bar import BarStrategy
+from quantforge.strategy.registry import get_strategy
 
-from apps.dashboard.backend.jobs import _DEFAULT_SYMBOLS, _resolve_pine_source
+from apps.dashboard.backend.jobs import _DEFAULT_SYMBOLS
 from apps.dashboard.backend.routers.live import _find_perf_files, _load_perf
 
 logger = logging.getLogger(__name__)
-
 _engines: dict[str, dict[str, Any]] = {}
 _PERSIST_FILE = Path.home() / ".quantforge" / "live" / "engines.json"
-_restored = False  # guard against double-restore
-
-
-# ─── Persistence ──────────────────────────────────────────────────────────────
+_restored = False
 
 
 def _save_state() -> None:
-    """Persist EVERY engine entry to disk — running, stopped, failed, archived.
-
-    Running/warmup entries are re-launched on backend startup; stopped /
-    failed entries are kept as history rows (visible in the UI, no task
-    relaunched). Users can delete archived entries via the API.
-    """
-    configs = []
-    for eid, entry in _engines.items():
-        configs.append(
-            {
-                "engine_id": eid,
-                "strategy": entry["strategy"],
-                "pine_source": entry.get("pine_source"),
-                "exchange": entry["exchange"],
-                "symbol": entry["symbol"],
-                "timeframe": entry["timeframe"],
-                "demo": entry["demo"],
-                "leverage": entry["leverage"],
-                "position_size_usdt": entry.get("position_size_usdt", 100.0),
-                "warmup_bars": entry.get("warmup_bars", 500),
-                "created_at": entry["created_at"],
-                # History fields — present iff the engine has been stopped/failed.
-                "status": entry.get("status"),
-                "stopped_at": entry.get("stopped_at"),
-                "error": entry.get("error"),
-            }
-        )
+    fields = (
+        "engine_id",
+        "strategy",
+        "exchange",
+        "symbol",
+        "timeframe",
+        "demo",
+        "leverage",
+        "position_size_usdt",
+        "warmup_bars",
+        "config_override",
+        "risk_limits",
+        "created_at",
+        "status",
+        "stopped_at",
+        "error",
+    )
+    payload = [
+        {field: entry.get(field) for field in fields}
+        for entry in _engines.values()
+    ]
     _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _PERSIST_FILE.write_text(json.dumps(configs, indent=2))
-    logger.info("Persisted %d engine configs to %s", len(configs), _PERSIST_FILE)
+    tmp = _PERSIST_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    tmp.replace(_PERSIST_FILE)
 
 
 def _load_state() -> list[dict]:
-    """Load persisted engine configs from disk."""
     if not _PERSIST_FILE.exists():
         return []
     try:
         return json.loads(_PERSIST_FILE.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning("Failed to load engine state: %s", e)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Unable to load persisted live engines")
         return []
 
 
-async def restore_engines() -> int:
-    """Restore persisted engines after uvicorn reload.
+def _schwab_connector(symbol: str) -> SchwabConnector:
+    config_path = Path.home() / ".quantforge/schwab/config.json"
+    try:
+        account_hash = json.loads(config_path.read_text()).get("account_hash")
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        account_hash = None
+    return SchwabConnector(
+        credentials_for("trading"),
+        market_credentials=credentials_for("market_data"),
+        account_hash=account_hash,
+        symbol=symbol,
+    )
 
-    Active engines (status in {warmup, running, None}) are re-launched as
-    asyncio tasks. Archived ones (status in {stopped, failed}) are loaded
-    as metadata-only entries so they show up in the UI's history list but
-    don't run. Returns count of *actively re-launched* engines.
-    """
+
+def _build_runtime(
+    *,
+    strategy_name: str,
+    config_override: dict | None,
+    exchange: str,
+    symbol: str,
+    timeframe: str,
+    demo: bool,
+    position_size: float,
+    leverage: float,
+    warmup_bars: int,
+    risk_limits: dict | None,
+) -> PythonLiveEngine:
+    import quantforge.strategies  # noqa: F401
+
+    strategy_cls = get_strategy(strategy_name)
+    strategy = strategy_cls(strategy_cls.config_model(**(config_override or {})))
+    if not isinstance(strategy, BarStrategy):
+        raise ValueError(
+            f"{strategy_name} is event-driven and cannot use the bar live engine"
+        )
+
+    venue = exchange.lower()
+    if venue == "schwab":
+        instrument = Equity(
+            id=InstrumentId(symbol.upper(), AssetClass.EQUITY, "schwab")
+        )
+        connector = _schwab_connector(symbol)
+        feed = PollingBarFeed(
+            lambda: connector.fetch_chart_bars(symbol, timeframe), poll_seconds=5
+        )
+        adapter = PaperExecutionAdapter() if demo else SchwabExecutionAdapter(connector)
+        cash_currency = "USD"
+    else:
+        is_derivative = ":" in symbol
+        asset_class = (
+            AssetClass.CRYPTO_PERPETUAL
+            if is_derivative
+            else AssetClass.CRYPTO_SPOT
+        )
+        instrument = (
+            CryptoDerivative(
+                id=InstrumentId(symbol, asset_class, venue),
+                max_leverage=leverage,
+            )
+            if is_derivative
+            else CryptoSpot(id=InstrumentId(symbol, asset_class, venue))
+        )
+        connector = CcxtConnector(venue, symbol, demo=demo)
+
+        def load_rows() -> list[list]:
+            return [
+                [b.timestamp, b.open, b.high, b.low, b.close, b.volume]
+                for b in fetch_warmup_bars(symbol, venue, timeframe, warmup_bars)
+            ]
+
+        feed = PollingBarFeed(load_rows, poll_seconds=5)
+        adapter = CcxtExecutionAdapter(connector)
+        cash_currency = "USDT"
+
+    ledger = PortfolioLedger(
+        cash={cash_currency: 0 if venue == "schwab" and not demo else 1_000_000}
+    )
+    if not demo:
+        broker_position = connector.get_position()
+        if broker_position:
+            quantity = float(broker_position["contracts"])
+            if str(broker_position.get("side", "")).lower() == "short":
+                quantity = -quantity
+            ledger.positions[instrument.id] = Position(
+                instrument=instrument,
+                quantity=quantity,
+                average_price=float(broker_position.get("entryPrice") or 0),
+            )
+    limits = RiskLimits(
+        live_enabled=True,
+        max_order_notional=float((risk_limits or {}).get("max_order_notional", 10_000)),
+        max_spread_pct=float((risk_limits or {}).get("max_spread_pct", 0.15)),
+        max_leverage=float((risk_limits or {}).get("max_leverage", 3)),
+        max_daily_new_positions=int(
+            (risk_limits or {}).get("max_daily_new_positions", 10)
+        ),
+        require_fresh_quote=True,
+    )
+    execution = ExecutionService(
+        risk=RiskEngine(limits), ledger=ledger, adapter=adapter
+    )
+    return PythonLiveEngine(
+        strategy=strategy,
+        instrument=instrument,
+        execution=execution,
+        position_size=position_size,
+        leverage=leverage,
+        feed=feed,
+        warmup_bars=warmup_bars,
+    )
+
+
+async def restore_engines() -> int:
     global _restored
     if _restored:
         return 0
     _restored = True
-
-    configs = _load_state()
-    if not configs:
-        return 0
-
     count = 0
-    for cfg in configs:
-        status = cfg.get("status")
-        is_archived = status in ("stopped", "failed")
-
-        if is_archived:
-            # History-only entry. Inject into _engines without launching a task.
-            eid = cfg.get("engine_id") or str(uuid.uuid4())
-            _engines[eid] = {
-                "engine": None,
-                "task": None,
-                "status": status,
-                "strategy": cfg["strategy"],
-                "pine_source": cfg.get("pine_source"),
-                "exchange": cfg["exchange"],
-                "symbol": cfg["symbol"],
-                "timeframe": cfg["timeframe"],
-                "demo": cfg["demo"],
-                "leverage": cfg["leverage"],
-                "position_size_usdt": cfg.get("position_size_usdt", 100.0),
-                "warmup_bars": cfg.get("warmup_bars", 500),
-                "created_at": cfg["created_at"],
-                "stopped_at": cfg.get("stopped_at"),
-                "error": cfg.get("error"),
-            }
+    for cfg in _load_state():
+        if cfg.get("status") in {"stopped", "failed"}:
+            eid = cfg.get("engine_id") or str(uuid.uuid4())[:8]
+            _engines[eid] = {**cfg, "engine": None, "task": None}
             continue
-
         try:
-            # Avoid double-launching if another in-memory entry is already running
-            # for this strategy (shouldn't happen but defensive).
-            for entry in _engines.values():
-                if entry["strategy"] == cfg["strategy"] and entry["status"] in (
-                    "warmup",
-                    "running",
-                ):
-                    logger.info(
-                        "Engine for %s already running, skipping restore",
-                        cfg["strategy"],
-                    )
-                    break
-            else:
-                eid = await start_engine(
-                    strategy=cfg["strategy"],
-                    pine_source=cfg.get("pine_source"),
-                    exchange=cfg["exchange"],
-                    symbol=cfg["symbol"],
-                    timeframe=cfg["timeframe"],
-                    demo=cfg["demo"],
-                    position_size_usdt=cfg.get("position_size_usdt", 100.0),
-                    leverage=cfg["leverage"],
-                    warmup_bars=cfg.get("warmup_bars", 500),
-                    _engine_id=cfg.get("engine_id"),
-                )
-                logger.info("Restored engine %s for %s", eid, cfg["strategy"])
-                count += 1
+            await start_engine(
+                strategy=cfg["strategy"],
+                exchange=cfg["exchange"],
+                symbol=cfg["symbol"],
+                timeframe=cfg["timeframe"],
+                demo=cfg["demo"],
+                position_size_usdt=cfg["position_size_usdt"],
+                leverage=cfg["leverage"],
+                warmup_bars=cfg["warmup_bars"],
+                config_override=cfg.get("config_override"),
+                risk_limits=cfg.get("risk_limits"),
+                _engine_id=cfg.get("engine_id"),
+            )
+            count += 1
         except Exception:
-            logger.exception("Failed to restore engine for %s", cfg["strategy"])
-
+            logger.exception("Failed to restore %s", cfg.get("strategy"))
     return count
 
 
-# ─── Engine Lifecycle ─────────────────────────────────────────────────────────
-
-
 async def start_engine(
-    strategy: str | None,
-    pine_source: str | None,
+    *,
+    strategy: str,
     exchange: str,
     symbol: str | None,
     timeframe: str,
@@ -169,37 +232,29 @@ async def start_engine(
     leverage: int,
     warmup_bars: int,
     config_override: dict | None = None,
+    risk_limits: dict | None = None,
     _engine_id: str | None = None,
 ) -> str:
-    """Create and start a PineLiveEngine as an asyncio task.
-
-    Returns the engine_id (uuid).
-    """
-    source = _resolve_pine_source(strategy, pine_source, config_override)
     resolved_symbol = symbol or _DEFAULT_SYMBOLS.get(exchange, "BTC/USDT:USDT")
-    strategy_name = strategy or "custom_strategy"
-
-    engine = PineLiveEngine(
-        pine_source=source,
+    engine = _build_runtime(
+        strategy_name=strategy,
+        config_override=config_override,
         exchange=exchange,
         symbol=resolved_symbol,
         timeframe=timeframe,
         demo=demo,
-        warmup_bars=warmup_bars,
-        position_size_usdt=position_size_usdt,
-        strategy_name=strategy_name,
+        position_size=position_size_usdt,
         leverage=leverage,
+        warmup_bars=warmup_bars,
+        risk_limits=risk_limits,
     )
-
     engine_id = _engine_id or str(uuid.uuid4())[:8]
-
-    _engines[engine_id] = {
+    entry = {
         "engine_id": engine_id,
         "engine": engine,
         "task": None,
         "status": "warmup",
-        "strategy": strategy_name,
-        "pine_source": pine_source,
+        "strategy": strategy,
         "exchange": exchange,
         "symbol": resolved_symbol,
         "timeframe": timeframe,
@@ -207,46 +262,46 @@ async def start_engine(
         "leverage": leverage,
         "position_size_usdt": position_size_usdt,
         "warmup_bars": warmup_bars,
+        "config_override": config_override,
+        "risk_limits": risk_limits or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
         "error": None,
     }
+    _engines[engine_id] = entry
 
-    async def _run() -> None:
+    async def run() -> None:
         try:
             await engine.start()
         except asyncio.CancelledError:
             await engine.stop()
+            raise
         except Exception as exc:
             logger.exception("Live engine %s failed", engine_id)
-            if engine_id in _engines:
-                _engines[engine_id]["status"] = "failed"
-                _engines[engine_id]["error"] = str(exc)
-                _save_state()
+            entry["status"] = "failed"
+            entry["error"] = str(exc)
+            _save_state()
 
-    async def _watch_warmup() -> None:
-        while not engine._warmup_complete and engine_id in _engines:
-            await asyncio.sleep(1)
-        if engine_id in _engines and _engines[engine_id]["status"] == "warmup":
-            _engines[engine_id]["status"] = "running"
+    task = asyncio.create_task(run())
+    entry["task"] = task
 
-    loop = asyncio.get_running_loop()
-    task = loop.create_task(_run())
-    _engines[engine_id]["task"] = task
-    loop.create_task(_watch_warmup())
+    async def watch() -> None:
+        while not engine._warmup_complete and not task.done():
+            await asyncio.sleep(0.1)
+        if not task.done() and entry["status"] == "warmup":
+            entry["status"] = "running"
+            _save_state()
 
+    asyncio.create_task(watch())
     _save_state()
     return engine_id
 
 
 async def stop_engine(engine_id: str) -> None:
-    """Stop a running engine gracefully. Entry stays in history as 'stopped'."""
     entry = _engines.get(engine_id)
     if entry is None:
         raise KeyError(f"Engine {engine_id} not found")
-
-    engine: PineLiveEngine | None = entry.get("engine")
-    task: asyncio.Task | None = entry.get("task")
-
+    engine = entry.get("engine")
+    task = entry.get("task")
     if engine is not None:
         await engine.stop()
     if task and not task.done():
@@ -255,44 +310,30 @@ async def stop_engine(engine_id: str) -> None:
             await task
         except asyncio.CancelledError:
             pass
-
     entry["status"] = "stopped"
     entry["stopped_at"] = datetime.now(timezone.utc).isoformat()
     _save_state()
 
 
 def delete_engine(engine_id: str) -> None:
-    """Permanently remove a history entry. Refuses if engine is still active.
-
-    Use this to prune the archive list shown in the UI. Live performance
-    files under ~/.quantforge/live/<strategy>/ are left untouched (other
-    engines for the same strategy may still reference them).
-    """
     entry = _engines.get(engine_id)
     if entry is None:
         raise KeyError(f"Engine {engine_id} not found")
-    if entry.get("status") in ("warmup", "running"):
-        raise ValueError(
-            f"Engine {engine_id} is still {entry['status']} — stop it first."
-        )
+    if entry.get("status") in {"warmup", "running"}:
+        raise ValueError("engine is still active; stop it before deleting it")
     del _engines[engine_id]
     _save_state()
 
 
 def list_engines() -> list[dict[str, Any]]:
-    """Return all engines with their current performance data."""
     perf_files = _find_perf_files()
     result = []
     for eid, entry in _engines.items():
-        perf = None
-        strategy_name = entry["strategy"]
-        if strategy_name in perf_files:
-            perf = _load_perf(perf_files[strategy_name])
         result.append(
             {
                 "engine_id": eid,
                 "status": entry["status"],
-                "strategy": strategy_name,
+                "strategy": entry["strategy"],
                 "exchange": entry["exchange"],
                 "symbol": entry["symbol"],
                 "timeframe": entry["timeframe"],
@@ -301,12 +342,15 @@ def list_engines() -> list[dict[str, Any]]:
                 "created_at": entry["created_at"],
                 "stopped_at": entry.get("stopped_at"),
                 "error": entry.get("error"),
-                "performance": perf,
+                "performance": (
+                    _load_perf(perf_files[entry["strategy"]])
+                    if entry["strategy"] in perf_files
+                    else None
+                ),
             }
         )
     return result
 
 
 def get_engine(engine_id: str) -> dict[str, Any] | None:
-    """Return a single engine entry or None."""
     return _engines.get(engine_id)

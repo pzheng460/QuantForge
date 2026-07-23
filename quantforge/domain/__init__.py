@@ -16,6 +16,7 @@ from quantforge.domain.intents import (
     OrderSide,
     OrderType,
 )
+from quantforge.domain.events import Assignment, EventType, MarketEvent
 
 __all__ = [
     "AssetClass",
@@ -30,4 +31,7 @@ __all__ = [
     "OrderIntent",
     "OrderSide",
     "OrderType",
+    "Assignment",
+    "EventType",
+    "MarketEvent",
 ]

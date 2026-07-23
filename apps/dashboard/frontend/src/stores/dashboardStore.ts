@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { LivePerformance, LiveEngineOut } from '../types'
 
-interface PineParam {
+export interface StrategyParam {
   name: string
   type: 'int' | 'float'
   value: number
@@ -14,8 +14,7 @@ interface PineParam {
 interface DashboardState {
   // Form
   selectedStrategy: string
-  source: string
-  pineParams: PineParam[]
+  strategyParams: StrategyParam[]
   exchange: string
   symbol: string
   timeframe: string
@@ -39,8 +38,7 @@ interface DashboardState {
 
   // Actions
   setSelectedStrategy: (v: string) => void
-  setSource: (v: string | ((prev: string) => string)) => void
-  setPineParams: (v: PineParam[] | ((prev: PineParam[]) => PineParam[])) => void
+  setStrategyParams: (v: StrategyParam[] | ((prev: StrategyParam[]) => StrategyParam[])) => void
   setExchange: (v: string) => void
   setSymbol: (v: string) => void
   setTimeframe: (v: string) => void
@@ -55,24 +53,9 @@ interface DashboardState {
   setWsConnected: (v: boolean) => void
 }
 
-export const DEFAULT_PINE = `//@version=5
-strategy("EMA Cross", overlay=true, initial_capital=100000)
-fast_len = input.int(9, title="Fast EMA")
-slow_len = input.int(21, title="Slow EMA")
-fast_ema = ta.ema(close, fast_len)
-slow_ema = ta.ema(close, slow_len)
-if ta.crossover(fast_ema, slow_ema)
-    strategy.entry("Long", strategy.long)
-if ta.crossunder(fast_ema, slow_ema)
-    strategy.close("Long")
-`
-
-export const CUSTOM_KEY = '__custom__'
-
 export const useDashboardStore = create<DashboardState>((set) => ({
-  selectedStrategy: CUSTOM_KEY,
-  source: DEFAULT_PINE,
-  pineParams: [],
+  selectedStrategy: '',
+  strategyParams: [],
   exchange: 'bitget',
   symbol: 'BTC/USDT:USDT',
   timeframe: '1h',
@@ -92,11 +75,8 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   setInitialized: (v) => set({ initialized: v }),
 
   setSelectedStrategy: (v) => set({ selectedStrategy: v }),
-  setSource: (v) => set((state) => ({
-    source: typeof v === 'function' ? v(state.source) : v,
-  })),
-  setPineParams: (v) => set((state) => ({
-    pineParams: typeof v === 'function' ? v(state.pineParams) : v,
+  setStrategyParams: (v) => set((state) => ({
+    strategyParams: typeof v === 'function' ? v(state.strategyParams) : v,
   })),
   setExchange: (v) => set({ exchange: v }),
   setSymbol: (v) => set({ symbol: v }),

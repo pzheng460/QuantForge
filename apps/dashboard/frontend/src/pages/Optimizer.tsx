@@ -57,7 +57,6 @@ const PERIODS: { value: string; label: string }[] = [
 ]
 const MODES = [
   { value: 'grid', label: 'Grid Search', desc: 'Python-based parameter grid optimization' },
-  { value: 'ai', label: 'AI Optimize', desc: 'Claude Code-driven iterative optimization' },
 ]
 
 function pct(v: number, sign = true) {

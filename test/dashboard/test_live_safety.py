@@ -1,9 +1,4 @@
-"""Tests for the LIVE-mode safety gate on /api/live/start.
-
-The frontend modal asks the user to type the strategy name to confirm; the
-backend MUST re-validate so a curl caller can't bypass the prompt and
-accidentally enter LIVE.
-"""
+"""Contracts for registered Python live strategies and hard risk parameters."""
 
 from __future__ import annotations
 
@@ -15,12 +10,12 @@ from apps.dashboard.backend.main import app
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
-        yield c
+    with TestClient(app) as value:
+        yield value
 
 
 def _payload(**overrides):
-    base = {
+    payload = {
         "strategy": "ema_crossover",
         "exchange": "okx",
         "symbol": "BTC/USDT:USDT",
@@ -30,20 +25,18 @@ def _payload(**overrides):
         "leverage": 1,
         "warmup_bars": 50,
     }
-    base.update(overrides)
-    return base
+    payload.update(overrides)
+    return payload
 
 
-def test_demo_mode_does_not_require_confirm_live(client, monkeypatch):
-    """demo=True must NOT be rejected by the confirm_live safety gate.
-
-    Mock engine startup so this safety test never creates persisted live
-    engine entries or hits real exchange APIs.
-    """
+def _mock_manager(monkeypatch, *, demo: bool):
     import apps.dashboard.backend.live_engines as live_engines
 
-    async def fake_start_engine(**_kwargs):
-        return "fake-demo-engine"
+    captured = {}
+
+    async def fake_start_engine(**kwargs):
+        captured.update(kwargs)
+        return "fake-engine"
 
     monkeypatch.setattr(live_engines, "list_engines", lambda: [])
     monkeypatch.setattr(live_engines, "start_engine", fake_start_engine)
@@ -56,37 +49,49 @@ def test_demo_mode_does_not_require_confirm_live(client, monkeypatch):
             "exchange": "okx",
             "symbol": "BTC/USDT:USDT",
             "timeframe": "1h",
-            "demo": True,
+            "demo": demo,
             "leverage": 1,
             "created_at": "2026-05-25T00:00:00+00:00",
         },
     )
-
-    r = client.post("/api/live/start", json=_payload(demo=True))
-    assert r.status_code == 200
-    assert r.json()["engine_id"] == "fake-demo-engine"
+    return captured
 
 
-def test_live_mode_without_confirm_is_rejected(client):
-    r = client.post("/api/live/start", json=_payload(demo=False))
-    assert r.status_code == 400
-    assert "confirm_live" in r.json()["detail"]
+def test_live_start_needs_no_per_order_or_typed_confirmation(client, monkeypatch):
+    captured = _mock_manager(monkeypatch, demo=False)
+
+    response = client.post("/api/live/start", json=_payload(demo=False))
+
+    assert response.status_code == 200
+    assert captured["strategy"] == "ema_crossover"
+    assert "pine_source" not in captured
 
 
-def test_live_mode_with_wrong_confirm_is_rejected(client):
-    r = client.post(
+def test_live_start_forwards_non_bypassable_risk_limits(client, monkeypatch):
+    captured = _mock_manager(monkeypatch, demo=True)
+
+    response = client.post(
         "/api/live/start",
-        json=_payload(demo=False, confirm_live="wrong_name"),
+        json=_payload(
+            max_order_notional=750,
+            max_leverage=2,
+            max_daily_new_positions=3,
+        ),
     )
-    assert r.status_code == 400
-    assert "confirm_live" in r.json()["detail"]
+
+    assert response.status_code == 200
+    assert captured["risk_limits"] == {
+        "max_order_notional": 750.0,
+        "max_spread_pct": 0.15,
+        "max_leverage": 2.0,
+        "max_daily_new_positions": 3,
+    }
 
 
-def test_live_mode_requires_strategy_name_not_inline_pine(client):
-    """demo=false + pine_source (no strategy name) should be refused."""
-    payload = _payload(demo=False, confirm_live="anything")
-    del payload["strategy"]
-    payload["pine_source"] = "strategy('inline')"
-    r = client.post("/api/live/start", json=payload)
-    assert r.status_code == 400
-    assert "named strategy" in r.json()["detail"].lower()
+def test_live_start_rejects_inline_source_and_missing_strategy(client):
+    response = client.post(
+        "/api/live/start",
+        json={**_payload(), "strategy": None, "pine_source": "strategy('inline')"},
+    )
+
+    assert response.status_code == 422

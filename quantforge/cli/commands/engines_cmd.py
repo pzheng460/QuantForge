@@ -9,16 +9,13 @@ Write ops (`stop`) require the running web server because the asyncio
 task lives in the server process. Set QF_API_URL to point at a non-default
 server.
 
-`engines start` is currently a thin wrapper around `python -m
-quantforge.pine.cli live` so a CLI-started engine doesn't show up in the
-web's engine list. Use `engines start --via-server` to start through
-the web API instead, which gets you appearance in `engines list`.
+Starting and stopping engines goes through the web API so the persisted
+registry and hard risk controls remain the single source of truth.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -139,7 +136,7 @@ def performance_cmd(strategy: str | None, as_json: bool):
 
 
 @engines_group.command("start")
-@click.argument("pine_file")
+@click.argument("strategy")
 @click.option("--symbol", default="BTC/USDT:USDT")
 @click.option("--exchange", default="bitget")
 @click.option("--timeframe", default="1h")
@@ -147,14 +144,8 @@ def performance_cmd(strategy: str | None, as_json: bool):
 @click.option("--leverage", type=int, default=1)
 @click.option("--position-size", type=float, default=100.0)
 @click.option("--warmup-bars", type=int, default=500)
-@click.option(
-    "--via-server",
-    is_flag=True,
-    help="Start through the web API (engine appears in `engines list`). "
-    "Without this flag, runs in the foreground via `pine.cli live`.",
-)
 def start_cmd(
-    pine_file,
+    strategy,
     symbol,
     exchange,
     timeframe,
@@ -162,56 +153,28 @@ def start_cmd(
     leverage,
     position_size,
     warmup_bars,
-    via_server,
 ):
-    """Start a live engine. Without --via-server runs in foreground."""
-    if via_server:
-        try:
-            res = _http.post(
-                "/live/start",
-                json={
-                    "strategy": Path(pine_file).stem,
-                    "symbol": symbol,
-                    "exchange": exchange,
-                    "timeframe": timeframe,
-                    "demo": demo,
-                    "leverage": leverage,
-                    "position_size_usdt": position_size,
-                    "warmup_bars": warmup_bars,
-                },
-            )
-            click.echo(
-                f"started engine_id={res.get('engine_id')} status={res.get('status')}"
-            )
-        except _http.ServerUnreachable as e:
-            click.echo(str(e), err=True)
-            sys.exit(2)
-        return
-
-    # Foreground via pine.cli live
-    cmd = [
-        sys.executable,
-        "-m",
-        "quantforge.pine.cli",
-        "live",
-        pine_file,
-        "--symbol",
-        symbol,
-        "--exchange",
-        exchange,
-        "--timeframe",
-        timeframe,
-        "--leverage",
-        str(leverage),
-        "--position-size",
-        str(position_size),
-        "--warmup-bars",
-        str(warmup_bars),
-    ]
-    cmd.append("--demo" if demo else "--no-demo")
-    if not demo:
-        cmd.append("--confirm-live")
-    os.execvp(cmd[0], cmd)
+    """Start a registered Python strategy through the server."""
+    try:
+        res = _http.post(
+            "/live/start",
+            json={
+                "strategy": strategy,
+                "symbol": symbol,
+                "exchange": exchange,
+                "timeframe": timeframe,
+                "demo": demo,
+                "leverage": leverage,
+                "position_size_usdt": position_size,
+                "warmup_bars": warmup_bars,
+            },
+        )
+        click.echo(
+            f"started engine_id={res.get('engine_id')} status={res.get('status')}"
+        )
+    except _http.ServerUnreachable as e:
+        click.echo(str(e), err=True)
+        sys.exit(2)
 
 
 @engines_group.command("stop")

@@ -81,6 +81,6 @@ def get_exchanges():
             "default_symbol": "AAPL",
             "maker_fee": 0.0,
             "taker_fee": 0.0,
-            "supports_backtest": False,
+            "supports_backtest": True,
         },
     ]

@@ -597,6 +597,66 @@ class SchwabConnector:
         self._tracked_orders[order_id] = "accepted"
         return BrokerOrder(order_id=order_id, status="accepted")
 
+    def place_option_strategy(
+        self,
+        *,
+        legs: list[dict],
+        net_limit_price: float | None,
+    ) -> BrokerOrder:
+        """Submit a Schwab-native atomic option combination (two to four legs)."""
+        account = self._require_account()
+        if not 2 <= len(legs) <= 4:
+            raise ValueError("option strategy requires two to four legs")
+        normalized = []
+        valid_instructions = {
+            "BUY_TO_OPEN",
+            "SELL_TO_OPEN",
+            "BUY_TO_CLOSE",
+            "SELL_TO_CLOSE",
+        }
+        for leg in legs:
+            instruction = str(leg["instruction"]).upper()
+            quantity = leg["quantity"]
+            if instruction not in valid_instructions:
+                raise ValueError(f"Unsupported option instruction: {instruction}")
+            if quantity <= 0 or int(quantity) != quantity:
+                raise ValueError("option leg quantity must be a positive integer")
+            normalized.append(
+                {
+                    "instruction": instruction,
+                    "quantity": int(quantity),
+                    "instrument": {
+                        "symbol": str(leg["symbol"]).strip(),
+                        "assetType": "OPTION",
+                    },
+                }
+            )
+        if net_limit_price is None or net_limit_price == 0:
+            order_type = "MARKET"
+        else:
+            order_type = "NET_DEBIT" if net_limit_price > 0 else "NET_CREDIT"
+        payload: dict[str, Any] = {
+            "orderType": order_type,
+            "session": "NORMAL",
+            "duration": "DAY",
+            "orderStrategyType": "SINGLE",
+            "complexOrderStrategyType": "CUSTOM",
+            "orderLegCollection": normalized,
+        }
+        if order_type != "MARKET":
+            payload["price"] = str(abs(net_limit_price))
+        response = self._request(
+            "POST", f"{TRADER_BASE}/accounts/{account}/orders", json=payload
+        )
+        location = response.headers.get("Location", "")
+        order_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+        if not order_id:
+            raise SchwabAmbiguousOrderError(
+                "Schwab accepted a multi-leg order without returning an order id"
+            )
+        self._tracked_orders[order_id] = "accepted"
+        return BrokerOrder(order_id=order_id, status="accepted")
+
     def submit_market_order(
         self, side: str, qty: float, reduce_only: bool = False
     ) -> dict:
