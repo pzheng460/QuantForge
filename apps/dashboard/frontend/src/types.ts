@@ -228,42 +228,6 @@ export interface OptimizeJobStatus {
 
 // ─── Live monitoring types ──────────────────────────────────────────────────
 
-export interface LiveTrade {
-  symbol: string
-  side: string
-  entry_price: number
-  exit_price: number
-  amount: number
-  entry_time: string
-  exit_time: string
-  pnl: number
-  pnl_pct: number
-  exit_reason: string
-}
-
-export interface LivePerformance {
-  start_time: string
-  last_update: string
-  config_name: string
-  initial_balance: number
-  current_balance: number
-  peak_balance: number
-  total_return_pct: number
-  total_pnl: number
-  max_drawdown_pct: number
-  current_drawdown_pct: number
-  total_trades: number
-  winning_trades: number
-  losing_trades: number
-  win_rate_pct: number
-  avg_win_pct: number
-  avg_loss_pct: number
-  profit_factor: number
-  trades: LiveTrade[]
-}
-
-// ─── Live engine management types ───────────────────────────────────────────
-
 export interface LiveStartRequest {
   strategy: string
   exchange: string
@@ -290,8 +254,8 @@ export interface LiveEngineOut {
   demo: boolean
   leverage: number
   created_at: string
+  stopped_at?: string
   error?: string
-  performance?: LivePerformance
 }
 
 export interface GlobalRiskState {

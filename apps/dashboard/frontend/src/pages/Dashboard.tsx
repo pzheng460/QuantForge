@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { api, subscribeLivePerformance } from '../api/client'
+import { api } from '../api/client'
 import { useDashboardStore } from '../stores/dashboardStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
@@ -9,16 +9,10 @@ import { useLiveEngines, useStartLive, useStopLive, useDeleteLive } from '../hoo
 import type {
   LiveEngineOut,
   LiveStartRequest,
-  BacktestResult,
 } from '../types'
-import StrategyTester from '../components/StrategyTester'
-import TradingChart from '../components/charts/TradingChart'
 import { SchwabConnection } from '../components/SchwabConnection'
-import { livePerformanceToBacktestResult } from '../utils/liveAdapter'
-import type { EquityPoint, TradeRecord } from '../types'
 import { liveStartSchema, type LiveStartFormData } from '@/lib/schemas'
 import { FormField } from '@/components/ui/form-field'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,7 +24,6 @@ import {
   SidebarGroupLabel, SidebarHeader, SidebarInset,
 } from '@/components/ui/sidebar'
 import { ResizableSidebarShell } from '@/components/ResizableSidebarShell'
-import { ResizeHandle } from '@/components/ResizeHandle'
 
 // ─── Status badge ───────────────────────────────────────────────────────────
 
@@ -123,177 +116,16 @@ function OptionsAnalysisPanel({ ticker }: { ticker: string }) {
   )
 }
 
-// ─── Live equity chart: subscribes to perf, updates on every WS push ────────
+// ─── Live report: real engine-registry status only ──────────────────────────
+// Per-trade live performance telemetry was removed along with its only writer
+// (see apps/dashboard/backend/routers/live.py) rather than fabricating P&L
+// from unconfirmed engine orders. This panel shows the truthful engine state
+// from /live/engines (refreshed by useLiveEngines every 5s).
 
-function LiveEquityChart() {
-  const perf = useDashboardStore((s) => s.perf)
-
-  // Build equity curve — cached in ref so TradingChart never unmounts
-  const curveRef = useRef<EquityPoint[]>([])
-  const tradesRef = useRef<TradeRecord[]>([])
-
-  if (perf && perf.total_trades > 0) {
-    const initial = perf.initial_balance || 10000
-    const curve: EquityPoint[] = [
-      { t: perf.start_time || perf.last_update, strategy: initial, bh: initial },
-    ]
-    let running = initial
-    for (const t of perf.trades) {
-      running += t.pnl
-      curve.push({ t: t.exit_time, strategy: running, bh: initial })
-    }
-    curve.push({ t: perf.last_update, strategy: perf.current_balance, bh: initial })
-    curveRef.current = curve
-
-    tradesRef.current = perf.trades.map((t) => ({
-      timestamp: t.entry_time,
-      side: (t.side === 'long' ? 'buy' : 'sell') as 'buy' | 'sell',
-      price: t.entry_price,
-      exit_price: t.exit_price,
-      amount: t.amount || 0,
-      fee: 0,
-      pnl: t.pnl,
-      pnl_pct: t.pnl_pct,
-      entry_time: t.entry_time,
-      exit_time: t.exit_time,
-    }))
-  }
-
-  // Always render — TradingChart stays mounted, updates via setData
-  return <TradingChart equityCurve={curveRef.current} trades={tradesRef.current} />
-}
-
-// ─── Info bar: subscribes to perf for live stats ────────────────────────────
-
-function LiveInfoBar({ activeEngine }: { activeEngine: LiveEngineOut }) {
-  const perf = useDashboardStore((s) => s.perf)
-  const wsConnected = useDashboardStore((s) => s.wsConnected)
-
-  return (
-    <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
-      <StatusBadge status={activeEngine.status} />
-      <span className="text-xs text-foreground font-medium">{activeEngine.strategy}</span>
-      <span className="text-[10px] text-muted-foreground">{activeEngine.symbol}</span>
-      <span className="text-[10px] text-muted-foreground">{activeEngine.timeframe}</span>
-      <span className="text-[10px] text-muted-foreground">{activeEngine.exchange}</span>
-      {activeEngine.demo && <Badge variant="warning" className="text-[9px]">DEMO</Badge>}
-      {activeEngine.leverage > 1 && <Badge variant="outline" className="text-[9px]">{activeEngine.leverage}x</Badge>}
-      <div className="flex-1" />
-      {perf && (
-        <div className="flex items-center gap-3 text-[10px] tabular-nums">
-          <span className="text-muted-foreground">
-            Balance: <span className="text-foreground font-medium">{perf.current_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-          </span>
-          <span className={perf.total_pnl >= 0 ? 'text-tv-green' : 'text-tv-red'}>
-            P&L: {perf.total_pnl >= 0 ? '+' : ''}{perf.total_pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            ({perf.total_return_pct >= 0 ? '+' : ''}{perf.total_return_pct.toFixed(2)}%)
-          </span>
-          <span className="text-muted-foreground">Trades: {perf.total_trades}</span>
-        </div>
-      )}
-      <span className={cn('w-2 h-2 rounded-full', wsConnected ? 'bg-tv-green animate-pulse' : 'bg-muted-foreground')} />
-      <span className="text-[9px] text-muted-foreground">{wsConnected ? 'Live' : 'Offline'}</span>
-    </div>
-  )
-}
-
-// ─── Report area: only re-renders when total_trades changes ─────────────────
-
-function useResizablePanel(defaultHeight: number) {
-  const [height, setHeight] = useState(defaultHeight)
-  const heightRef = useRef(defaultHeight)
-  heightRef.current = height
-
-  // Imperative drag — attach document-level capture-phase listeners on
-  // pointerdown so we beat any sibling (lightweight-charts crosshair) to
-  // the events, regardless of React re-render timing.
-  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const startY = e.clientY
-    const startH = heightRef.current
-    const pointerId = e.pointerId
-
-    function onMove(ev: PointerEvent) {
-      if (ev.pointerId !== pointerId) return
-      const delta = startY - ev.clientY
-      setHeight(Math.max(80, Math.min(2000, startH + delta)))
-    }
-    function onUp(ev: PointerEvent) {
-      if (ev.pointerId !== pointerId) return
-      cleanup()
-    }
-    function onCancel(ev: PointerEvent) {
-      if (ev.pointerId !== pointerId) return
-      cleanup()
-    }
-    function cleanup() {
-      document.removeEventListener('pointermove', onMove, true)
-      document.removeEventListener('pointerup', onUp, true)
-      document.removeEventListener('pointercancel', onCancel, true)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    // capture-phase document listeners beat any sibling pointer-capturing
-    // logic (lightweight-charts crosshair) regardless of React render timing.
-    document.addEventListener('pointermove', onMove, true)
-    document.addEventListener('pointerup', onUp, true)
-    document.addEventListener('pointercancel', onCancel, true)
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-  }, [])
-
-  return { height, onPointerDown }
-}
-
-function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
-  const tradeCount = useDashboardStore((s) => s.perf?.total_trades ?? 0)
-  const setPerf = useDashboardStore((s) => s.setPerf)
-  const setWsConnected = useDashboardStore((s) => s.setWsConnected)
-  const { height: bottomHeight, onPointerDown: onDragStart } = useResizablePanel(280)
-
-  // WebSocket subscription — drop stale messages where total_trades regresses.
-  // The high-water mark is PER ENGINE: switching engines (or a restart with a
-  // fresh trade counter) must reset it, otherwise the new engine's messages
-  // are dropped forever.
-  const highWaterRef = useRef(0)
-  const engineId = activeEngine?.engine_id
-  useEffect(() => {
-    highWaterRef.current = 0
-    setWsConnected(false)
-    const cleanup = subscribeLivePerformance(
-      (msg) => {
-        if (msg.total_trades >= highWaterRef.current) {
-          highWaterRef.current = msg.total_trades
-          setPerf(msg)
-        }
-        setWsConnected(true)
-      },
-      () => setWsConnected(false),
-    )
-    return () => cleanup()
-  }, [setPerf, setWsConnected, engineId])
-
-  // Only rebuild when tradeCount changes (new trade). Never go back to null.
-  const lastGoodResult = useRef<BacktestResult | null>(null)
-  const lastBuiltCount = useRef(0)
-
-  if (tradeCount > 0 && tradeCount !== lastBuiltCount.current) {
-    const perf = useDashboardStore.getState().perf
-    if (perf) {
-      lastBuiltCount.current = tradeCount
-      lastGoodResult.current = livePerformanceToBacktestResult(perf, {
-        exchange: activeEngine?.exchange,
-        strategy: activeEngine?.strategy,
-      })
-    }
-  }
-
-  const adaptedResult = lastGoodResult.current
-
+function LiveStatusPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   if (!activeEngine) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full px-6">
         <div className="text-center max-w-md">
           <div className="text-muted-foreground text-lg mb-2">No Live Engine Running</div>
           <div className="text-muted-foreground/60 text-xs leading-relaxed">
@@ -304,38 +136,51 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
     )
   }
 
+  const statusCopy: Record<string, string> = {
+    running: 'The engine is live and processing bars; orders are submitted automatically after hard risk checks.',
+    warmup: 'Warming up indicators from historical bars before trading decisions start.',
+    restarting: 'The engine loop exited and the watchdog is restarting it with backoff.',
+    stopped: 'The engine was stopped by an operator.',
+    failed: 'The engine failed and is awaiting manual intervention.',
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Info bar — updates every WS push */}
-      <LiveInfoBar activeEngine={activeEngine} />
-
-      {/* Chart area — fills remaining space above the bottom panel.
-          overflow-hidden + min-h-0 lets flex shrink past the canvas's
-          intrinsic size, otherwise lightweight-charts pins the column. */}
-      <div className="flex-1 min-h-0 bg-background relative overflow-hidden">
-        <LiveEquityChart />
+      {/* Info bar — engine registry data */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-3 shrink-0">
+        <StatusBadge status={activeEngine.status} />
+        <span className="text-xs text-foreground font-medium">{activeEngine.strategy}</span>
+        <span className="text-[10px] text-muted-foreground">{activeEngine.symbol}</span>
+        <span className="text-[10px] text-muted-foreground">{activeEngine.timeframe}</span>
+        <span className="text-[10px] text-muted-foreground">{activeEngine.exchange}</span>
+        {activeEngine.demo && <Badge variant="warning" className="text-[9px]">DEMO</Badge>}
+        {activeEngine.leverage > 1 && <Badge variant="outline" className="text-[9px]">{activeEngine.leverage}x</Badge>}
       </div>
 
-      {/* Resize handle — chart / bottom-panel split (always shown) */}
-      <ResizeHandle orientation="vertical" onPointerDown={onDragStart} />
-
-      {/* Bottom Strategy Tester panel — only re-renders when tradeCount changes */}
-      {adaptedResult ? (
-        <div className="shrink-0 bg-card border-t border-border overflow-hidden" style={{ height: bottomHeight }}>
-          <StrategyTester result={adaptedResult} />
-        </div>
-      ) : (
-        <div className="shrink-0 flex items-center justify-center bg-card border-t border-border" style={{ height: bottomHeight }}>
-          <div className="text-center">
-            <div className="text-muted-foreground text-sm">
-              {activeEngine.status === 'warmup' ? 'Warming up indicators...' : 'Waiting for first trade...'}
+      <div className="flex-1 min-h-0 overflow-y-auto bg-background">
+        <div className="p-6 max-w-xl mx-auto">
+          <div className="rounded border border-border p-4 space-y-3">
+            <div className="text-xs text-foreground font-semibold">Engine Status</div>
+            <div className="text-[11px] text-muted-foreground leading-relaxed">
+              {statusCopy[activeEngine.status] ?? activeEngine.status}
             </div>
-            <div className="text-muted-foreground/60 text-xs mt-1">
-              The report will appear after the first trade closes.
+            {activeEngine.error && (
+              <div className="rounded bg-destructive/10 border border-destructive/40 px-2 py-1.5 text-[10.5px] text-destructive font-mono break-words">
+                {activeEngine.error}
+              </div>
+            )}
+            <div className="text-[10px] text-muted-foreground/70 pt-2 border-t border-border">
+              engine {activeEngine.engine_id}
+              {activeEngine.stopped_at
+                ? <> · stopped {new Date(activeEngine.stopped_at).toLocaleString()}</>
+                : <> · started {new Date(activeEngine.created_at).toLocaleString()}</>}
+            </div>
+            <div className="text-[10px] text-muted-foreground/60">
+              Per-trade equity telemetry is not wired yet — this panel shows live engine status only.
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -721,9 +566,9 @@ export default function DashboardPage() {
           </SidebarFooter>
         </Sidebar>
 
-        {/* ── Right panel — isolated, WS updates don't touch the left panel ── */}
+        {/* ── Right panel — live engine status ── */}
         <SidebarInset className="flex flex-col min-w-0">
-          <LiveReportPanel activeEngine={activeEngine} />
+          <LiveStatusPanel activeEngine={activeEngine} />
         </SidebarInset>
 
     </ResizableSidebarShell>

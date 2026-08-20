@@ -25,6 +25,18 @@ class ToggleStrategy(BarStrategy):
         return PositionTarget(self.position)
 
 
+class FlipStrategy(BarStrategy):
+    """Returns ±1 directly — no explicit flat target between flips."""
+
+    name = "flip"
+
+    def setup(self) -> None:
+        pass
+
+    def on_bar(self, bar: Bar) -> PositionTarget:
+        return PositionTarget(1 if bar.close >= 100 else -1)
+
+
 @dataclass
 class RecordingAdapter:
     intents: list
@@ -144,6 +156,91 @@ def test_live_engine_approximate_quote_passes_when_fresh_not_required():
     assert intent.quote_bid == 100
     assert intent.quote_ask == 100
     assert intent.quote_timestamp is None
+
+
+def _flip_engine(*, quote_provider=None):
+    instrument = CryptoDerivative(
+        id=InstrumentId("BTC/USDT:USDT", AssetClass.CRYPTO_PERPETUAL, "bitget"),
+        max_leverage=3,
+    )
+    ledger = PortfolioLedger(cash={"USDT": 10_000})
+    adapter = RecordingAdapter([])
+    execution = ExecutionService(
+        risk=RiskEngine(
+            RiskLimits(
+                live_enabled=True,
+                max_order_notional=1_000,
+                require_fresh_quote=True,
+            )
+        ),
+        ledger=ledger,
+        adapter=adapter,
+    )
+    strategy = FlipStrategy(FlipStrategy.config_model())
+    return (
+        PythonLiveEngine(
+            strategy=strategy,
+            instrument=instrument,
+            execution=execution,
+            position_size=500,
+            leverage=2,
+            quote_provider=quote_provider,
+        ),
+        adapter,
+    )
+
+
+def test_live_engine_direct_reversal_closes_then_opens():
+    """A strategy flipping +1 → -1 in one decision must submit a reduce-only
+    close BEFORE the opposite open — matching the shared backtest engine's
+    next-bar close-then-open semantic, not crash the live loop (the old
+    RuntimeError 'reversal requires an explicit flat target first')."""
+    engine, adapter = _flip_engine(quote_provider=_fresh_quote)
+
+    engine.process_bar(Bar(1, 100, 101, 99, 100, 10))  # target +1 → open long
+    engine.process_bar(Bar(2, 95, 96, 94, 95, 10))  # target -1 → reversal
+
+    sides = [intent.side.value for intent in adapter.intents]
+    assert sides == ["buy", "sell", "sell"]
+    assert adapter.intents[1].reduce_only is True  # close the long
+    assert adapter.intents[2].reduce_only is False  # open the short
+    assert engine._target == -1
+    assert engine._quantity > 0
+
+
+def test_live_engine_reverse_reversal_closes_then_opens():
+    """Short → long uses BUY-to-cover for the reduce-only close, then a plain
+    BUY open."""
+    engine, adapter = _flip_engine(quote_provider=_fresh_quote)
+
+    engine.process_bar(Bar(1, 95, 96, 94, 95, 10))  # target -1 → open short
+    engine.process_bar(Bar(2, 100, 101, 99, 100, 10))  # target +1 → reversal
+
+    sides = [intent.side.value for intent in adapter.intents]
+    assert sides == ["sell", "buy", "buy"]
+    assert adapter.intents[1].reduce_only is True
+    assert adapter.intents[2].reduce_only is False
+    assert engine._target == 1
+
+
+def test_live_engine_reversal_close_rejected_aborts_open():
+    """If the reduce-only close is refused by a risk gate, the opposite open
+    must NEVER be submitted — no stacking on an unconfirmed position."""
+    calls = {"n": 0}
+
+    def provider() -> LiveQuote | None:
+        calls["n"] += 1
+        return _fresh_quote() if calls["n"] == 1 else None
+
+    engine, adapter = _flip_engine(quote_provider=provider)
+
+    engine.process_bar(Bar(1, 100, 101, 99, 100, 10))  # open long (fresh quote)
+    with pytest.raises(RiskRejected, match="fresh quote is required"):
+        engine.process_bar(Bar(2, 95, 96, 94, 95, 10))  # close blocked at risk
+
+    assert len(adapter.intents) == 1  # only the original open
+    assert engine._target == 1  # still long — reversal never started
+    assert engine._quantity > 0
 
 
 def test_live_engine_survives_risk_rejections_without_crashing():

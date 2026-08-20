@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import type { LivePerformance, LiveEngineOut } from '../types'
 
 export interface StrategyParam {
   name: string
@@ -24,13 +23,7 @@ interface DashboardState {
   demo: boolean
 
   // Engine
-  engines: LiveEngineOut[]
-  starting: boolean
   startError: string | null
-
-  // Live perf
-  perf: LivePerformance | null
-  wsConnected: boolean
 
   // Track if initial strategy has been loaded
   initialized: boolean
@@ -46,11 +39,7 @@ interface DashboardState {
   setLeverage: (v: number) => void
   setWarmupBars: (v: number) => void
   setDemo: (v: boolean) => void
-  setEngines: (v: LiveEngineOut[]) => void
-  setStarting: (v: boolean) => void
   setStartError: (v: string | null) => void
-  setPerf: (v: LivePerformance | null) => void
-  setWsConnected: (v: boolean) => void
 }
 
 export const useDashboardStore = create<DashboardState>((set) => ({
@@ -64,12 +53,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   warmupBars: 500,
   demo: true,
 
-  engines: [],
-  starting: false,
   startError: null,
-
-  perf: null,
-  wsConnected: false,
 
   initialized: false,
   setInitialized: (v) => set({ initialized: v }),
@@ -85,9 +69,5 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   setLeverage: (v) => set({ leverage: v }),
   setWarmupBars: (v) => set({ warmupBars: v }),
   setDemo: (v) => set({ demo: v }),
-  setEngines: (v) => set({ engines: v }),
-  setStarting: (v) => set({ starting: v }),
   setStartError: (v) => set({ startError: v }),
-  setPerf: (v) => set({ perf: v }),
-  setWsConnected: (v) => set({ wsConnected: v }),
 }))

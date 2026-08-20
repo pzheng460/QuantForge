@@ -45,7 +45,6 @@ from quantforge.strategy.registry import get_strategy
 
 from apps.dashboard.backend.http_errors import sanitize_exception
 from apps.dashboard.backend.jobs import _DEFAULT_SYMBOLS
-from apps.dashboard.backend.routers.live import _find_perf_files, _load_perf
 
 logger = logging.getLogger(__name__)
 _engines: dict[str, dict[str, Any]] = {}
@@ -526,7 +525,6 @@ def delete_engine(engine_id: str) -> None:
 
 
 def list_engines() -> list[dict[str, Any]]:
-    perf_files = _find_perf_files()
     result = []
     for eid, entry in _engines.items():
         result.append(
@@ -542,11 +540,6 @@ def list_engines() -> list[dict[str, Any]]:
                 "created_at": entry["created_at"],
                 "stopped_at": entry.get("stopped_at"),
                 "error": entry.get("error"),
-                "performance": (
-                    _load_perf(perf_files[entry["strategy"]])
-                    if entry["strategy"] in perf_files
-                    else None
-                ),
             }
         )
     return result

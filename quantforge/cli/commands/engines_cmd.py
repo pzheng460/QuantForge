@@ -1,13 +1,13 @@
 """`quantforge-cli engines ...` — live engine management.
 
-Read-only ops (`list`, `performance`) work standalone by reading the
-persistence files the web server writes:
-  ~/.quantforge/live/engines.json     — engine configs
-  ~/.quantforge/live/<strategy>/live_performance.json   — bar-by-bar P&L
+Read-only ops (`list`) work standalone by reading the persistence file the
+web server writes: ~/.quantforge/live/engines.json — engine configs. Per-trade
+live performance telemetry no longer exists (its writer was removed in the
+Python-first migration), so `engines list` shows config + status only.
 
-Write ops (`stop`) require the running web server because the asyncio
-task lives in the server process. Set QF_API_URL to point at a non-default
-server.
+Write ops (`start`, `stop`) require the running web server because the
+asyncio task lives in the server process. Set QF_API_URL to point at a
+non-default server.
 
 Starting and stopping engines goes through the web API so the persisted
 registry and hard risk controls remain the single source of truth.
@@ -36,16 +36,6 @@ def _read_engines() -> list[dict]:
         return []
 
 
-def _read_perf(strategy: str) -> dict | None:
-    path = LIVE_DIR / strategy / "live_performance.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
 @click.group("engines")
 def engines_group():
     """Manage live trading engines."""
@@ -59,7 +49,7 @@ def engines_group():
 )
 @click.option("--json", "as_json", is_flag=True)
 def list_cmd(via_server: bool, as_json: bool):
-    """List engines (their configs + last persisted performance)."""
+    """List engines (their configs + persisted status)."""
     if via_server:
         try:
             engines = _http.get("/live/engines")
@@ -67,10 +57,7 @@ def list_cmd(via_server: bool, as_json: bool):
             click.echo(str(e), err=True)
             sys.exit(2)
     else:
-        engines = []
-        for cfg in _read_engines():
-            perf = _read_perf(cfg["strategy"])
-            engines.append({**cfg, "performance": perf})
+        engines = list(_read_engines())
 
     if as_json:
         click.echo(json.dumps(engines, indent=2, default=str))
@@ -79,60 +66,16 @@ def list_cmd(via_server: bool, as_json: bool):
         click.echo(f"(no engines registered in {ENGINES_FILE})")
         return
     click.echo(
-        f"{'engine_id':<10}  {'strategy':<22}  {'symbol':<18}  {'tf':<4}  status   trades  return%"
+        f"{'engine_id':<10}  {'strategy':<22}  {'symbol':<18}  {'tf':<4}  status"
     )
-    click.echo("-" * 88)
+    click.echo("-" * 78)
     for e in engines:
-        perf = e.get("performance") or {}
         status = e.get("status", "?")
-        trades = perf.get("total_trades", "—")
-        ret = perf.get("return_pct")
-        ret_s = f"{ret * 100:+.2f}" if isinstance(ret, (int, float)) else "—"
         click.echo(
             f"{e.get('engine_id', '?'):<10}  {e.get('strategy', '?'):<22}  "
             f"{e.get('symbol', '?'):<18}  {e.get('timeframe', '?'):<4}  "
-            f"{status:<7}  {trades:>5}   {ret_s:>6}"
+            f"{status:<7}"
         )
-
-
-@engines_group.command("performance")
-@click.argument("strategy", required=False)
-@click.option("--json", "as_json", is_flag=True)
-def performance_cmd(strategy: str | None, as_json: bool):
-    """Print live performance for one strategy (or all if omitted)."""
-    if strategy:
-        perf = _read_perf(strategy)
-        if perf is None:
-            click.echo(f"no live_performance.json for strategy '{strategy}'", err=True)
-            sys.exit(2)
-        targets = {strategy: perf}
-    else:
-        targets = {}
-        if LIVE_DIR.exists():
-            for p in sorted(LIVE_DIR.glob("*/live_performance.json")):
-                d = _read_perf(p.parent.name)
-                if d:
-                    targets[p.parent.name] = d
-    if as_json:
-        click.echo(json.dumps(targets, indent=2, default=str))
-        return
-    if not targets:
-        click.echo("(no live_performance.json files found)")
-        return
-    for name, perf in targets.items():
-        click.echo(f"\n=== {name} ===")
-        click.echo(
-            f"  trades:    {perf.get('total_trades', 0)}  "
-            f"win_rate:  {perf.get('win_rate', 0):.1%}  "
-            f"PF: {perf.get('profit_factor', 0):.2f}"
-        )
-        click.echo(
-            f"  return:    {perf.get('return_pct', 0) * 100:+.2f}%  "
-            f"max_dd:    {perf.get('max_drawdown', 0) * 100:.2f}%"
-        )
-        last_bar = perf.get("last_bar_at")
-        if last_bar:
-            click.echo(f"  last bar:  {last_bar}")
 
 
 @engines_group.command("start")

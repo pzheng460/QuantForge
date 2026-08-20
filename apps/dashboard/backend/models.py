@@ -367,56 +367,7 @@ class OptimizeJobStatusOut(BaseModel):
     full_result: Optional[ThreeStageResultOut] = None
 
 
-# ─── Live monitoring models ─────────────────────────────────────────────────
-
-
-class LiveTradeOut(BaseModel):
-    symbol: str
-    side: str
-    entry_price: float
-    exit_price: float
-    amount: float
-    entry_time: str
-    exit_time: str
-    pnl: float
-    pnl_pct: float
-    exit_reason: str = ""
-
-
-class LivePerformanceOut(BaseModel):
-    # Session info
-    start_time: str = ""
-    last_update: str = ""
-    config_name: str = ""
-    # Balance
-    initial_balance: float = 0.0
-    current_balance: float = 0.0
-    peak_balance: float = 0.0
-    # Performance
-    total_return_pct: float = 0.0
-    total_pnl: float = 0.0
-    max_drawdown_pct: float = 0.0
-    current_drawdown_pct: float = 0.0
-    # Trade stats
-    total_trades: int = 0
-    winning_trades: int = 0
-    losing_trades: int = 0
-    win_rate_pct: float = 0.0
-    avg_win_pct: float = 0.0
-    avg_loss_pct: float = 0.0
-    profit_factor: float = 0.0
-    # Trades
-    trades: List[LiveTradeOut] = []
-
-
-class LiveStrategyStatusOut(BaseModel):
-    strategy: str
-    display_name: str
-    is_active: bool
-    performance: Optional[LivePerformanceOut] = None
-
-
-# ─── Live engine management models ────────────────────────────────────────────
+# ─── Live engine management models ───────────────────────────────────────────
 
 
 class LiveStartRequest(BaseModel):
@@ -464,4 +415,3 @@ class LiveEngineOut(BaseModel):
     # Populated when engine transitions to stopped (history entry).
     stopped_at: Optional[str] = None
     error: Optional[str] = None
-    performance: Optional[LivePerformanceOut] = None

@@ -5,7 +5,6 @@ import type {
   StrategySchema,
   OptimizeRequest,
   OptimizeJobStatus,
-  LivePerformance,
   LiveStartRequest,
   LiveEngineOut,
   GlobalRiskState,
@@ -153,35 +152,6 @@ export function subscribeOptimize(
   }
   ws.onclose = (e) => {
     console.log(`[ws:optimize] closed (code=${e.code}, reason=${e.reason})`)
-    // Close (including a failed upgrade / auth rejection) must also
-    // disconnect the UI state — onerror alone doesn't fire on close.
-    onError?.(e)
-  }
-  if (onError) ws.onerror = onError
-  return () => {
-    if (ws.readyState === WebSocket.OPEN) ws.close()
-  }
-}
-
-
-/** Subscribe to live performance updates via WebSocket. Returns a cleanup function. */
-export function subscribeLivePerformance(
-  onMessage: (msg: LivePerformance) => void,
-  onError?: (e: Event) => void
-): () => void {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(
-    `${protocol}://${window.location.host}/api/ws/live/performance${authQuery()}`
-  )
-  ws.onmessage = (e) => {
-    try {
-      onMessage(JSON.parse(e.data))
-    } catch (err) {
-      console.warn('[ws:live] failed to parse message:', err)
-    }
-  }
-  ws.onclose = (e) => {
-    console.log(`[ws:live] closed (code=${e.code}, reason=${e.reason})`)
     // Close (including a failed upgrade / auth rejection) must also
     // disconnect the UI state — onerror alone doesn't fire on close.
     onError?.(e)

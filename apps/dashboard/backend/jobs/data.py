@@ -109,10 +109,20 @@ def _fetch_crypto_ohlcv(
     _retry(exchange.load_markets, transient)
     page_limit = 1000
     bar_ms = timeframe_to_seconds(timeframe) * 1000
+    # Align with the canonical fetcher (quantforge/adapters/ccxt.py
+    # fetch_klines): drop only the currently-in-progress bar. Exchanges
+    # return it as the last row of fetch_ohlcv with partial OHLC; letting it
+    # through would make dashboard backtests diverge from CLI/quantforge
+    # backtests, which only ever see completed bars. The boundary is the
+    # START of the forming bar (not the previous bar's start, which would
+    # also drop the most recent completed bar).
+    now_ms = int(time.time() * 1000)
+    current_start_ms = (now_ms // bar_ms) * bar_ms
+    effective_end_ms = min(end_ms, current_start_ms)
     seen: set[int] = set()
     rows: list[list] = []
     cursor = since_ms
-    while cursor < end_ms:
+    while cursor < effective_end_ms:
         chunk = _retry(
             lambda: exchange.fetch_ohlcv(
                 symbol, timeframe, since=cursor, limit=page_limit
@@ -123,7 +133,7 @@ def _fetch_crypto_ohlcv(
             cursor += bar_ms * page_limit
             continue
         for row in chunk:
-            if since_ms <= row[0] < end_ms and row[0] not in seen:
+            if since_ms <= row[0] < effective_end_ms and row[0] not in seen:
                 rows.append(row)
                 seen.add(row[0])
         cursor = max(cursor + 1, chunk[-1][0] + 1)

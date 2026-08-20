@@ -190,15 +190,20 @@ def fetch_klines(
     bar_ms = timeframe_to_seconds(timeframe) * 1000
     window_ms = bar_ms * page_limit  # span covered per request
 
-    # Drop the currently-in-progress bar — exchanges typically return it
-    # as the last row of fetch_ohlcv with partial OHLC. If we let it
-    # through, warmup would seed indicators with a half-baked candle
-    # and the live poll would re-process that same bar once it closes
-    # (with completely different OHLC). Backtest never sees a partial
-    # bar, so this is a backtest-vs-live divergence we need to kill.
+    # Drop only the currently-in-progress bar — exchanges return it as the
+    # last row of fetch_ohlcv with partial OHLC. If we let it through, warmup
+    # would seed indicators with a half-baked candle and the live poll would
+    # re-process that same bar once it closes (with completely different
+    # OHLC). Backtest never sees a partial bar, so this is a
+    # backtest-vs-live divergence we need to kill.
+    #
+    # The boundary is the START of the forming bar: any bar with
+    # ts >= (now // bar) * bar is partial. (Using the previous bar's start
+    # would ALSO drop the most recent completed bar, lagging live signals by
+    # a full bar.)
     now_ms = int(time.time() * 1000)
-    last_closed_start_ms = ((now_ms // bar_ms) - 1) * bar_ms
-    effective_end_ms = min(end_ms, last_closed_start_ms)
+    current_start_ms = (now_ms // bar_ms) * bar_ms
+    effective_end_ms = min(end_ms, current_start_ms)
 
     seen: set[int] = set()
     unique: list[list] = []

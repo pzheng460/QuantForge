@@ -48,18 +48,6 @@ def _refused_or_closed(ws_context):
         return exc.code == 4401
 
 
-def test_ws_live_performance_refused_without_key(client):
-    assert _refused_or_closed(
-        client.websocket_connect("/api/ws/live/performance")
-    )
-
-
-def test_ws_live_performance_refused_with_wrong_key(client):
-    assert _refused_or_closed(
-        client.websocket_connect("/api/ws/live/performance?api_key=wrong")
-    )
-
-
 def test_ws_backtest_refused_without_key(client):
     assert _refused_or_closed(
         client.websocket_connect("/api/ws/backtest/does-not-exist")
@@ -78,12 +66,3 @@ def test_ws_backtest_accepted_with_valid_key(client):
     ) as ws:
         msg = ws.receive_json()
     assert msg["status"] == "not_found"
-
-
-def test_ws_live_performance_accepted_with_valid_key(client):
-    with client.websocket_connect(
-        f"/api/ws/live/performance?api_key={API_KEY}"
-    ) as ws:
-        # The stream loops forever sending only on change; it must not
-        # refuse the connection. Closing from the client is the only exit.
-        ws.close()

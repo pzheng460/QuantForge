@@ -190,11 +190,14 @@ class RiskEngine:
                 raise RiskRejected("reduce_only order exceeds the position being closed")
         opening = sum(not leg.reduce_only for leg in legs)
         if self.daily_entries is not None:
+            # ``reserve`` returns the POST-increment count.
             _day, used = self.daily_entries.reserve(opening)
         else:
             day = datetime.now(timezone.utc).date().isoformat()
-            used = self._local_entries.get(day, 0)
-            self._local_entries[day] = used + opening
+            # Keep the same post-increment semantics as the shared counter, or
+            # the cap silently allows max_daily_new_positions + 1 openings.
+            used = self._local_entries.get(day, 0) + opening
+            self._local_entries[day] = used
         if used > self.limits.max_daily_new_positions:
             # Roll back the reservation we just made.
             if self.daily_entries is not None:
