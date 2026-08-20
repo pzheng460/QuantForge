@@ -31,9 +31,15 @@ router = APIRouter()
 @router.post("/live/start", response_model=LiveEngineOut)
 async def start_live(req: LiveStartRequest) -> LiveEngineOut:
     """Start a registered Python strategy; every order passes hard risk checks."""
-    from apps.dashboard.backend.live_engines import list_engines, start_engine
+    from apps.dashboard.backend.live_engines import (
+        EngineAlreadyRunningError,
+        list_engines,
+        start_engine,
+    )
 
-    # Prevent duplicate engines for the same strategy
+    # Prevent duplicate engines for the same strategy. This is only a UX
+    # shortcut — start_engine re-checks atomically under the registry lock,
+    # so the check below can be raced but the authoritative one cannot.
     for eng in list_engines():
         if eng["strategy"] == req.strategy and eng["status"] in (
             "warmup",
@@ -62,6 +68,10 @@ async def start_live(req: LiveStartRequest) -> LiveEngineOut:
                 "max_daily_new_positions": req.max_daily_new_positions,
             },
         )
+    except EngineAlreadyRunningError as e:
+        # Race-free duplicate gate: another request won check-and-insert under
+        # the registry lock moments ago.
+        raise HTTPException(status_code=409, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(
             status_code=404,

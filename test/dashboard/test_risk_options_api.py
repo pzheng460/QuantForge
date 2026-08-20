@@ -73,3 +73,53 @@ def test_run_once_notional_ceiling_is_server_enforced(monkeypatch, tmp_path):
 
     under = dict(base, max_order_notional=router._RUN_ONCE_MAX_NOTIONAL_USD)
     assert under["max_order_notional"] > 0
+
+
+def test_ticker_that_could_escape_report_path_is_rejected(monkeypatch, tmp_path):
+    """A ticker with path separators must be refused with 422 before any
+    analysis/store/order path is reached (OptionReportStore keys reports as
+    <root>/<ticker>/<stamp>.json)."""
+    from apps.dashboard.backend.routers import risk_options as router
+
+    monkeypatch.setattr(
+        router, "_GLOBAL_RISK", router.GlobalRiskControl(tmp_path / "global.json")
+    )
+    base = {
+        "ticker": "../evil",
+        "as_of": "2026-07-25",
+        "minimum_core_shares": 0,
+        "maximum_covered_ratio": 1,
+        "trend_state": "横盘",
+        "earnings_date": "2026-09-20",
+        "earnings_confirmed": True,
+        "config": {},
+    }
+    with TestClient(app) as client:
+        assert (
+            client.post("/api/options/analyze", json={**base, "shares": 100, "stock_price": 170}).status_code
+            == 422
+        )
+        assert (
+            client.post("/api/options/schwab/run-once", json={**base, "demo": True}).status_code
+            == 422
+        )
+    # Defense in depth: even a caller that skips the API models cannot make
+    # the store write outside its root.
+    from quantforge.options import OptionsDailyReport, OptionReportStore
+
+    store = OptionReportStore(tmp_path / "reports")
+    bad = OptionsDailyReport(
+        strategy="tsla_nvda_options",
+        ticker="..\\escape",
+        action="HOLD",
+        reasons=(),
+        generated_at="2026-07-25T10:00:00Z",
+        data_quality="ok",
+    )
+    try:
+        store.save(bad)
+    except ValueError as exc:
+        assert "invalid ticker" in str(exc)
+    else:
+        raise AssertionError("OptionReportStore.save must reject path-escape tickers")
+    assert not (tmp_path / "reports" / "..").exists()

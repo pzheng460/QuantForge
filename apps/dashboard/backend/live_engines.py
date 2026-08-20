@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -48,6 +49,10 @@ from apps.dashboard.backend.jobs import _DEFAULT_SYMBOLS
 
 logger = logging.getLogger(__name__)
 _engines: dict[str, dict[str, Any]] = {}
+# Serializes registry read-modify-write (duplicate check + insert, delete) so
+# two concurrent /live/start requests cannot both pass the "no engine running"
+# check and double-start the same strategy.
+_registry_lock = threading.Lock()
 _PERSIST_FILE = Path.home() / ".quantforge" / "live" / "engines.json"
 _restored = False
 
@@ -107,10 +112,16 @@ def _save_state() -> None:
         {field: entry.get(field) for field in fields}
         for entry in _engines.values()
     ]
-    _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = _PERSIST_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2))
-    tmp.replace(_PERSIST_FILE)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+    os.replace(tmp, _PERSIST_FILE)
+    # Same discipline as DailyEntryCounter/OptionReportStore: atomic write +
+    # 0600 so the persisted engine state is never world/group-readable.
+    _PERSIST_FILE.chmod(0o600)
 
 
 def _load_state() -> list[dict]:
@@ -320,6 +331,14 @@ async def restore_engines() -> int:
     return count
 
 
+class EngineAlreadyRunningError(RuntimeError):
+    """Raised by start_engine when the strategy already has an active engine.
+
+    The bindings map this to HTTP 409; start_live's pre-check is only an
+    early UX shortcut — this is the authoritative, race-free gate.
+    """
+
+
 async def start_engine(
     *,
     strategy: str,
@@ -373,7 +392,18 @@ async def start_engine(
         "restart_count": 0,
         "pending_restart": None,
     }
-    _engines[engine_id] = entry
+    # Authoritative duplicate gate: check-and-insert is atomic under the
+    # registry lock, so the friendly router pre-check can never be raced.
+    with _registry_lock:
+        for existing in _engines.values():
+            if (
+                existing["strategy"] == strategy
+                and existing["status"] in {"warmup", "running", "restarting"}
+            ):
+                raise EngineAlreadyRunningError(
+                    f"Engine for '{strategy}' is already {existing['status']}"
+                )
+        _engines[engine_id] = entry
 
     _start_task(entry)
     _save_state()
@@ -515,12 +545,13 @@ async def stop_engine(engine_id: str) -> None:
 
 
 def delete_engine(engine_id: str) -> None:
-    entry = _engines.get(engine_id)
-    if entry is None:
-        raise KeyError(f"Engine {engine_id} not found")
-    if entry.get("status") in {"warmup", "running", "restarting"}:
-        raise ValueError("engine is still active; stop it before deleting it")
-    del _engines[engine_id]
+    with _registry_lock:
+        entry = _engines.get(engine_id)
+        if entry is None:
+            raise KeyError(f"Engine {engine_id} not found")
+        if entry.get("status") in {"warmup", "running", "restarting"}:
+            raise ValueError("engine is still active; stop it before deleting it")
+        del _engines[engine_id]
     _save_state()
 
 

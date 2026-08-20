@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from quantforge.options import (
     OptionCandidate,
@@ -13,6 +13,7 @@ from quantforge.options import (
     ShortCallPosition,
     candidates_from_schwab_chain,
     intent_from_option_decision,
+    validate_report_ticker,
 )
 from apps.dashboard.backend.models import MAX_ORDER_NOTIONAL_USD
 from quantforge.domain.instruments import AssetClass, EquityOption, InstrumentId
@@ -37,6 +38,17 @@ _GLOBAL_RISK = GlobalRiskControl()
 # over-cap requests fail with 422 before any order is submitted. Shared with
 # the live-engine start path so the two real-money entry points use ONE bound.
 _RUN_ONCE_MAX_NOTIONAL_USD = MAX_ORDER_NOTIONAL_USD
+
+# Ticker charset is defined once in quantforge/options/engine.py
+# (validate_report_ticker) — OptionReportStore keys reports as
+# ``<root>/<ticker>/<stamp>.json``, so request-time coercion here and the
+# store's own guard share one rule.
+def _ticker_input(value: object) -> str:
+    """Coerce a ticker to upper-case and reject anything that could escape
+    the report-store path (defense in depth; the store re-checks too)."""
+    if not isinstance(value, str):
+        raise ValueError("ticker must be a string")
+    return validate_report_ticker(value)
 
 
 class GlobalRiskUpdate(BaseModel):
@@ -79,6 +91,8 @@ class OptionAnalysisRequest(BaseModel):
     short_calls: list[ShortCallIn] = Field(default_factory=list)
     config: dict = Field(default_factory=dict)
 
+    _ticker_validator = field_validator("ticker", mode="before")(_ticker_input)
+
 
 class SchwabOptionAnalysisRequest(BaseModel):
     ticker: str
@@ -89,6 +103,8 @@ class SchwabOptionAnalysisRequest(BaseModel):
     earnings_date: date | None = None
     earnings_confirmed: bool = False
     config: dict = Field(default_factory=dict)
+
+    _ticker_validator = field_validator("ticker", mode="before")(_ticker_input)
 
 
 class SchwabOptionRunRequest(SchwabOptionAnalysisRequest):

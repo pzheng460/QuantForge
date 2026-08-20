@@ -21,6 +21,7 @@ from quantforge.domain.instruments import (
     CryptoSpot,
     InstrumentId,
 )
+from quantforge.domain.timeframes import timeframe_to_seconds
 from quantforge.execution import SubmissionOutcomeUnknown
 from quantforge.strategy.bar import Bar
 
@@ -90,31 +91,8 @@ def instrument_from_ccxt_market(market: dict, *, venue: str):
     raise ValueError(f"unsupported CCXT market type: {market_type or 'unknown'}")
 
 
-# Timeframe → seconds mapping. Single source of truth for the whole
-# codebase — anywhere else that needs bar duration (window math in
-# apps/dashboard/backend/jobs.py, sleep cycles in the live engine,
-# warmup window in cli.py) should derive from this.
-_TF_SECONDS = {
-    "1m": 60,
-    "3m": 180,
-    "5m": 300,
-    "15m": 900,
-    "30m": 1800,
-    "1h": 3600,
-    "2h": 7200,
-    "4h": 14400,
-    "6h": 21600,
-    "12h": 43200,
-    "1d": 86400,
-    "1w": 604800,
-}
-
-
-def timeframe_to_seconds(tf: str) -> int:
-    """Convert a timeframe string like '15m' to seconds."""
-    if tf in _TF_SECONDS:
-        return _TF_SECONDS[tf]
-    raise ValueError(f"Unsupported timeframe: {tf}")
+# Timeframe → seconds lives in quantforge/domain/timeframes.py (single
+# source of truth) and is imported above as ``timeframe_to_seconds``.
 
 
 def _retry_transient(

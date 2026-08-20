@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 const DashboardPage = lazy(() => import('./pages/Dashboard'))
 const BacktestPage = lazy(() => import('./pages/Backtest'))
 const OptimizerPage = lazy(() => import('./pages/Optimizer'))
+const OptionsAnalysisPage = lazy(() => import('./pages/OptionsAnalysis'))
 import { TimezoneProvider, useTimezone } from './hooks/useTimezone'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -179,6 +180,7 @@ function TopBar() {
           <NavItem to="/" label="Live" />
           <NavItem to="/backtest" label="Backtest" />
           <NavItem to="/optimizer" label="Optimizer" />
+          <NavItem to="/options" label="Options" />
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -239,6 +241,7 @@ function AppContent() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/backtest" element={<BacktestPage />} />
               <Route path="/optimizer" element={<OptimizerPage />} />
+              <Route path="/options" element={<OptionsAnalysisPage />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

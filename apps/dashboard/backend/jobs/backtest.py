@@ -11,7 +11,6 @@ from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
     _resolve_date_range,
-    _TF_MS,
 )
 from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
@@ -23,7 +22,7 @@ from apps.dashboard.backend.models import (
     BacktestResultOut,
     TradeOut,
 )
-from apps.dashboard.backend.jobs.data import timeframe_to_seconds
+from quantforge.domain.timeframes import timeframe_to_ms, timeframe_to_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +229,7 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
     underwater_start_idx: int | None = None
     max_dd_duration_days = 0.0
     dd_values: list[float] = []
-    bar_ms = _TF_MS.get(req.timeframe, 3_600_000)
+    bar_ms = timeframe_to_ms(req.timeframe)
     bar_days = bar_ms / (24 * 3_600_000)
     for i, eq in enumerate(period_equity):
         if eq > peak:

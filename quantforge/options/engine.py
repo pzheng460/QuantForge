@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,26 @@ from pathlib import Path
 from quantforge.options.manager import OptionDecision, OptionManagerInput
 from quantforge.portfolio.ledger import PortfolioLedger
 from quantforge.strategy.api import Strategy, StrategyContext
+
+# Ticker charset for report filenames: OptionReportStore keys reports as
+# ``<root>/<ticker>/<stamp>.json``, so the ticker must never contain path
+# separators or "..". Letters, digits and a single class-share dot (BRK.B)
+# are all that real equity symbols need.
+_TICKER_RE = re.compile(r"^[A-Z0-9.]{1,10}$")
+
+
+def validate_report_ticker(ticker: str) -> str:
+    """Normalize an equity ticker used as a report filename component.
+
+    The ticker is user-supplied and lands in a filesystem path, so it is
+    constrained to a safe fragment: upper-case letters, digits, an optional
+    class-share dot, and never "..". Centralizing here keeps the HTTP
+    boundary validator and the on-disk store on one rule.
+    """
+    normalized = ticker.strip().upper()
+    if not _TICKER_RE.fullmatch(normalized) or ".." in normalized:
+        raise ValueError(f"invalid ticker: {ticker!r}")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +54,10 @@ class OptionReportStore:
     def save(self, report: OptionsDailyReport) -> Path:
         generated = datetime.fromisoformat(report.generated_at)
         stamp = generated.strftime("%Y%m%dT%H%M%S%fZ")
-        path = self.root / report.ticker / f"{stamp}.json"
+        # Defense in depth: the API models validate tickers too, but the
+        # store never trusts a caller to have done so before path-building.
+        ticker = validate_report_ticker(report.ticker)
+        path = self.root / ticker / f"{stamp}.json"
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = path.with_suffix(".tmp")
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

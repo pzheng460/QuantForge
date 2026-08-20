@@ -110,3 +110,54 @@ async def test_watchdog_restarts_successfully(monkeypatch):
     assert entry["restart_count"] == 1
     assert entry["error"] is None
     assert started == [entry]
+
+
+@pytest.mark.asyncio
+async def test_start_engine_rejects_duplicate_atomically(monkeypatch):
+    """Two start attempts for the same strategy: the second raises
+    EngineAlreadyRunningError (mapped to 409 by the router). The check lives
+    inside start_engine under the registry lock, so racing the router's
+    friendly pre-check can never double-start an engine."""
+
+    class _FakeEngine:
+        _warmup_complete = True
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+    def _fake_build(**kwargs):  # _build_runtime is a sync factory
+        return _FakeEngine()
+
+    monkeypatch.setattr(live_engines, "_build_runtime", _fake_build)
+    monkeypatch.setattr(live_engines, "_start_task", lambda entry: None)
+    monkeypatch.setattr(live_engines, "_single_instance", True)
+
+    kwargs = dict(
+        strategy="ema_crossover",
+        exchange="okx",
+        symbol="BTC/USDT:USDT",
+        timeframe="1h",
+        demo=True,
+        position_size_usdt=100.0,
+        leverage=1,
+        warmup_bars=50,
+        config_override=None,
+        risk_limits={},
+    )
+    first_id = await live_engines.start_engine(**kwargs)
+    second_id = None
+    try:
+        with pytest.raises(live_engines.EngineAlreadyRunningError):
+            await live_engines.start_engine(**kwargs)
+        # A different strategy is still allowed.
+        second_id = await live_engines.start_engine(
+            **{**kwargs, "strategy": "flip_strategy"}
+        )
+    finally:
+        for eid, entry in list(live_engines._engines.items()):
+            await entry["engine"].stop()
+            del live_engines._engines[eid]
+    assert first_id and second_id and second_id != first_id

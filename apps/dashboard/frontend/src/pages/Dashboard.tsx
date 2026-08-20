@@ -40,82 +40,6 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function OptionsAnalysisPanel({ ticker }: { ticker: string }) {
-  const [earningsDate, setEarningsDate] = useState('')
-  const [coreShares, setCoreShares] = useState(0)
-  const [report, setReport] = useState<{
-    action: string
-    reasons: string[]
-    contract_symbol?: string
-    contracts: number
-    limit_price?: number
-  } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Options Daily Analysis</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <div className="space-y-2">
-          <div>
-            <Label>Confirmed Earnings Date</Label>
-            <Input
-              type="date"
-              value={earningsDate}
-              onChange={(event) => setEarningsDate(event.target.value)}
-            />
-          </div>
-          <div>
-            <Label>Minimum Core Shares</Label>
-            <Input
-              type="number"
-              min={0}
-              value={coreShares}
-              onChange={(event) => setCoreShares(Number(event.target.value))}
-            />
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            className="w-full"
-            onClick={() => {
-              api.analyzeSchwabOptions({
-                ticker,
-                as_of: new Date().toISOString().slice(0, 10),
-                minimum_core_shares: coreShares,
-                maximum_covered_ratio: 0.5,
-                trend_state: '横盘',
-                earnings_date: earningsDate || null,
-                earnings_confirmed: Boolean(earningsDate),
-              })
-                .then((value) => {
-                  setReport(value.report)
-                  setError(null)
-                })
-                .catch((reason) => setError(String(reason)))
-            }}
-          >
-            Analyze Live Chain
-          </Button>
-          {report && (
-            <div className="rounded border border-border p-2 text-[10px]">
-              <div className="font-semibold">{report.action}</div>
-              <div>{report.reasons.join('；')}</div>
-              {report.contract_symbol && (
-                <div className="font-mono">
-                  {report.contract_symbol} × {report.contracts}
-                  {report.limit_price != null ? ` @ ${report.limit_price}` : ''}
-                </div>
-              )}
-            </div>
-          )}
-          {error && <div className="text-[10px] text-destructive">{error}</div>}
-        </div>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  )
-}
-
 // ─── Live report: real engine-registry status only ──────────────────────────
 // Per-trade live performance telemetry was removed along with its only writer
 // (see apps/dashboard/backend/routers/live.py) rather than fabricating P&L
@@ -392,10 +316,6 @@ export default function DashboardPage() {
                   </div>
                 </SidebarGroupContent>
               </SidebarGroup>
-            )}
-
-            {exchange === 'schwab' && selectedStrategy === 'tsla_nvda_options' && (
-              <OptionsAnalysisPanel ticker={symbol || 'TSLA'} />
             )}
 
             <SidebarGroup>

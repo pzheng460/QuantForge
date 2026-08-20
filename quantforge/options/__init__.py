@@ -9,6 +9,7 @@ from quantforge.options.engine import (
     OptionReportStore,
     OptionsDailyReport,
     OptionsEventEngine,
+    validate_report_ticker,
 )
 from quantforge.options.execution import intent_from_option_decision
 from quantforge.options.lifecycle import ExpirationResult, OptionLifecycle
@@ -42,4 +43,5 @@ __all__ = [
     "OptionReportStore",
     "candidates_from_schwab_chain",
     "intent_from_option_decision",
+    "validate_report_ticker",
 ]

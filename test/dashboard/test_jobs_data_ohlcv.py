@@ -1,11 +1,12 @@
 """OHLCV fetch parity for the dashboard's historical pager.
 
-The dashboard backtest/optimize jobs page ccxt OHLCV through
-``apps.dashboard.backend.jobs.data._fetch_crypto_ohlcv``. It must agree with
-the canonical fetcher ``quantforge.adapters.ccxt.fetch_klines`` on the ONE
-bar that historically diverged: the currently-in-progress (partial) candle
-that exchanges return as the last row of ``fetch_ohlcv``. Backtests only
-ever see completed bars, so the dashboard pager must drop it too.
+The dashboard backtest/optimize jobs get ccxt OHLCV through
+``apps.dashboard.backend.jobs.data._fetch_crypto_ohlcv``, which now delegates
+to the canonical fetcher ``quantforge.adapters.ccxt.fetch_klines``. Together
+they must agree on the ONE bar that historically diverged: the
+currently-in-progress (partial) candle that exchanges return as the last row
+of ``fetch_ohlcv``. Backtests only ever see completed bars, so it must be
+dropped here too.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import types
 import ccxt as real_ccxt
 
 from apps.dashboard.backend.jobs import data as data_jobs
+from quantforge.adapters import ccxt as ccxt_mod
 
 NOW_MS = 1_700_000_000_000
 BAR_MS = 3_600_000  # 1h
@@ -45,7 +47,7 @@ def _rows(monkeypatch, since_ms: int, end_ms: int) -> list[list]:
         [last_closed_start_ms, 102, 103, 101, 102.0, 1000],  # last closed bar
         [last_closed_start_ms + BAR_MS, 103, 104, 102, 103.0, 1000],  # partial
     ]
-    # data.py does `import ccxt` inside the function, so stub it in
+    # fetch_klines does `import ccxt` inside the function, so stub it in
     # sys.modules with a module exposing real exception classes (needed for
     # the transient-error tuple) plus our scripted exchange class.
     fake = types.ModuleType("ccxt")
@@ -53,7 +55,7 @@ def _rows(monkeypatch, since_ms: int, end_ms: int) -> list[list]:
         setattr(fake, name, getattr(real_ccxt, name))
     fake.fake_exchange = _fake_exchange(rows)
     monkeypatch.setitem(sys.modules, "ccxt", fake)
-    monkeypatch.setattr(data_jobs.time, "time", lambda: NOW_MS / 1000.0)
+    monkeypatch.setattr(ccxt_mod.time, "time", lambda: NOW_MS / 1000.0)
 
     return data_jobs._fetch_crypto_ohlcv(
         "fake_exchange",

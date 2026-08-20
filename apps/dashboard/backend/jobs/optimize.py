@@ -14,7 +14,6 @@ from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
     _resolve_date_range,
-    timeframe_to_seconds,
 )
 from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
@@ -22,6 +21,7 @@ from apps.dashboard.backend.jobs.registry import (
     check_cancelled,
     update_job,
 )
+from quantforge.domain.timeframes import timeframe_to_seconds
 from apps.dashboard.backend.models import (
     GridRowOut,
     GridSearchResultOut,
