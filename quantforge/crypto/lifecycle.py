@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from quantforge.domain.instruments import CryptoFuture
@@ -19,8 +20,11 @@ def settle_crypto_future(
     settlement_price: float,
     ledger: PortfolioLedger,
 ) -> CryptoSettlementResult:
-    if settlement_price <= 0:
-        raise ValueError("settlement price must be positive")
+    # NaN passes <=, so reject non-finite prices outright: a NaN settlement
+    # would poison the ledger's cash with a NaN P&L that no later arithmetic
+    # can detect.
+    if not math.isfinite(settlement_price) or settlement_price <= 0:
+        raise ValueError("settlement price must be a positive finite number")
     position = ledger.positions.get(contract.id)
     if position is None:
         return CryptoSettlementResult(0, settlement_price, 0)

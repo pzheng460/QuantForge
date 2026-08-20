@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from quantforge.adapters.ccxt import instrument_from_ccxt_market
 from quantforge.crypto.lifecycle import settle_crypto_future
 from quantforge.domain.instruments import AssetClass, CryptoFuture
@@ -54,3 +56,17 @@ def test_delivery_future_cash_settlement_removes_position():
     assert result.realized_pnl == 50
     assert ledger.cash["USDT"] == 1050
     assert future.id not in ledger.positions
+
+
+def test_settlement_rejects_nan_price():
+    future = CryptoFuture.from_symbol(
+        "BTC/USDT:USDT-260925",
+        venue="okx",
+        expiration=date(2026, 9, 25),
+        contract_size=0.001,
+    )
+    ledger = PortfolioLedger(cash={"USDT": 1000})
+    with pytest.raises(ValueError, match="finite"):
+        settle_crypto_future(future, settlement_price=float("nan"), ledger=ledger)
+    # NaN must not have touched the ledger.
+    assert ledger.cash["USDT"] == 1000

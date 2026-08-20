@@ -161,6 +161,7 @@ def _run_python_backtest(
                 start_dt.date(), end_dt.date()
             ),
             evaluation_start=start_dt.date(),
+            cancel=cancel,
         )
         result = managed.result
         if result is None:

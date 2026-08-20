@@ -376,3 +376,51 @@ def test_live_engine_with_fresh_quote_is_silent(caplog):
     with caplog.at_level("WARNING", logger="quantforge.risk.engine"):
         RiskEngine(RiskLimits(live_enabled=True, require_fresh_quote=True))
     assert "require_fresh_quote" not in caplog.text
+
+
+# ─── NaN strike / cross-strike closing: fail-closed + no over-credit ──────
+
+def test_nan_strike_option_is_rejected_at_construction():
+    with pytest.raises(ValueError, match="finite"):
+        EquityOption(
+            id=InstrumentId("NVDA  260821C00200000", AssetClass.EQUITY_OPTION, "schwab"),
+            underlying=_NVDA,
+            expiration=date(2026, 8, 21),
+            strike=float("nan"),
+            right=OptionRight.CALL,
+        )
+
+
+def test_risk_rejects_nan_strike_naked_put_even_if_constructed():
+    """A NaN-strike short put must NEVER pass the cash requirement — before
+    this fix NaN > cash is False, so $1 of cash authorized a naked put."""
+    import dataclasses
+
+    put = _options(OrderSide.SELL, OptionRight.PUT)  # strike 200
+    broken = EquityOption.__new__(EquityOption)
+    for field in dataclasses.fields(EquityOption):
+        object.__setattr__(broken, field.name, getattr(put, field.name))
+    object.__setattr__(broken, "strike", float("nan"))
+
+    intent = _intent(instrument=broken, side=OrderSide.SELL)
+    with pytest.raises(RiskRejected, match="non-finite"):
+        _engine().authorize(intent, _ledger())
+
+
+def test_orphan_buy_reduce_cannot_mask_different_strike_naked_short():
+    """closing legs must net against the SAME strike: an orphan BUY-reduce at
+    strike 90 must not erase a naked short call at strike 100."""
+    naked = _options(OrderSide.SELL, OptionRight.CALL)  # strike 200
+    other = EquityOption(
+        id=InstrumentId("NVDA  260821C00190000", AssetClass.EQUITY_OPTION, "schwab"),
+        underlying=_NVDA,
+        expiration=date(2026, 8, 21),
+        strike=190.0,
+        right=OptionRight.CALL,
+    )
+    ledger = _ledger((naked, -1, 4.0))
+    orphan_close = _intent(
+        instrument=other, side=OrderSide.BUY, reduce_only=True
+    )
+    with pytest.raises(RiskRejected, match="naked call"):
+        _engine().authorize(orphan_close, ledger)

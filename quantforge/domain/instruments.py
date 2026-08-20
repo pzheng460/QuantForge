@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -57,8 +58,13 @@ class EquityOption(Instrument):
         # NOTE: explicit parent call — super().__post_init__() crashes on
         # slots dataclasses (CPython quirk with the injected __init__).
         Instrument.__post_init__(self)
-        if self.strike is None or self.strike <= 0:
-            raise ValueError("option strike must be positive")
+        # NaN passes every <=/> comparison, so reject non-finite values
+        # outright — a NaN-strike put must not survive to risk's cash
+        # requirement (NaN > cash is False and silently passes).
+        if not math.isfinite(self.strike) or self.strike <= 0:
+            raise ValueError("option strike must be a positive finite number")
+        if not math.isfinite(self.multiplier) or self.multiplier <= 0:
+            raise ValueError("option multiplier must be a positive finite number")
         if self.expiration in (date.min, date.max):
             raise ValueError("option expiration must be an actual date")
         if self.right not in (OptionRight.CALL, OptionRight.PUT):
@@ -82,10 +88,10 @@ class CryptoDerivative(Instrument):
 
     def __post_init__(self) -> None:
         Instrument.__post_init__(self)
-        if self.contract_size is None or self.contract_size <= 0:
-            raise ValueError("contract size must be positive")
-        if self.max_leverage is None or self.max_leverage <= 0:
-            raise ValueError("max leverage must be positive")
+        if not math.isfinite(self.contract_size) or self.contract_size <= 0:
+            raise ValueError("contract size must be a positive finite number")
+        if not math.isfinite(self.max_leverage) or self.max_leverage <= 0:
+            raise ValueError("max leverage must be a positive finite number")
 
 
 @dataclass(frozen=True, slots=True)

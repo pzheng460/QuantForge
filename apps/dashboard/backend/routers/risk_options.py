@@ -15,6 +15,7 @@ from quantforge.options import (
     intent_from_option_decision,
     validate_report_ticker,
 )
+from apps.dashboard.backend.http_errors import safe_exception_detail
 from apps.dashboard.backend.models import MAX_ORDER_NOTIONAL_USD
 from quantforge.domain.instruments import AssetClass, EquityOption, InstrumentId
 from quantforge.brokers.reconciliation import reconcile_schwab_account
@@ -160,15 +161,35 @@ def analyze_options(request: OptionAnalysisRequest):
 
 def _schwab_analysis(request: SchwabOptionAnalysisRequest):
     from apps.dashboard.backend.routers.brokers import _connector
+    from quantforge.brokers.oauth import SchwabAuthError
 
-    connector = _connector()
-    ticker = request.ticker.upper()
-    ledger = reconcile_schwab_account(connector.get_account_snapshot())
-    # Capture when the chain was actually fetched: quote-age for the risk
-    # checks is measured against this timestamp, never against a synthesized
-    # "now" that would make require_fresh_quote vacuous.
-    fetched_at = datetime.now(UTC)
-    chain = connector.get_option_chain(ticker, contract_type="CALL", strike_count=100)
+    try:
+        connector = _connector()
+        ticker = request.ticker.upper()
+        ledger = reconcile_schwab_account(connector.get_account_snapshot())
+        # Capture when the chain was actually fetched: quote-age for the risk
+        # checks is measured against this timestamp, never against a synthesized
+        # "now" that would make require_fresh_quote vacuous.
+        fetched_at = datetime.now(UTC)
+        chain = connector.get_option_chain(
+            ticker, contract_type="CALL", strike_count=100
+        )
+    except SchwabAuthError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=safe_exception_detail(
+                exc, prefix="Schwab authorization service unavailable"
+            ),
+        ) from exc
+    except (OSError, ValueError) as exc:
+        # Network/parse failures on the live account or chain snapshot: the
+        # operator sees a stable category, the full message stays in logs.
+        raise HTTPException(
+            status_code=502,
+            detail=safe_exception_detail(
+                exc, prefix="Schwab account/chain snapshot failed"
+            ),
+        ) from exc
     candidates = candidates_from_schwab_chain(chain)
     by_symbol = {candidate.symbol: candidate for candidate in candidates}
     short_calls = []
@@ -230,8 +251,8 @@ def analyze_schwab_options(request: SchwabOptionAnalysisRequest):
 def run_schwab_options_once(request: SchwabOptionRunRequest):
     """Analyze once and automatically submit an eligible action through risk."""
     report, candidates, ledger, connector, chain_fetched_at = _schwab_analysis(request)
-    report_path = OptionReportStore().save(report)
     if report.action not in EXECUTABLE_ACTIONS:
+        report_path = OptionReportStore().save(report)
         return {
             "report": report,
             "report_path": str(report_path),
@@ -248,7 +269,8 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
     if candidate is None:
         # The report and the chain diverged (chain refreshed between
         # analysis and submission). A raw StopIteration would surface as a
-        # 500; fail explicitly instead.
+        # 500; fail explicitly instead — and BEFORE persisting the report so
+        # a diverged chain does not leave an orphan report behind.
         raise HTTPException(
             status_code=409,
             detail=(
@@ -256,6 +278,7 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
                 f"{report.contract_symbol}; refresh and re-analyze"
             ),
         )
+    report_path = OptionReportStore().save(report)
     decision = OptionDecision(
         action=report.action,
         reasons=report.reasons,

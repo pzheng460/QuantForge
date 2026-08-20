@@ -367,8 +367,16 @@ class RiskEngine:
         # surface whenever the book already held open obligations. BUY-reduce
         # closing legs are netted out so a legitimate close-and-reopen plan is
         # not double-counted: the close removes the old short, then the new
-        # short is measured against the remaining coverage.
-        closing: dict[tuple[InstrumentId, date], float] = {}
+        # short is measured against the remaining coverage. The closing key
+        # MUST include the strike: an expiry-only key would let an orphan
+        # BUY-reduce leg (e.g. @90) mask a naked short at a DIFFERENT strike
+        # (@100) of the same expiry that it does not actually close.
+        def closing_key(inst: EquityOption) -> tuple[InstrumentId, date, float] | None:
+            if inst.underlying is None or inst.expiration is None:
+                return None
+            return inst.underlying, inst.expiration, inst.strike
+
+        closing: dict[tuple[InstrumentId, date, float], float] = {}
         for leg in legs:
             inst = leg.instrument
             if (
@@ -377,19 +385,21 @@ class RiskEngine:
                 or leg.side is not OrderSide.BUY
             ):
                 continue
-            key = option_key(inst)
+            key = closing_key(inst)
             if key is not None:
                 closing[key] = closing.get(key, 0.0) + leg.quantity
         for position in ledger.positions.values():
             inst = position.instrument
             if not isinstance(inst, EquityOption) or position.quantity >= 0:
                 continue
-            key = option_key(inst)
-            if key is None:
+            close_key = closing_key(inst)
+            if close_key is None:
                 continue
-            short_qty = max(0.0, -position.quantity - closing.get(key, 0.0))
+            short_qty = max(0.0, -position.quantity - closing.get(close_key, 0.0))
             if short_qty <= 0:
                 continue
+            key = option_key(inst)
+            assert key is not None  # close_key non-None implies underlying set
             if inst.right is OptionRight.CALL:
                 call_short[key] = call_short.get(key, 0.0) + short_qty
             else:
@@ -414,6 +424,20 @@ class RiskEngine:
             uncovered = max(0.0, qty - put_long.get(key, 0.0))
             if uncovered <= 0:
                 continue
+            # Fail closed on invalid strike/multiplier. NOTE: max(0.0, NaN)
+            # collapses to 0.0 in Python (NaN compares False), so a NaN-strike
+            # put arrives here as 0.0 — either way the cash requirement must
+            # not silently become 0 (0 > cash is also always False).
+            if (
+                not math.isfinite(strike)
+                or strike <= 0
+                or not math.isfinite(mult)
+                or mult <= 0
+            ):
+                raise RiskRejected(
+                    "uncovered short put has non-finite or non-positive "
+                    "strike/multiplier"
+                )
             # Use the multiplier recorded from the plan legs' instrument.
             required_cash["USD"] = required_cash.get("USD", 0.0) + (
                 uncovered * strike * mult

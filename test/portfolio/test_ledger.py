@@ -86,3 +86,32 @@ def test_fill_rejects_nan_values():
         ledger.apply_fill(_equity(), OrderSide.BUY, float("nan"), 100)
     with pytest.raises(ValueError, match="finite"):
         ledger.apply_fill(_equity(), OrderSide.BUY, 1, float("nan"))
+
+
+def test_crypto_derivative_rejects_nan_max_leverage():
+    with pytest.raises(ValueError, match="finite"):
+        CryptoPerpetual(
+            id=InstrumentId("BTC/USDT:USDT", AssetClass.CRYPTO_PERPETUAL, "okx"),
+            max_leverage=float("nan"),
+        )
+
+
+def test_nan_max_leverage_cannot_bypass_cash_guard(monkeypatch):
+    """A NaN max_leverage must fail closed toward the cash guard, not grant
+    margin privileges (NaN <= 1 is False, which used to defeat the check)."""
+    import dataclasses
+
+    perp = CryptoPerpetual(
+        id=InstrumentId("BTC/USDT:USDT", AssetClass.CRYPTO_PERPETUAL, "okx"),
+        max_leverage=3,
+    )
+    broken = CryptoPerpetual.__new__(CryptoPerpetual)
+    for field in dataclasses.fields(CryptoPerpetual):
+        object.__setattr__(
+            broken, field.name, getattr(perp, field.name)
+        )
+    object.__setattr__(broken, "max_leverage", float("nan"))
+
+    ledger = PortfolioLedger(cash={"USDT": 1_000})
+    with pytest.raises(InsufficientCash):
+        ledger.apply_fill(broken, OrderSide.BUY, 1, 60_000)

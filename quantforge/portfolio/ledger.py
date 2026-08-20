@@ -78,7 +78,13 @@ class PortfolioLedger:
             getattr(instrument, "settlement_currency", None) or instrument.currency
         )
         balance = self.cash.get(currency, 0)
-        leverage = getattr(instrument, "max_leverage", 1) or 1
+        # max_leverage should have been validated at instrument construction
+        # (positive finite), but defense-in-depth: a NaN/0/negative value must
+        # FAIL CLOSED toward the cash guard (treat as non-margin), never
+        # silently grant margin privileges.
+        leverage = getattr(instrument, "max_leverage", 1)
+        if not isinstance(leverage, (int, float)) or not math.isfinite(leverage) or leverage <= 0:
+            leverage = 1
         if side is OrderSide.BUY and leverage <= 1 and debit > balance:
             raise InsufficientCash(
                 f"fill of {quantity:g} {instrument.id} at {price:g} needs "

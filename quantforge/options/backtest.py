@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
@@ -245,6 +246,7 @@ def run_managed_covered_call_approximation(
     config: ManagedCoveredCallConfig | None = None,
     earnings_dates: tuple[date, ...] = (),
     evaluation_start: date | None = None,
+    cancel: Callable[[], None] | None = None,
 ) -> ManagedCoveredCallBacktest:
     """Stateful managed covered-call approximation using modeled option quotes.
 
@@ -356,6 +358,10 @@ def run_managed_covered_call_approximation(
         )
 
     for index, row in enumerate(ordered):
+        # Cooperative cancellation: long histories (up to 2M bars) must stay
+        # interruptible like the shared backtest engine's cancel_check.
+        if cancel and index % 256 == 0:
+            cancel()
         day = _date(int(row[0]))
         spot_open = float(row[1])
         spot = float(row[4])
@@ -596,6 +602,7 @@ def run_covered_call_approximation(
     dte: int = 30,
     target_delta: float = 0.20,
     coverage_ratio: float = 0.50,
+    cancel: Callable[[], None] | None = None,
 ) -> ApproximateOptionBacktest:
     """Model a repeated covered-call overlay; prices are not historical NBBO.
 
@@ -623,6 +630,8 @@ def run_covered_call_approximation(
     pending_entry: EquityOption | None = None
 
     for index, row in enumerate(bars):
+        if cancel and index % 256 == 0:
+            cancel()
         spot_open = float(row[1])
         spot = float(row[4])
         valuation_date = _date(int(row[0]))
