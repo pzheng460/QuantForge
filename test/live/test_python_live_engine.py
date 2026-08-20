@@ -270,3 +270,150 @@ def test_live_engine_survives_risk_rejections_without_crashing():
     # Both decision bars were skipped by the risk gate; the engine stayed
     # alive until its feed naturally ended.
     assert adapter.intents == []
+
+
+# ─── Risk exits (stop/trailing) + ledger sync ────────────────────────────────
+
+
+class ArmedStopStrategy(BarStrategy):
+    """Holds a long position and returns a PositionTarget armed with an
+    optional stop/trailing/clear flag that the test re-arms between bars."""
+
+    name = "armed-stop"
+
+    def __init__(self, config, *, stop_price=None, trailing=None, clear=False):
+        super().__init__(config)
+        self.stop_price = stop_price
+        self.trailing = trailing
+        self.clear = clear
+
+    def setup(self) -> None:
+        pass
+
+    def on_bar(self, bar: Bar) -> PositionTarget:
+        self.position = 1
+        return PositionTarget(
+            self.position,
+            stop_price=self.stop_price,
+            trailing_distance=self.trailing,
+            clear_risk_exits=self.clear,
+        )
+
+
+def _engine_with_strategy(strategy, *, quote_provider=None):
+    instrument = CryptoDerivative(
+        id=InstrumentId("BTC/USDT:USDT", AssetClass.CRYPTO_PERPETUAL, "bitget"),
+        max_leverage=3,
+    )
+    ledger = PortfolioLedger(cash={"USDT": 10_000})
+    adapter = RecordingAdapter([])
+    execution = ExecutionService(
+        risk=RiskEngine(
+            RiskLimits(
+                live_enabled=True,
+                max_order_notional=100_000,
+                require_fresh_quote=True,
+            )
+        ),
+        ledger=ledger,
+        adapter=adapter,
+    )
+    engine = PythonLiveEngine(
+        strategy=strategy,
+        instrument=instrument,
+        execution=execution,
+        position_size=500,
+        leverage=2,
+        quote_provider=quote_provider,
+    )
+    return engine, adapter, ledger
+
+
+def test_live_engine_hard_stop_triggers_and_closes():
+    """A PositionTarget carrying stop_price must be honored by the live engine:
+    when a later bar's low breaches the stop, a reduce-only close is submitted.
+    (Previously the live engine ignored stop/trailing entirely.)"""
+    strategy = ArmedStopStrategy(
+        ArmedStopStrategy.config_model(), stop_price=98
+    )
+    engine, adapter, _ledger = _engine_with_strategy(
+        strategy, quote_provider=_fresh_quote
+    )
+
+    engine.process_bar(Bar(1, 100, 101, 99, 100, 10))  # long; stop armed at 98
+    engine.process_bar(Bar(2, 100, 101, 97, 97, 10))  # low 97 <= 98 → stop fills
+
+    sides = [intent.side.value for intent in adapter.intents]
+    assert sides == ["buy", "sell"]
+    assert adapter.intents[0].reduce_only is False  # open
+    assert adapter.intents[1].reduce_only is True  # stop close
+    assert engine._target == 0
+    assert engine._quantity == 0.0
+    assert engine._active_stop is None
+
+
+def test_live_engine_trailing_stop_raises_anchor_and_closes():
+    """A trailing stop must raise the anchor to the bar high and then test the
+    low — mirroring the backtester."""
+    strategy = ArmedStopStrategy(
+        ArmedStopStrategy.config_model(), trailing=4
+    )
+    engine, adapter, _ledger = _engine_with_strategy(
+        strategy, quote_provider=_fresh_quote
+    )
+
+    engine.process_bar(Bar(1, 100, 101, 99, 100, 10))  # long; trailing armed
+    # bar 2: anchor raises to high 105 → stop = 105 - 4 = 101; low 101 => hit
+    engine.process_bar(Bar(2, 101, 105, 101, 102, 10))
+
+    sides = [intent.side.value for intent in adapter.intents]
+    assert sides == ["buy", "sell"]
+    assert adapter.intents[1].reduce_only is True
+    assert engine._target == 0
+
+
+def test_live_engine_clear_risk_exits_disarms_stop():
+    """A held position must be able to cancel its active stop via
+    clear_risk_exits — a later stop-breach must NOT force an exit."""
+    strategy = ArmedStopStrategy(
+        ArmedStopStrategy.config_model(), stop_price=98
+    )
+    engine, adapter, _ledger = _engine_with_strategy(
+        strategy, quote_provider=_fresh_quote
+    )
+
+    engine.process_bar(Bar(1, 100, 101, 99, 100, 10))  # long; stop armed at 98
+    assert engine._active_stop == 98
+
+    strategy.stop_price = None
+    strategy.clear = True
+    engine.process_bar(Bar(2, 100, 101, 99, 100, 10))  # no breach; clear adopted
+    assert engine._active_stop is None
+    assert engine._target == 1  # still holding
+
+    engine.process_bar(Bar(3, 100, 100, 90, 90, 10))  # low 90 — must NOT trigger
+    assert [intent.side.value for intent in adapter.intents] == ["buy"]
+    assert engine._target == 1
+
+
+def test_live_engine_applies_fills_to_ledger():
+    """After a submit the ExecutionService must apply the fill to the ledger so
+    mid-session risk checks (reduce_only netting, coverage, cash) see the
+    current book instead of the startup snapshot."""
+    engine, adapter, ledger = _engine_with_strategy(
+        ToggleStrategy(ToggleStrategy.config_model()), quote_provider=_fresh_quote
+    )
+    instrument = engine.instrument
+
+    engine.process_bar(Bar(1, 100, 101, 99, 100, 10))  # long
+    qty_after_open = ledger.quantity(instrument.id)
+    assert qty_after_open > 0
+    assert ledger.cash["USDT"] < 10_000  # cash debited
+
+    engine.process_bar(Bar(3, 99, 100, 98, 99, 10))  # flat → close
+    assert ledger.quantity(instrument.id) == 0
+    assert ledger.cash["USDT"] > 0
+    assert len(adapter.intents) == 2
+
+    # Close was submitted with the CURRENT tracked state (reduce-only).
+    assert adapter.intents[1].reduce_only is True

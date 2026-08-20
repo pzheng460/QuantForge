@@ -14,6 +14,7 @@ from fastapi import (
 
 from apps.dashboard.backend.auth import websocket_api_key_authorized
 from apps.dashboard.backend.jobs import (
+    JobLimitExceededError,
     create_job,
     get_job,
     run_optimize_job,
@@ -40,7 +41,12 @@ def _job_to_optimize_status(job_id: str, job: dict) -> OptimizeJobStatusOut:
 @router.post("/optimize/run", response_model=OptimizeJobStatusOut)
 async def start_optimize(req: OptimizeRequest, background_tasks: BackgroundTasks):
     """Submit an optimization job."""
-    job_id = create_job()
+    try:
+        job_id = create_job()
+    except JobLimitExceededError as exc:
+        # Queue is full of pending/running jobs: back-pressure the client
+        # with 429 instead of accepting unbounded work.
+        raise HTTPException(status_code=429, detail=str(exc))
     background_tasks.add_task(run_optimize_job, job_id, req)
     return OptimizeJobStatusOut(job_id=job_id, status="pending", mode=req.mode)
 

@@ -388,7 +388,10 @@ class LiveStartRequest(BaseModel):
     demo: bool = True
     position_size_usdt: float = Field(default=100.0, gt=0, le=MAX_POSITION_SIZE_USD)
     leverage: int = Field(default=1, ge=1, le=MAX_LEVERAGE)
-    warmup_bars: int = 500
+    # Same 0..10000 bound as BacktestRequest/OptimizeRequest.warmup_bars so a
+    # client cannot request 999_999_999 warmup bars and trigger a runaway
+    # historical prefetch on a live engine.
+    warmup_bars: int = Field(default=500, ge=0, le=10000)
     config_override: Optional[Dict[str, Any]] = None
     max_order_notional: float = Field(
         default=10_000, gt=0, le=MAX_ORDER_NOTIONAL_USD

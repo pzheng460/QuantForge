@@ -252,7 +252,7 @@ class StreamingADX:
                     dx = 100.0 * abs(plus_di - minus_di) / di_sum if di_sum > 0 else 0.0
                     self._dx_values.append(dx)
 
-                    if self._value is None and len(self._dx_values) >= self._period + 1:
+                    if self._value is None and len(self._dx_values) >= self._period:
                         self._value = (
                             sum(self._dx_values[: self._period]) / self._period
                         )

@@ -28,6 +28,9 @@ class _StubExchange:
         self.fail_margin = False
         self.create_order_raises: BaseException | None = None
         self.create_order_result: dict = {"id": "order-1", "status": "filled"}
+        # fetch_quote support: a ticker dict to return, or an exception to
+        # raise. Defaults to an empty dict (no usable price -> None).
+        self.fetch_ticker_result: dict | BaseException = {}
 
     def set_leverage(self, leverage, symbol):
         self.set_leverage_calls.append((leverage, symbol))
@@ -43,6 +46,11 @@ class _StubExchange:
         if self.create_order_raises is not None:
             raise self.create_order_raises
         return self.create_order_result
+
+    def fetch_ticker(self, symbol):
+        if isinstance(self.fetch_ticker_result, BaseException):
+            raise self.fetch_ticker_result
+        return self.fetch_ticker_result
 
 
 @pytest.fixture
@@ -213,3 +221,71 @@ def test_definitive_rejection_releases_risk_reservation(stub, monkeypatch):
     assert intent.intent_id not in service.risk._authorized
     day = datetime.now(timezone.utc).date().isoformat()
     assert service.risk._local_entries.get(day, 0) == 0
+
+
+# ─── Thin-book quote: synthetic price must NOT look fresh ────────────────────
+
+_TS_MS = 1_700_000_000_000
+
+
+def test_thin_book_quote_carries_no_timestamp(stub, monkeypatch):
+    """When the ticker's bid or ask is missing/zero (thin book), fetch_quote
+    must NOT stamp the synthetic zero-spread quote with the exchange's real
+    timestamp — that would let it sail through the quote-age gate (fresh) and
+    the spread gate (spread=0 <= max_spread_pct). Instead carry time=None so
+    require_fresh_quote fails closed, mirroring
+    SchwabConnector.get_quote_bid_ask."""
+    stub.fetch_ticker_result = {
+        "bid": None,
+        "ask": 60_100,
+        "last": 60_050,
+        "timestamp": _TS_MS,
+    }
+    conn = _connector(stub, monkeypatch)
+    quote = conn.fetch_quote()
+    assert quote is not None
+    # Fell back to the last trade price as a price reference...
+    assert quote["bid"] == 60_050.0
+    assert quote["ask"] == 60_050.0
+    # ...but the clincher: NO timestamp on a synthetic quote, so the
+    # freshness gate rejects it instead of accepting a fake-fresh quote.
+    assert quote["time"] is None
+
+
+def test_thin_book_quote_zero_bid_carries_no_timestamp(stub, monkeypatch):
+    """A zero bid (some venues send 0 instead of None) is the same thin book."""
+    stub.fetch_ticker_result = {
+        "bid": 0,
+        "ask": 60_100,
+        "last": 60_050,
+        "timestamp": _TS_MS,
+    }
+    conn = _connector(stub, monkeypatch)
+    quote = conn.fetch_quote()
+    assert quote is not None
+    assert quote["time"] is None
+    assert quote["bid"] == quote["ask"] == 60_050.0
+
+
+def test_real_book_quote_carries_exchange_timestamp(stub, monkeypatch):
+    """A genuine two-sided book is stamped with the exchange time so the
+    quote-age gate can enforce freshness (and the real spread is checked)."""
+    stub.fetch_ticker_result = {
+        "bid": 60_000,
+        "ask": 60_100,
+        "last": 60_050,
+        "timestamp": _TS_MS,
+    }
+    conn = _connector(stub, monkeypatch)
+    quote = conn.fetch_quote()
+    assert quote is not None
+    assert quote["bid"] == 60_000.0
+    assert quote["ask"] == 60_100.0
+    assert quote["time"] == datetime.fromtimestamp(_TS_MS / 1000, tz=timezone.utc)
+
+
+def test_thin_book_with_no_last_returns_none(stub, monkeypatch):
+    """A thin book with neither bid/ask nor a last price has nothing usable."""
+    stub.fetch_ticker_result = {"bid": None, "ask": None, "last": None}
+    conn = _connector(stub, monkeypatch)
+    assert conn.fetch_quote() is None

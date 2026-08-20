@@ -36,7 +36,13 @@ class PortfolioLedger:
         return self.positions.pop(instrument_id, None)
 
     def apply_fill(
-        self, instrument: Instrument, side: OrderSide, quantity: float, price: float
+        self,
+        instrument: Instrument,
+        side: OrderSide,
+        quantity: float,
+        price: float,
+        *,
+        enforce_cash: bool = True,
     ) -> None:
         if (
             quantity <= 0
@@ -85,7 +91,12 @@ class PortfolioLedger:
         leverage = getattr(instrument, "max_leverage", 1)
         if not isinstance(leverage, (int, float)) or not math.isfinite(leverage) or leverage <= 0:
             leverage = 1
-        if side is OrderSide.BUY and leverage <= 1 and debit > balance:
+        if (
+            enforce_cash
+            and side is OrderSide.BUY
+            and leverage <= 1
+            and debit > balance
+        ):
             raise InsufficientCash(
                 f"fill of {quantity:g} {instrument.id} at {price:g} needs "
                 f"{debit:.2f} {currency}; ledger has "

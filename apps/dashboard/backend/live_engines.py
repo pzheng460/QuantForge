@@ -108,10 +108,17 @@ def _save_state() -> None:
         "stopped_at",
         "error",
     )
-    payload = [
-        {field: entry.get(field) for field in fields}
-        for entry in _engines.values()
-    ]
+    # Snapshot the registry under the lock: start_engine/delete_engine mutate
+    # _engines under _registry_lock, and get_live_engines/list_engines run
+    # sync on the FastAPI threadpool, so an unguarded iteration can raise
+    # "dictionary changed size during iteration". _save_state is never called
+    # from inside _registry_lock (callers release it first), so a plain Lock
+    # cannot self-deadlock here.
+    with _registry_lock:
+        payload = [
+            {field: entry.get(field) for field in fields}
+            for entry in _engines.values()
+        ]
     _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = _PERSIST_FILE.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -557,7 +564,14 @@ def delete_engine(engine_id: str) -> None:
 
 def list_engines() -> list[dict[str, Any]]:
     result = []
-    for eid, entry in _engines.items():
+    # Iterate under the registry lock: start_engine/delete_engine mutate
+    # _engines under _registry_lock, and this function runs sync on the
+    # FastAPI threadpool, so concurrent mutation during iteration would raise
+    # "dictionary changed size during iteration". Build the snapshot under the
+    # lock, then return it.
+    with _registry_lock:
+        items = list(_engines.items())
+    for eid, entry in items:
         result.append(
             {
                 "engine_id": eid,
@@ -585,11 +599,17 @@ async def emergency_halt_all(reason: str) -> dict[str, Any]:
     state = GlobalRiskControl().update(halted=True, reason=reason)
     canceled: list[str] = []
     errors: list[str] = []
-    active_ids = [
-        engine_id
-        for engine_id, entry in _engines.items()
-        if entry.get("status") in {"warmup", "running", "restarting"}
-    ]
+    # Snapshot the active engine ids under the registry lock so a concurrent
+    # start_engine/delete_engine cannot mutate _engines during iteration
+    # (RuntimeError: dictionary changed size during iteration). The per-engine
+    # stop work below is awaited outside the lock to avoid blocking the
+    # threadpool while waiting on broker I/O.
+    with _registry_lock:
+        active_ids = [
+            engine_id
+            for engine_id, entry in _engines.items()
+            if entry.get("status") in {"warmup", "running", "restarting"}
+        ]
     for engine_id in active_ids:
         entry = _engines[engine_id]
         engine = entry.get("engine")

@@ -376,14 +376,45 @@ class CcxtConnector:
         exchange.load_markets()
         return exchange
 
+    def close(self) -> None:
+        """Close the underlying ccxt exchange's HTTP session, if any.
+
+        ccxt exchanges may hold an aiohttp/requests session with pooled
+        sockets; closing it on shutdown prevents leaking file descriptors
+        when connectors are churned (e.g. backtest/dashboard runs that spin
+        up many short-lived exchanges). Stub/test exchanges without a
+        ``close`` method are a no-op.
+        """
+        exchange = getattr(self, "_exchange", None)
+        closer = getattr(exchange, "close", None)
+        if callable(closer):
+            closer()
+
+    def __del__(self) -> None:
+        """Best-effort cleanup if :meth:`close` was not called explicitly.
+
+        Never raises: a partially-constructed instance (``_create_exchange``
+        failed before ``self._exchange`` was set) or interpreter teardown must
+        not propagate out of ``__del__``.
+        """
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001 — __del__ must never raise
+            pass
+
     def fetch_quote(self) -> dict | None:
         """Fetch a real-time bid/ask quote for ``self.symbol`` from ccxt.
 
         Returns ``{"bid": float, "ask": float, "time": datetime | None}`` using
-        the ticker's live bid/ask when present, falling back to the last trade
-        price when the book is thin (bid/ask zero). Returns ``None`` when the
-        exchange call fails or yields no usable price, so callers can decide
-        how to degrade (never fabricate a price here).
+        the ticker's live bid/ask when present. When the book is thin (bid or
+        ask missing/zero) it falls back to the last trade price as a price
+        reference BUT carries ``time=None``, so the upstream quote-age gate
+        (``require_fresh_quote``) fails closed instead of accepting a synthetic
+        zero-spread quote stamped with a fresh exchange time — mirroring
+        :meth:`SchwabConnector.get_quote_bid_ask`'s ``time=None`` fail-closed
+        semantics. Returns ``None`` when the exchange call fails or yields no
+        usable price, so callers can decide how to degrade (never fabricate a
+        price here).
         """
         try:
             ticker = self._exchange.fetch_ticker(self.symbol)
@@ -393,17 +424,25 @@ class CcxtConnector:
         try:
             bid = ticker.get("bid")
             ask = ticker.get("ask")
-            if not bid or not ask:
-                bid = ask = ticker.get("last")
-            if not bid or not ask:
-                return None
+            # Only a real two-sided book is trustworthy. When bid or ask is
+            # missing/zero the book is thin: fall back to the last trade price
+            # as a *priceless* reference but carry NO timestamp, so the
+            # freshness/spread gates fail closed rather than accepting a
+            # synthetic zero-spread quote (spread=0 <= max_spread_pct) that
+            # looks fresh because it reuses the exchange timestamp.
+            real_book = bool(bid) and bool(ask)
+            if not real_book:
+                last = ticker.get("last")
+                if not last:
+                    return None
+                bid = ask = last
             ts = ticker.get("timestamp")
             return {
                 "bid": float(bid),
                 "ask": float(ask),
                 "time": (
                     datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
-                    if ts
+                    if real_book and ts
                     else None
                 ),
             }

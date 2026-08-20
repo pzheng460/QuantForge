@@ -35,9 +35,26 @@ _lock = threading.RLock()
 
 _JOB_TTL = timedelta(hours=1)
 
+#: Maximum number of jobs in the pending+running states. ``MAX_PARALLEL_JOBS``
+#: only caps simultaneous *execution*; without this queue cap a client could
+#: submit an unbounded number of jobs (each triggers a full registry rewrite
+#: and waits for a slot), exhausting memory and persistence I/O. Exceeding it
+#: raises JobLimitExceededError, which routers map to HTTP 429.
+MAX_QUEUED_JOBS = 50
+
 
 class JobCancelled(Exception):
     """Raised when a job is cancelled via the cancel flag."""
+
+    pass
+
+
+class JobLimitExceededError(Exception):
+    """Raised by create_job when pending+running jobs exceed MAX_QUEUED_JOBS.
+
+    Routers map this to HTTP 429 so a flood of submissions is back-pressured
+    instead of queuing unbounded work or silently being dropped.
+    """
 
     pass
 
@@ -219,6 +236,20 @@ def _cleanup_old_jobs() -> None:
 def create_job() -> str:
     with _lock:
         _cleanup_old_jobs()
+        # Back-pressure: MAX_PARALLEL_JOBS only caps simultaneous execution,
+        # not the queue depth. Without this gate a client can submit an
+        # unbounded number of pending jobs (each rewriting the whole
+        # registry), so cap pending+running and surface 429 to the caller.
+        queued = sum(
+            1
+            for job in _jobs.values()
+            if job.get("status") in ("pending", "running")
+        )
+        if queued >= MAX_QUEUED_JOBS:
+            raise JobLimitExceededError(
+                f"job queue full: {queued} pending/running jobs "
+                f"(limit {MAX_QUEUED_JOBS}); retry later"
+            )
         job_id = str(uuid.uuid4())
         _jobs[job_id] = {
             "status": "pending",

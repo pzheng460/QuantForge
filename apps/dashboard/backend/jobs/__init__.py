@@ -21,6 +21,8 @@ from apps.dashboard.backend.jobs.optimize import (
 )
 from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
+    JobLimitExceededError,
+    MAX_QUEUED_JOBS,
     cancel_job,
     check_cancelled,
     create_job,
@@ -30,6 +32,8 @@ from apps.dashboard.backend.jobs.registry import (
 
 __all__ = [
     "JobCancelled",
+    "JobLimitExceededError",
+    "MAX_QUEUED_JOBS",
     "cancel_job",
     "check_cancelled",
     "create_job",

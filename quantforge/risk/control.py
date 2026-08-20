@@ -24,13 +24,42 @@ class GlobalRiskControl:
         self.path = Path(
             path or Path.home() / ".quantforge" / "risk" / "global.json"
         )
+        self._ensure_initialized()
+
+    def _ensure_initialized(self) -> None:
+        """Create a default (not-halted) state file on first use.
+
+        This makes a MISSING file unambiguous: after initialization, absence
+        can only mean the file was deleted — which must fail closed (halt
+        trading) rather than silently re-enabling a halted book.
+        """
+        try:
+            if not self.path.exists():
+                self.update(halted=False, reason="initialized")
+        except OSError:
+            logger.warning(
+                "Unable to initialize global risk-control file at %s; "
+                "a later missing file will halt trading",
+                self.path,
+            )
 
     def get(self) -> GlobalRiskState:
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            # First run / never halted: trading is allowed by default.
-            return GlobalRiskState()
+            # The file was deleted AFTER initialization (see
+            # _ensure_initialized): deleting the master kill switch must never
+            # silently re-enable trading, so a missing file is treated as an
+            # operator halt until an operator restores or re-creates it.
+            logger.error(
+                "Global risk-control file missing at %s — halting trading",
+                self.path,
+            )
+            return GlobalRiskState(
+                halted=True,
+                reason="risk control file missing",
+                updated_at=datetime.now(UTC).isoformat(),
+            )
         except (OSError, json.JSONDecodeError):
             # Fail-closed: a master-halt file that is unreadable or corrupt must
             # never silently re-enable trading. Treat it as an operator halt

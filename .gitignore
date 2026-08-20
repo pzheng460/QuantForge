@@ -61,3 +61,7 @@ quantforge_ops/
 
 # Run artifacts
 eval/optimizer_ab/results/
+# Coverage run artifact
+.coverage
+.coverage.*
+htmlcov/

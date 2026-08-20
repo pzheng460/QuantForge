@@ -503,6 +503,17 @@ class SchwabConnector:
             return {"bid": last, "ask": last, "time": None}
         return None
 
+    def close(self) -> None:
+        """Release the underlying requests session (file descriptors /
+        connection pool). Call on engine teardown and watchdog restarts so
+        rebuilds do not leak sockets over a long-lived process."""
+        if self.session is not None:
+            try:
+                self.session.close()
+            except Exception:  # noqa: BLE001 — best-effort teardown
+                logger.debug("Error closing Schwab session", exc_info=True)
+            self.session = None
+
     def get_option_chain(
         self,
         symbol: str,
@@ -524,6 +535,15 @@ class SchwabConnector:
             "includeUnderlyingQuote": "true",
             "strategy": "SINGLE",
         }
+        if int(strike_count) > 100:
+            # Schwab caps strikes per expiry at 100 with no pagination; a wider
+            # request is silently truncated, so surface it rather than have a
+            # consumer build an options surface from a censored chain.
+            logger.warning(
+                "Schwab option chain is capped at 100 strikes per expiry; "
+                "requested %s strikes are silently truncated",
+                int(strike_count),
+            )
         if from_date:
             params["fromDate"] = from_date
         if to_date:
@@ -556,8 +576,27 @@ class SchwabConnector:
         )
         return list(response.json().get("candles") or [])
 
+    @staticmethod
+    def _drop_in_progress(rows: list[list], bar_ms: int) -> list[list]:
+        """Drop the currently-in-progress bar (mirrors the CCXT data path).
+
+        Exchanges return the forming bar as the last row with partial OHLC;
+        letting it through would seed indicators with a half-baked candle, and
+        the finalized bar is never re-processed once it closes — a
+        backtest-vs-live divergence. The boundary is the START of the forming
+        bar: any bar with ts >= (now // bar_ms) * bar_ms is partial.
+        """
+        now_ms = int(time.time() * 1000)
+        current_start_ms = (now_ms // bar_ms) * bar_ms
+        return [row for row in rows if int(row[0]) < current_start_ms]
+
     def fetch_chart_bars(self, symbol: str, timeframe: str) -> list[list]:
-        """Return closed candles in the canonical OHLCV row shape."""
+        """Return closed candles in the canonical OHLCV row shape.
+
+        The currently-forming (partial) candle is dropped — mirroring the
+        CCXT adapter — so warmup never seeds indicators with a half-baked bar
+        that silently diverges from backtest.
+        """
         if timeframe in {"1m", "5m", "15m", "30m", "1h"}:
             requested_minutes = int(timeframe[:-1]) * (60 if timeframe.endswith("h") else 1)
             base_minutes = 30 if requested_minutes >= 60 else requested_minutes
@@ -579,6 +618,9 @@ class SchwabConnector:
                 ]
                 for c in candles
             ]
+            # Drop the forming base-minute bar BEFORE aggregating, so a
+            # finished 1h bucket built from a partial 30m candle is excluded.
+            rows = self._drop_in_progress(rows, base_minutes * 60_000)
             if requested_minutes == base_minutes:
                 return rows
             return self._aggregate_bars(rows, requested_minutes * 60_000)
@@ -590,7 +632,7 @@ class SchwabConnector:
                 frequency_type="daily" if timeframe == "1d" else "weekly",
                 frequency=1,
             )
-            return [
+            rows = [
                 [
                     int(c["datetime"]),
                     float(c["open"]),
@@ -601,6 +643,12 @@ class SchwabConnector:
                 ]
                 for c in candles
             ]
+            # Daily bars use UTC-aligned day buckets; weekly bars use Monday
+            # 00:00 UTC. Either way the only bar dropped is the one that is
+            # still forming (or today's empty-looking partial).
+            return self._drop_in_progress(
+                rows, 604_800_000 if timeframe == "1w" else 86_400_000
+            )
         raise ValueError(f"Unsupported Schwab timeframe: {timeframe}")
 
     @staticmethod
@@ -791,7 +839,13 @@ class SchwabConnector:
             raise ValueError(
                 "multi-leg option strategy requires a non-zero net limit price"
             )
-        order_type = "NET_DEBIT" if net_limit_price > 0 else "NET_CREDIT"
+        # ``net_limit_price`` sign convention: the intent builder
+        # (``options/execution.py``) computes it as (credit - debit), so a
+        # POSITIVE value is a NET CREDIT to the account. Schwab's orderType
+        # must mirror that: positive -> NET_CREDIT, negative -> NET_DEBIT.
+        # (This was previously inverted, so every roll order was submitted
+        # with the wrong type.)
+        order_type = "NET_CREDIT" if net_limit_price > 0 else "NET_DEBIT"
         payload: dict[str, Any] = {
             "orderType": order_type,
             "session": "NORMAL",

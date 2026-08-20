@@ -127,6 +127,50 @@ def test_atomic_option_spread_contract(tmp_path):
 
     assert order.order_id == "987654"
     payload = session.calls[0][2]["json"]
+    # Sign convention: net_limit_price is (credit - debit), so a NEGATIVE
+    # value is a net DEBIT to the account.
+    assert payload["orderType"] == "NET_DEBIT"
+    assert payload["price"] == "2.5"
+    assert payload["complexOrderStrategyType"] == "CUSTOM"
+    assert len(payload["orderLegCollection"]) == 2
+
+
+@pytest.mark.critical
+def test_atomic_option_spread_contract_net_credit(tmp_path):
+    """A POSITIVE net_limit_price (net credit to the account) must map to
+    the NET_CREDIT orderType (regression: the sign convention was previously
+    inverted, so every roll order carried the wrong type)."""
+    session = _Session()
+    connector = SchwabConnector(
+        credentials=SchwabCredentials(
+            app_key="app-key",
+            app_secret="app-secret",
+            callback_url="https://127.0.0.1:8182/callback",
+        ),
+        account_hash="HASH123",
+        token_path=tmp_path / "tokens.json",
+        session=session,
+        access_token="access-token",
+    )
+
+    order = connector.place_option_strategy(
+        legs=[
+            {
+                "symbol": "NVDA  260821C00200000",
+                "instruction": "SELL_TO_OPEN",
+                "quantity": 1,
+            },
+            {
+                "symbol": "NVDA  260821C00210000",
+                "instruction": "BUY_TO_OPEN",
+                "quantity": 1,
+            },
+        ],
+        net_limit_price=2.5,
+    )
+
+    assert order.order_id == "987654"
+    payload = session.calls[0][2]["json"]
     assert payload["orderType"] == "NET_CREDIT"
     assert payload["price"] == "2.5"
     assert payload["complexOrderStrategyType"] == "CUSTOM"

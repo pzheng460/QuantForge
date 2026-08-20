@@ -146,6 +146,24 @@ def _evaluate(strategy_cls, rows, params, req, warmup=0, job_id=None):
     return result, _metrics(result, periods_per_year=periods_per_year)
 
 
+def _clamped_warmup(req: OptimizeRequest, window: list) -> int:
+    """Warmup bar count for a sub-window, clamped to the window size.
+
+    Grid mode evaluates ``rows`` with ``warmup=cutoff`` so indicators (EMA,
+    etc.) are warmed up before metrics are measured. The WFO/three-stage
+    windows are slices of ``rows[cutoff:]`` (the global warmup is already
+    excluded), but a strategy's own indicators still need bars to settle —
+    passing warmup=0 measured metrics from the very first bar, a cold-start
+    bias. Use ``req.warmup_bars`` (the same value grid resolves ``cutoff``
+    from) but clamp it so a short window is not entirely consumed by warmup:
+    leave at least one evaluated bar, and never exceed the window length.
+    """
+    length = len(window)
+    if length <= 1:
+        return 0
+    return min(req.warmup_bars, length - 1)
+
+
 def _run_python_optimize(
     req: OptimizeRequest, job_id: str | None = None
 ) -> GridSearchResultOut:
@@ -215,13 +233,22 @@ def _run_wfo(req: OptimizeRequest, job_id: str | None = None) -> WFOResultOut:
             check_cancelled(job_id)
         train = period[start : start + window_size]
         test = period[start + window_size : start + window_size + test_size]
+        # Warm up indicators inside each window (clamped to the window length)
+        # instead of measuring metrics from the first bar — matches grid's
+        # use of ``cutoff`` as warmup and removes the cold-start bias.
+        train_warmup = _clamped_warmup(req, train)
+        test_warmup = _clamped_warmup(req, test)
         candidates = []
         for params in _parameter_grid(strategy_cls, limit=100):
-            _, metric = _evaluate(strategy_cls, train, params, req, job_id=job_id)
+            _, metric = _evaluate(
+                strategy_cls, train, params, req, warmup=train_warmup, job_id=job_id
+            )
             candidates.append((metric["sharpe"], params, metric))
         candidates.sort(reverse=True, key=lambda item: item[0])
         _, best, train_metric = candidates[0]
-        _, test_metric = _evaluate(strategy_cls, test, best, req, job_id=job_id)
+        _, test_metric = _evaluate(
+            strategy_cls, test, best, req, warmup=test_warmup, job_id=job_id
+        )
         def to_date(row):
             return datetime.fromtimestamp(
                 row[0] / 1000, tz=timezone.utc
@@ -268,8 +295,16 @@ def _run_three_stage(req: OptimizeRequest, job_id: str | None = None) -> ThreeSt
     period = rows[cutoff:]
     holdout_index = max(1, int(len(period) * 0.8))
     holdout = period[holdout_index:]
+    # Warm up indicators inside the holdout slice (clamped to its length) so
+    # the out-of-sample metrics are not measured from a cold first bar —
+    # consistent with how grid warms up via ``cutoff``.
     holdout_result, holdout_metrics = _evaluate(
-        strategy_cls, holdout, grid.best_params, req, job_id=job_id
+        strategy_cls,
+        holdout,
+        grid.best_params,
+        req,
+        warmup=_clamped_warmup(req, holdout),
+        job_id=job_id,
     )
     bh = (holdout[-1][4] / holdout[0][4] - 1) * 100 if holdout else 0
     degradation = (

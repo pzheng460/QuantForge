@@ -9,6 +9,7 @@ from typing import Callable, Protocol
 from quantforge.domain.instruments import AssetClass, Instrument
 from quantforge.domain.intents import OrderIntent, OrderSide, OrderType
 from quantforge.execution.service import ExecutionReceipt, ExecutionService
+from quantforge.portfolio.ledger import InsufficientCash
 from quantforge.risk import RiskRejected
 from quantforge.strategy.bar import Bar, BarStrategy
 
@@ -68,6 +69,12 @@ class PythonLiveEngine:
         existing = execution.ledger.quantity(instrument.id)
         self._target = 1 if existing > 0 else (-1 if existing < 0 else 0)
         self._quantity = abs(existing)
+        # Active risk-exit state adopted from PositionTarget (stop_price /
+        # trailing_distance), mirroring the backtester's active_stop /
+        # active_trailing / trail_anchor semantics.
+        self._active_stop: float | None = None
+        self._active_trailing: float | None = None
+        self._trail_anchor: float | None = None
         self._running = False
         self._warmup_complete = False
 
@@ -149,12 +156,91 @@ class PythonLiveEngine:
             quote_timestamp=quote.timestamp,
             leverage=self.leverage,
         )
-        return self.execution.execute(intent)
+        return self.execution.execute(intent, fill_price=price)
+
+    def _evaluate_stops(self, bar: Bar) -> ExecutionReceipt | None:
+        """Evaluate the active stop/trailing against the current bar's range.
+
+        Mirrors the backtester: for a long, the trail anchor is raised to the
+        bar high (long) / lowered to the bar low (short) FIRST, then the
+        opposite extreme is tested against the stop. A triggered stop closes
+        the tracked position with a reduce-only market order on this bar and
+        clears the active risk-exit state.
+        """
+        if not self._target or not self._quantity:
+            return None
+        if self._active_stop is None and self._active_trailing is None:
+            return None
+        quote = self._resolve_quote(bar)
+        fill: float | None = None
+        if self._target > 0:
+            if self._active_trailing:
+                self._trail_anchor = max(self._trail_anchor or bar.high, bar.high)
+                stop = self._trail_anchor - self._active_trailing
+                self._active_stop = (
+                    max(self._active_stop, stop)
+                    if self._active_stop is not None
+                    else stop
+                )
+            if self._active_stop is not None and bar.low <= self._active_stop:
+                fill = min(bar.open, self._active_stop)
+        else:
+            if self._active_trailing:
+                self._trail_anchor = min(self._trail_anchor or bar.low, bar.low)
+                stop = self._trail_anchor + self._active_trailing
+                self._active_stop = (
+                    min(self._active_stop, stop)
+                    if self._active_stop is not None
+                    else stop
+                )
+            if self._active_stop is not None and bar.high >= self._active_stop:
+                fill = max(bar.open, self._active_stop)
+        if fill is None:
+            return None
+        receipt = self._submit_order(
+            target=0,
+            close=True,
+            quantity=self._quantity,
+            price=fill,
+            quote=quote,
+        )
+        self._target = 0
+        self._quantity = 0.0
+        self._active_stop = None
+        self._active_trailing = None
+        self._trail_anchor = None
+        return receipt
 
     def process_bar(self, bar: Bar) -> ExecutionReceipt | None:
+        # Risk exits first, mirroring the backtester: a stop/trailing is
+        # evaluated against the current bar's range BEFORE the strategy
+        # decision, and a triggered stop never re-opens on the same bar.
+        stop_receipt = self._evaluate_stops(bar)
         self.strategy.position = self._target
         target = self.strategy.process_bar(bar)
+        if stop_receipt is not None:
+            return stop_receipt
+        if target.position == self._target and not target.has_risk_order:
+            # No change and no new risk order: keep the active stop (parity
+            # with the backtester, where an unchanged position without a risk
+            # order leaves active_stop/active_trailing in place).
+            return None
+
+        # A decision that changes the position OR carries a risk order adopts
+        # the target's (possibly cleared) stop/trailing fields — mirroring the
+        # backtester's pending-application step.
+        if target.clear_risk_exits:
+            self._active_stop = None
+            self._active_trailing = None
+            self._trail_anchor = None
+        else:
+            self._active_stop = target.stop_price
+            self._active_trailing = target.trailing_distance
+            self._trail_anchor = None
+
         if target.position == self._target:
+            # Position unchanged — the risk-order update was applied above and
+            # there is nothing to trade this bar.
             return None
 
         price = bar.close
@@ -208,12 +294,16 @@ class PythonLiveEngine:
         while self._running:
             bar = await self.feed.next_bar()
             try:
-                self.process_bar(bar)
-            except RiskRejected as exc:
+                # Order submission is synchronous broker I/O (ccxt /
+                # requests); run it off the event loop so one engine's order
+                # cannot block every other engine, the watchdog, or quoting.
+                await asyncio.to_thread(self.process_bar, bar)
+            except (RiskRejected, InsufficientCash) as exc:
                 # A risk gate (missing/stale quote, spread, notional, daily
-                # cap, ...) refused this bar's order. That is a skip, not a
-                # crash: stay alive and re-evaluate on the next bar when
-                # conditions (e.g. a fresh quote) may have recovered.
+                # cap, ...) refused this bar's order, or the simulated/ledger
+                # cash cannot afford the fill. That is a skip, not a crash:
+                # stay alive and re-evaluate on the next bar when conditions
+                # (e.g. a fresh quote or after a close) may have recovered.
                 logger.warning(
                     "Order decision skipped by risk engine for %s: %s",
                     self.instrument.id,

@@ -100,6 +100,16 @@ class OptionManager:
         decision paths so both choose from the SAME eligible set."""
         viable = []
         earnings_blocked = False
+        # An unconfirmed earnings date is speculative (calendar estimate, not
+        # a company-confirmed announcement) and can drift by days. Require a
+        # WIDER buffer around it so a candidate that looks "safe" against the
+        # guessed date is not treated as such. Confirmed dates keep the normal
+        # buffer. This makes earnings_confirmed actually drive the decision.
+        earnings_buffer = (
+            self.earnings_buffer_days
+            if data.earnings_confirmed
+            else self.earnings_buffer_days * 2
+        )
         for candidate in data.candidates:
             dte = (candidate.expiration - data.as_of).days
             crosses_earnings = (
@@ -110,7 +120,7 @@ class OptionManager:
             near_earnings = (
                 data.earnings_date is not None
                 and (data.earnings_date - data.as_of).days
-                <= dte + self.earnings_buffer_days
+                <= dte + earnings_buffer
             )
             if crosses_earnings or near_earnings:
                 earnings_blocked = True

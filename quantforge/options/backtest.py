@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 from quantforge.backtest.engine import BacktestResult, BacktestTrade
+from quantforge.domain.events import Assignment
 from quantforge.domain.instruments import (
     AssetClass,
     EquityOption,
     InstrumentId,
     OptionRight,
 )
+from quantforge.options.lifecycle import ExpirationResult
 from quantforge.options.pricing import ApproximateOptionPricer
 
 
@@ -37,12 +39,21 @@ class ManagedCoveredCallConfig:
     stock_fee_per_share: float = 0.005
     option_fee_per_contract: float = 0.65
     modeled_spread_pct: float = 0.06
+    #: Entry-delta band mirroring the live OptionManager's entry_delta_min /
+    #: entry_delta_max (TslaNvdaOptionsConfig defaults 0.15 / 0.22). Modeled
+    #: candidates outside this band are filtered out so the backtest opens the
+    #: SAME delta profile the live manager would, instead of drifting to a
+    #: target delta (e.g. 0.14 / 0.25) that the live gates would reject.
+    delta_min: float = 0.15
+    delta_max: float = 0.22
 
     def __post_init__(self) -> None:
         if not 0.30 <= self.roll_delta <= 0.80:
             raise ValueError("roll_delta must be between 0.30 and 0.80")
         if not 0 <= self.maximum_covered_ratio <= 1:
             raise ValueError("maximum_covered_ratio must be between zero and one")
+        if not 0 < self.delta_min <= self.delta_max < 1:
+            raise ValueError("delta_min/delta_max must satisfy 0 < min <= max < 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +73,15 @@ class ManagedCoveredCallBacktest:
     max_contracts_open: int
     action_counts: dict[str, int]
     equity_curve: tuple[float, ...]
+    #: Number of delta-triggered rolls (close+reopen to a viable replacement),
+    #: mirroring the live OptionManager's ROLL_COVERED_CALL. Zero when no roll
+    #: replacement ever passed the gates.
+    rolls: int = 0
+    #: Settlement domain events (ExpirationResult / Assignment) emitted at
+    #: expiry, mirroring the live OptionLifecycle path so the backtest and
+    #: live engines settle on the SAME event shape (no parallel settlement
+    #: implementation that can drift).
+    events: tuple[ExpirationResult, ...] = ()
     #: Per-option-trade ledger in the shared BacktestResult shape, so the
     #: dashboard can render individual trades with entry/exit/pnl/fee just
     #: like the strategy backtester.
@@ -186,7 +206,15 @@ def _target_delta(ticker: str, trend_state: str) -> float | None:
             "温和下跌": 0.25,
         },
     }
-    return targets[ticker][trend_state]
+    target = targets[ticker][trend_state]
+    if target is None:
+        return None
+    # Clamp to the live manager's entry-delta band [0.15, 0.22]
+    # (TslaNvdaOptionsConfig.entry_delta_min/max). Without this, the mild-up
+    # target (0.14) and mild-down target (0.25) fall OUTSIDE the band the
+    # live OptionManager enforces, so the backtest would model a delta
+    # profile the live gates would reject — a live/backtest parity break.
+    return max(0.15, min(0.22, target))
 
 
 def _next_earnings(
@@ -206,7 +234,12 @@ def _modeled_call(
     target_delta: float,
     minimum_strike: float = 0.0,
     spread_pct: float,
-) -> tuple[EquityOption, object]:
+    delta_min: float = 0.15,
+    delta_max: float = 0.22,
+) -> tuple[EquityOption, object] | None:
+    """Model the covered-call to open. Returns None when no candidate falls
+    inside the live manager's entry-delta band — mirroring the live
+    OptionManager's ``_viable_candidates`` returning empty (NO_ACTION)."""
     pricer = ApproximateOptionPricer()
     expiration = day + timedelta(days=dte)
     candidates = []
@@ -231,9 +264,13 @@ def _modeled_call(
             volatility=volatility,
             spread_pct=spread_pct,
         )
-        candidates.append((abs(quote.delta - target_delta), option, quote))
+        # Parity with the live OptionManager._viable_candidates: keep only
+        # candidates whose delta is inside the entry band. A candidate
+        # outside the band would model a profile the live gates reject.
+        if delta_min <= quote.delta <= delta_max:
+            candidates.append((abs(quote.delta - target_delta), option, quote))
     if not candidates:
-        raise ValueError("no modeled call candidate")
+        return None
     _, option, quote = min(candidates, key=lambda item: item[0])
     return option, quote
 
@@ -288,8 +325,13 @@ def run_managed_covered_call_approximation(
     realized_option_pnl = 0.0
     option_trades = 0
     assignments = 0
+    rolls = 0
     max_contracts_open = 0
     trades: list[BacktestTrade] = []
+    events: list[ExpirationResult] = []
+    # Underlying instrument id reused for the Assignment domain events
+    # emitted at settlement (mirrors lifecycle.py's Equity.id).
+    underlying_id = InstrumentId(ticker, AssetClass.EQUITY, "model")
     next_entry_date: date | None = None
     buy_hold_shares = shares
     buy_hold_cash = initial_capital - buy_hold_shares * first_spot
@@ -305,8 +347,8 @@ def run_managed_covered_call_approximation(
     ) -> _ManagedShortCall | None:
         """Execute a pending decision against the given price level."""
         nonlocal cash, total_costs, realized_option_pnl, option_trades
-        nonlocal max_contracts_open, calls, trades
-        if action.action == "close":
+        nonlocal max_contracts_open, calls, trades, rolls
+        if action.action == "close" or action.action == "roll":
             assert calls is not None
             close_quote = pricer.quote(
                 calls.option,
@@ -337,7 +379,14 @@ def run_managed_covered_call_approximation(
                     mae=calls.mae,
                 )
             )
-            return None
+            # A "close" stops here; a "roll" continues into the open leg
+            # below to reopen the replacement atomically (no unhedged
+            # window between close and reopen, mirroring the live
+            # ROLL_COVERED_CALL multi-leg order).
+            if action.action == "close":
+                return None
+            calls = None
+            rolls += 1
         open_quote = pricer.quote(
             action.option,
             spot=spot_exec,
@@ -398,18 +447,54 @@ def run_managed_covered_call_approximation(
                 # fill the strategy could schedule.
                 assigned = spot > calls.option.strike
                 settlement = max(0.0, spot - calls.option.strike)
+                total_shares_covered = calls.contracts * 100
+                assigned_shares = min(shares, total_shares_covered) if assigned else 0
+                # settle_pnl must be scaled to the shares actually delivered
+                # (assigned_shares), NOT the full contracts*100. When the
+                # position is partially naked (shares < contracts*100), the
+                # undelivered portion must not be credited as income — only
+                # the covered/delivered fraction earns the premium and pays
+                # the intrinsic settlement.
+                delivered_ratio = (
+                    assigned_shares / total_shares_covered
+                    if total_shares_covered > 0
+                    else 0
+                )
                 settle_pnl = (
-                    calls.entry_credit - settlement
-                ) * 100 * calls.contracts - calls.entry_cost
+                    (calls.entry_credit - settlement)
+                    * assigned_shares
+                    - calls.entry_cost * delivered_ratio
+                )
                 realized_option_pnl += settle_pnl
+                # Emit the SAME domain event the live OptionLifecycle path
+                # produces (ExpirationResult wrapping an Assignment when ITM),
+                # so backtest and live settle on one event shape and cannot
+                # drift into parallel settlement implementations.
+                assignment_event: Assignment | None = None
                 if assigned:
-                    assigned_shares = min(shares, calls.contracts * 100)
                     cash += calls.option.strike * assigned_shares
                     shares -= assigned_shares
                     assignments += 1
                     actions["assignment"] += 1
+                    # Short covered call assignment SELLS shares out of the
+                    # book (negative signed quantity), matching lifecycle.py's
+                    # share_quantity sign for a short call (contracts < 0).
+                    assignment_event = Assignment(
+                        option=calls.option.id,
+                        underlying=underlying_id,
+                        option_quantity=calls.contracts,
+                        share_quantity=-assigned_shares,
+                        strike=calls.option.strike,
+                        reason="assignment",
+                    )
                 else:
                     actions["expire"] += 1
+                events.append(
+                    ExpirationResult(
+                        expired_contracts=calls.contracts,
+                        assignment=assignment_event,
+                    )
+                )
                 option_trades += 1
                 trades.append(
                     BacktestTrade(
@@ -420,7 +505,7 @@ def run_managed_covered_call_approximation(
                         exit_price=settlement,
                         quantity=calls.contracts * 100,
                         pnl=settle_pnl,
-                        fee=calls.entry_cost,
+                        fee=calls.entry_cost * delivered_ratio,
                         mfe=calls.mfe,
                         mae=calls.mae,
                     )
@@ -443,12 +528,50 @@ def run_managed_covered_call_approximation(
                     pending = _PendingAction("close")
                     actions["profit_take"] += 1
                 elif quote.delta >= delta_trigger:
-                    # Parity with the live manager's CLOSE_AND_HOLD: buy back
-                    # the breached short call and hold flat; a later cycle runs
-                    # the trend/earnings/coverage gates before reopening. The
-                    # live manager NEVER rolls up, so neither do we.
-                    pending = _PendingAction("close")
-                    actions["delta_close"] += 1
+                    # Parity with the live OptionManager (manager.py:159-173):
+                    # a delta breach ROLLS to a viable replacement when one
+                    # exists (ROLL_COVERED_CALL — atomic close+reopen with no
+                    # unhedged window), and only falls back to CLOSE_AND_HOLD
+                    # when no viable replacement passes the earnings/DTE/delta
+                    # gates. The previous comment ("live manager NEVER rolls")
+                    # was wrong: the live manager does roll up.
+                    roll_dte = (
+                        35 if ticker == "TSLA" and high_volatility else 28
+                    )
+                    roll_dte = max(cfg.dte_min, min(cfg.dte_max, roll_dte))
+                    roll_next_earnings = _next_earnings(day, earnings_dates)
+                    roll_earnings_buffer = cfg.earnings_buffer_days
+                    roll_blocked = (
+                        roll_next_earnings is None
+                        or (roll_next_earnings - day).days
+                        <= roll_dte + roll_earnings_buffer
+                    )
+                    replacement = None
+                    if not roll_blocked:
+                        replacement = _modeled_call(
+                            ticker,
+                            day=day,
+                            spot=spot,
+                            volatility=volatility,
+                            dte=roll_dte,
+                            target_delta=_target_delta(ticker, "横盘")
+                            or ((cfg.delta_min + cfg.delta_max) / 2),
+                            spread_pct=cfg.modeled_spread_pct,
+                            delta_min=cfg.delta_min,
+                            delta_max=cfg.delta_max,
+                        )
+                    if replacement is not None:
+                        # Reopen the SAME contract count as the breached
+                        # position (a roll preserves coverage, mirroring the
+                        # live ROLL_COVERED_CALL which keeps contracts equal).
+                        roll_option, _roll_quote = replacement
+                        pending = _PendingAction(
+                            "roll", roll_option, calls.contracts
+                        )
+                        actions["roll"] += 1
+                    else:
+                        pending = _PendingAction("close")
+                        actions["delta_close"] += 1
 
         if calls is None and pending is None:
             if next_entry_date is not None and day < next_entry_date:
@@ -486,7 +609,7 @@ def run_managed_covered_call_approximation(
                     ):
                         actions["earnings_block"] += 1
                     else:
-                        option, _quote = _modeled_call(
+                        modeled = _modeled_call(
                             ticker,
                             day=day,
                             spot=spot,
@@ -494,10 +617,20 @@ def run_managed_covered_call_approximation(
                             dte=dte,
                             target_delta=target_delta,
                             spread_pct=cfg.modeled_spread_pct,
+                            delta_min=cfg.delta_min,
+                            delta_max=cfg.delta_max,
                         )
-                        pending = _PendingAction("open", option, contracts)
-                        actions["open_covered_call"] += 1
-                        next_entry_date = day + timedelta(days=1)
+                        if modeled is None:
+                            # No modeled strike fell inside the live
+                            # manager's entry-delta band — parity with the
+                            # live OptionManager's _viable_candidates
+                            # returning empty (NO_ACTION): block the open.
+                            actions["delta_band_block"] += 1
+                        else:
+                            option, _quote = modeled
+                            pending = _PendingAction("open", option, contracts)
+                            actions["open_covered_call"] += 1
+                            next_entry_date = day + timedelta(days=1)
 
         if calls is not None:
             mark = pricer.quote(
@@ -587,6 +720,8 @@ def run_managed_covered_call_approximation(
         max_contracts_open=max_contracts_open,
         action_counts=dict(sorted(actions.items())),
         equity_curve=tuple(equity_curve),
+        rolls=rolls,
+        events=tuple(events),
         result=BacktestResult(
             trades=trades,
             equity_curve=equity_curve,

@@ -23,11 +23,19 @@ def candidates_from_schwab_chain(
         expiration_value = str(row.get("expirationDate") or "")[:10]
         if not expiration_value:
             continue
+        # A single malformed expirationDate (e.g. "2026/08/21" instead of
+        # ISO "2026-08-21") used to raise ValueError and abort the WHOLE
+        # chain — dropping every valid candidate after the bad row. Skip only
+        # the unparseable row and keep parsing the rest.
+        try:
+            expiration = date.fromisoformat(expiration_value)
+        except ValueError:
+            continue
         results.append(
             OptionCandidate(
                 symbol=str(row["symbol"]),
                 strike=float(row["strikePrice"]),
-                expiration=date.fromisoformat(expiration_value),
+                expiration=expiration,
                 bid=float(row.get("bid") or 0),
                 ask=float(row.get("ask") or 0),
                 delta=abs(float(row.get("delta") or 0)),

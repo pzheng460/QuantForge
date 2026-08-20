@@ -183,6 +183,37 @@ class RiskEngine:
         # Nakedness is enforced on the whole plan (all legs share one coverage
         # pool), so multiple uncovered legs in one intent cannot bypass it.
         self._validate_plan_options(legs, ledger)
+        # Net-cash pre-check for multi-leg plans: each leg's notional cap is
+        # enforced above, but the AGGREGATED debit of opening BUY legs is never
+        # compared against available cash up front. Without this an atomic
+        # multi-leg plan can submit and then hit a per-fill ``InsufficientCash``
+        # mid-plan, leaving a partially-filled spread — the broken-book state
+        # atomic submission is meant to prevent. Closing (reduce_only) legs are
+        # excluded: they reduce exposure and are broker-adjudicated.
+        if isinstance(intent, MultiLegOrderIntent):
+            debit_by_currency: dict[str, float] = {}
+            for leg in legs:
+                if (
+                    leg.reduce_only
+                    or leg.side is not OrderSide.BUY
+                    or leg.limit_price is None
+                ):
+                    continue
+                mult = (
+                    getattr(leg.instrument, "contract_size", None)
+                    or leg.instrument.multiplier
+                )
+                currency = (
+                    getattr(leg.instrument, "settlement_currency", None)
+                    or leg.instrument.currency
+                )
+                debit_by_currency[currency] = (
+                    debit_by_currency.get(currency, 0.0)
+                    + leg.limit_price * leg.quantity * mult
+                )
+            for currency, debit in debit_by_currency.items():
+                if debit > ledger.cash.get(currency, 0.0):
+                    raise RiskRejected("multi-leg plan exceeds available cash")
         # reduce_only is self-attested, so it must never OPEN or enlarge a
         # position; the whole plan is reconciled against the ledger PER
         # INSTRUMENT, not per leg. Per-leg checks would let a multi-leg plan
@@ -284,8 +315,23 @@ class RiskEngine:
         price = order.limit_price
         if price is None and order.quote_ask is not None:
             price = order.quote_ask
+        if price is None and self.limits.require_fresh_quote:
+            # ``require_fresh_quote`` only enforces a timestamp, not a price
+            # reference — a MARKET intent could otherwise slip past the
+            # notional gate entirely. Fail closed instead of silently
+            # skipping the cap on real-money paths.
+            raise RiskRejected("no price reference for notional check")
         if price is not None:
-            notional = price * order.quantity * order.instrument.multiplier
+            # Notional must be sized on the SAME multiplier the ledger and
+            # settlement use (contract_size for crypto derivatives): their
+            # ``multiplier`` defaults to 1 and is never set by the CCXT
+            # factory, so sizing on ``multiplier`` alone under-enforces the
+            # cap by ``contract_size`` for contract_size > 1 instruments.
+            mult = (
+                getattr(order.instrument, "contract_size", None)
+                or order.instrument.multiplier
+            )
+            notional = price * order.quantity * mult
             if not math.isfinite(notional) or notional > self.limits.max_order_notional:
                 raise RiskRejected("maximum order notional exceeded")
         if order.quote_bid is not None and order.quote_ask is not None:
@@ -346,7 +392,8 @@ class RiskEngine:
                 continue
             if leg.side is OrderSide.SELL:
                 if inst.right is OptionRight.CALL:
-                    call_short[key] = call_short.get(key, 0.0) + leg.quantity
+                    qty, mult = call_short.get(key, (0.0, inst.multiplier))
+                    call_short[key] = (qty + leg.quantity, mult)
                 else:
                     put_key_ = put_key(inst)
                     if put_key_ is None:
@@ -376,6 +423,39 @@ class RiskEngine:
                 if put_key_ is None:
                     continue
                 put_long[put_key_] = put_long.get(put_key_, 0.0) + position.quantity
+
+        # SELL-reduce legs that CLOSE existing LONG options must be subtracted
+        # from the coverage pools. Without this, a plan that closes a long and
+        # opens a short at the same strike/expiry would count the long it is
+        # simultaneously closing as still-covering the new short — bypassing
+        # the nakedness/cash-coverage gate. This is the symmetric counterpart
+        # of the BUY-reduce netting for the short side below. The closing key
+        # MUST include the strike for puts (matching the put bucket key) so an
+        # orphan SELL-reduce leg at one strike cannot mask a short at another.
+        closing_long: dict[tuple[InstrumentId, date], float] = {}
+        closing_long_put: dict[tuple[InstrumentId, date, float], float] = {}
+        for leg in legs:
+            inst = leg.instrument
+            if (
+                not isinstance(inst, EquityOption)
+                or not leg.reduce_only
+                or leg.side is not OrderSide.SELL
+            ):
+                continue
+            if inst.right is OptionRight.CALL:
+                key = option_key(inst)
+                if key is not None:
+                    closing_long[key] = closing_long.get(key, 0.0) + leg.quantity
+            else:
+                key = put_key(inst)
+                if key is not None:
+                    closing_long_put[key] = (
+                        closing_long_put.get(key, 0.0) + leg.quantity
+                    )
+        for key, close_qty in closing_long.items():
+            call_long[key] = max(0.0, call_long.get(key, 0.0) - close_qty)
+        for key, close_qty in closing_long_put.items():
+            put_long[key] = max(0.0, put_long.get(key, 0.0) - close_qty)
 
         # Existing SHORT options in the ledger also contribute to nakedness —
         # skipping them (as before) understated the short-call/short-put
@@ -411,16 +491,23 @@ class RiskEngine:
             key = option_key(inst)
             assert key is not None  # close_key non-None implies underlying set
             if inst.right is OptionRight.CALL:
-                call_short[key] = call_short.get(key, 0.0) + short_qty
+                qty, mult = call_short.get(key, (0.0, inst.multiplier))
+                call_short[key] = (qty + short_qty, mult)
             else:
                 qty, mult = put_short.get(close_key, (0.0, inst.multiplier))
                 put_short[close_key] = (qty + short_qty, mult)
 
-        for key, short_qty in call_short.items():
+        for key, (short_qty, mult) in call_short.items():
             underlying, _expiry = key
             covered = call_long.get(key, 0.0)
             shares = ledger.quantity(underlying)
-            if shares + covered * 100 < short_qty * 100:
+            # Use the option's own multiplier (not a hardcoded 100) — adjusted
+            # options / non-100 contract sizes must not be mis-sized.
+            if not math.isfinite(mult) or mult <= 0:
+                raise RiskRejected(
+                    "naked call has non-finite or non-positive multiplier"
+                )
+            if shares + covered * mult < short_qty * mult:
                 raise RiskRejected("naked call is prohibited")
 
         required_cash: dict[str, float] = {}

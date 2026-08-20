@@ -39,7 +39,10 @@ class ExecutionService:
         self._receipts: dict[str, ExecutionReceipt] = {}
 
     def execute(
-        self, intent: OrderIntent | MultiLegOrderIntent
+        self,
+        intent: OrderIntent | MultiLegOrderIntent,
+        *,
+        fill_price: float | None = None,
     ) -> ExecutionReceipt:
         existing = self._receipts.get(intent.intent_id)
         if existing:
@@ -52,6 +55,20 @@ class ExecutionService:
         except Exception:
             self.risk.release(intent)
             raise
+        if fill_price is not None:
+            # Keep the ledger in sync with fills so ledger-driven risk checks
+            # (reduce_only netting, option coverage, cash) see the current
+            # book mid-session instead of a startup snapshot. Only callers
+            # that know an actual/approx fill price (the live engine, which
+            # submits market orders at the current quote) pass it; other paths
+            # leave the ledger to their own reconciliation (options lifecycle).
+            legs = (
+                intent.legs if isinstance(intent, MultiLegOrderIntent) else (intent,)
+            )
+            for leg in legs:
+                self.ledger.apply_fill(
+                    leg.instrument, leg.side, leg.quantity, fill_price
+                )
         receipt = ExecutionReceipt(intent.intent_id, broker_order_id, "submitted")
         self._receipts[intent.intent_id] = receipt
         return receipt

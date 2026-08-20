@@ -22,10 +22,19 @@ class PositionTarget:
     position: int
     stop_price: float | None = None
     trailing_distance: float | None = None
+    #: Explicit sentinel to CLEAR any active stop/trailing on the position.
+    #: Without it a held position could never cancel a previously-armed stop
+    #: (the engine keeps active_stop until the position closes or is
+    #: overwritten), forcing an unintended exit. Set True to disarm.
+    clear_risk_exits: bool = False
 
     @property
     def has_risk_order(self) -> bool:
-        return self.stop_price is not None or self.trailing_distance is not None
+        return (
+            self.stop_price is not None
+            or self.trailing_distance is not None
+            or self.clear_risk_exits
+        )
 
 
 class BarStrategy(Strategy):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +14,12 @@ class BacktestConfig:
     commission_pct: float = 0
     slippage_pct: float = 0
     allocation_pct: float = 1
+    #: Optional short-liquidation ratio. When > 0, a short position whose
+    #: price has risen by this fraction from entry is force-closed at the
+    #: current bar's close (a crude margin/liquidation model — without it
+    #: short equity can go arbitrarily negative). 0 disables the model
+    #: (backward-compatible default).
+    short_liq_ratio: float = 0
     #: Optional hook invoked every ``cancel_check_every`` bars to abort a
     #: long run. It raises to propagate cancellation (the dashboard jobs use
     #: it to raise JobCancelled so /backtest/cancel stays effective on
@@ -48,14 +55,35 @@ def _normalize_bars(rows: list[list | tuple]) -> list[Bar]:
     for row in rows:
         if len(row) < 6:
             raise ValueError("bars must be [timestamp, open, high, low, close, volume]")
+        open_, high, low, close, volume = (
+            float(row[1]),
+            float(row[2]),
+            float(row[3]),
+            float(row[4]),
+            float(row[5]),
+        )
+        if (
+            not math.isfinite(open_)
+            or not math.isfinite(high)
+            or not math.isfinite(low)
+            or not math.isfinite(close)
+            or not math.isfinite(volume)
+            or open_ <= 0
+            or low <= 0
+            or high < low
+        ):
+            raise ValueError(
+                "bars must have positive finite open/low and finite "
+                "high/close/volume with high >= low"
+            )
         bars.append(
             Bar(
                 timestamp=int(row[0]),
-                open=float(row[1]),
-                high=float(row[2]),
-                low=float(row[3]),
-                close=float(row[4]),
-                volume=float(row[5]),
+                open=open_,
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
             )
         )
     return bars
@@ -75,8 +103,15 @@ def run_backtest(
     ``i+1``'s open (market-on-open). This is a DOCUMENTED semantic, shared
     with the live engine (which decides on the current bar's close and submits
     for the following bar) — it is deliberately NOT same-bar-close fills, which
-    would claim a fill that was never guaranteed. Per-trade P&L therefore maps
-    to live behavior exactly, not to a faster-but-unrealistic fill model.
+    would claim a fill that was never guaranteed.
+
+    Fidelity note: this engine approximates the live next-bar-open fill
+    semantics; it does NOT exercise the canonical live stack (RiskEngine /
+    PortfolioLedger / ExecutionService). Risk behavior therefore differs from
+    live in several ways — no leverage/notional/spread/quote-age/daily-entry
+    gates, ledger cash-guard failures become silent skips instead of
+    rejections, and crypto derivatives are sized without contract multipliers.
+    Results are directional estimates, not a live-behavior guarantee.
     """
     cfg = config or BacktestConfig()
     if cfg.initial_capital <= 0 or not 0 < cfg.allocation_pct <= 1:
@@ -173,36 +208,67 @@ def run_backtest(
                         entry_bar = i
                         excursion_high = 0
                         excursion_low = 0
-            active_stop = pending.stop_price
-            active_trailing = pending.trailing_distance
-            trail_anchor = bar.open if active_trailing else None
+            if pending.clear_risk_exits:
+                # Explicit disarm: remove any active stop/trailing so a held
+                # position is not forced out by a stale risk exit.
+                active_stop = None
+                active_trailing = None
+                trail_anchor = None
+            else:
+                active_stop = pending.stop_price
+                active_trailing = pending.trailing_distance
+                trail_anchor = bar.open if active_trailing else None
             pending = None
 
         if position:
             if position > 0:
                 excursion_high = max(excursion_high, (bar.high - entry_price) * quantity)
                 excursion_low = min(excursion_low, (bar.low - entry_price) * quantity)
-                if active_trailing:
+                # Pessimistic ordering: test the PRIOR stop against the low
+                # before raising the trail anchor to the high. A bar whose low
+                # came before its high must exit at the older (lower) stop —
+                # raising the anchor first would over-credit the exit.
+                if active_stop is not None and bar.low <= active_stop:
+                    exit_price = min(bar.open, active_stop)
+                elif active_trailing:
                     trail_anchor = max(trail_anchor or bar.high, bar.high)
                     active_stop = max(
                         active_stop or float("-inf"), trail_anchor - active_trailing
                     )
-                if active_stop is not None and bar.low <= active_stop:
-                    close_trade(
-                        i, min(bar.open, active_stop), apply_slippage=False
+                    exit_price = (
+                        min(bar.open, active_stop) if bar.low <= active_stop else None
                     )
+                else:
+                    exit_price = None
+                if exit_price is not None:
+                    close_trade(i, exit_price, apply_slippage=False)
             else:
                 excursion_high = max(excursion_high, (entry_price - bar.low) * quantity)
                 excursion_low = min(excursion_low, (entry_price - bar.high) * quantity)
-                if active_trailing:
+                # Pessimistic ordering mirrors the long side: test the PRIOR
+                # stop against the high before lowering the anchor to the low.
+                if active_stop is not None and bar.high >= active_stop:
+                    exit_price = max(bar.open, active_stop)
+                elif active_trailing:
                     trail_anchor = min(trail_anchor or bar.low, bar.low)
                     active_stop = min(
                         active_stop or float("inf"), trail_anchor + active_trailing
                     )
-                if active_stop is not None and bar.high >= active_stop:
-                    close_trade(
-                        i, max(bar.open, active_stop), apply_slippage=False
+                    exit_price = (
+                        max(bar.open, active_stop) if bar.high >= active_stop else None
                     )
+                else:
+                    exit_price = None
+                if exit_price is not None:
+                    close_trade(i, exit_price, apply_slippage=False)
+                elif (
+                    cfg.short_liq_ratio > 0
+                    and (bar.high - entry_price) / entry_price >= cfg.short_liq_ratio
+                ):
+                    # Crude short-liquidation model: force-exit at the current
+                    # close once price has run against the position by the
+                    # configured ratio from entry.
+                    close_trade(i, bar.close, apply_slippage=False)
 
         strategy.position = position
         target = strategy.process_bar(bar)

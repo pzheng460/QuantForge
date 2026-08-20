@@ -191,11 +191,36 @@ def test_multi_leg_option_strategy_submitted_atomically(tmp_path):
 
     assert order_id == "987654"
     payload = session.calls[0][2]["json"]
-    assert payload["orderType"] == "NET_CREDIT"
+    # net_limit_price is (credit - debit); negative -> net debit.
+    assert payload["orderType"] == "NET_DEBIT"
     assert payload["price"] == "2.5"
     assert payload["complexOrderStrategyType"] == "CUSTOM"
     instructions = [leg["instruction"] for leg in payload["orderLegCollection"]]
     assert instructions == ["SELL_TO_OPEN", "BUY_TO_OPEN"]
+
+
+def test_multi_leg_net_credit_maps_to_NET_CREDIT(tmp_path):
+    """Regression: a positive net_limit_price (net credit) must map to
+    NET_CREDIT — the convention was previously inverted, so live rolls were
+    submitted with the wrong order type."""
+    session = _Session()
+    adapter = SchwabExecutionAdapter(_connector(tmp_path, session))
+    spread = MultiLegOrderIntent(
+        strategy_id="test",
+        net_limit_price=4.9,
+        legs=(
+            _intent(OrderSide.SELL, option=_option("C00200000")),
+            _intent(OrderSide.BUY, option=_option("C00210000")),
+        ),
+    )
+
+    order_id = adapter.submit(spread)
+
+    assert order_id == "987654"
+    payload = session.calls[0][2]["json"]
+    assert payload["orderType"] == "NET_CREDIT"
+    assert payload["price"] == "4.9"
+    assert payload["complexOrderStrategyType"] == "CUSTOM"
 
 
 def test_multi_leg_rejects_non_option_leg(tmp_path):
@@ -257,3 +282,84 @@ def test_submission_outcome_unknown_is_not_released_by_execution_service(tmp_pat
     with pytest.raises(SubmissionOutcomeUnknown):
         service.execute(intent)
     assert intent.intent_id in service.risk._authorized
+
+
+# ─── End-to-end: options roll decision → Schwab order type ──────────────────
+
+
+def _roll_decision(close_price: float, reopen_price: float) -> tuple:
+    """Builds an OptionDecision + candidates and derives the MultiLegOrderIntent
+    exactly as the covered-call manager would."""
+    from datetime import datetime, timezone
+
+    from quantforge.options.actions import ROLL_COVERED_CALL
+    from quantforge.options.execution import intent_from_option_decision
+    from quantforge.options.manager import OptionCandidate, OptionDecision
+
+    candidate = OptionCandidate(
+        symbol="NVDA  260821C00200000",
+        strike=200.0,
+        expiration=date(2026, 8, 21),
+        bid=1.0,
+        ask=2.0,
+        delta=0.2,
+        open_interest=1000,
+        volume=500,
+    )
+    roll_to = OptionCandidate(
+        symbol="NVDA  260821C00210000",
+        strike=210.0,
+        expiration=date(2026, 8, 21),
+        bid=1.0,
+        ask=2.0,
+        delta=0.2,
+        open_interest=1000,
+        volume=500,
+    )
+    decision = OptionDecision(
+        action=ROLL_COVERED_CALL,
+        reasons=("delta breach",),
+        contract_symbol=candidate.symbol,
+        contracts=1,
+        limit_price=close_price,
+        roll_to_symbol=roll_to.symbol,
+        roll_to_price=reopen_price,
+    )
+    intent = intent_from_option_decision(
+        decision,
+        candidate=candidate,
+        ticker="NVDA",
+        strategy_id="test",
+        quote_time=datetime.now(timezone.utc),
+        roll_to_candidate=roll_to,
+    )
+    return intent
+
+
+def test_roll_decision_net_credit_maps_to_NET_CREDIT(tmp_path):
+    """CRITICAL end-to-end regression: when a roll reopens above its close
+    price (receive premium), net_limit_price is positive and the Schwab order
+    must be NET_CREDIT — not the previously-inverted NET_DEBIT."""
+    session = _Session()
+    adapter = SchwabExecutionAdapter(_connector(tmp_path, session))
+    intent = _roll_decision(close_price=1.5, reopen_price=2.5)
+
+    adapter.submit(intent)
+    payload = session.calls[0][2]["json"]
+    assert payload["orderType"] == "NET_CREDIT"
+    assert payload["price"] == "1.0"
+    instructions = [leg["instruction"] for leg in payload["orderLegCollection"]]
+    assert instructions == ["BUY_TO_CLOSE", "SELL_TO_OPEN"]
+
+
+def test_roll_decision_net_debit_maps_to_NET_DEBIT(tmp_path):
+    """When a roll reopens below its close price (pay premium), net_limit_price
+    is negative and the Schwab order must be NET_DEBIT."""
+    session = _Session()
+    adapter = SchwabExecutionAdapter(_connector(tmp_path, session))
+    intent = _roll_decision(close_price=2.5, reopen_price=1.5)
+
+    adapter.submit(intent)
+    payload = session.calls[0][2]["json"]
+    assert payload["orderType"] == "NET_DEBIT"
+    assert payload["price"] == "1.0"

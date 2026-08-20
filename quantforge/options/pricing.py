@@ -34,8 +34,22 @@ class ApproximateOptionPricer:
         risk_free_rate: float = 0.04,
         spread_pct: float = 0.06,
     ) -> OptionQuote:
-        if spot <= 0 or volatility <= 0:
-            raise ValueError("spot and volatility must be positive")
+        # NaN defeats the <=/> comparisons below (NaN <= 0 is False), so a
+        # NaN spot/volatility would slip past the positivity guard and yield a
+        # quote carrying NaN delta/mark/ask — reject non-finite inputs first.
+        if (
+            not math.isfinite(spot)
+            or not math.isfinite(volatility)
+            or not math.isfinite(risk_free_rate)
+            or not math.isfinite(spread_pct)
+            or spot <= 0
+            or volatility <= 0
+            or spread_pct <= 0
+        ):
+            raise ValueError(
+                "spot and volatility must be positive finite numbers "
+                "and risk_free_rate/spread_pct finite"
+            )
         years = max((contract.expiration - valuation_date).days / 365, 1 / 365)
         root_t = math.sqrt(years)
         d1 = (

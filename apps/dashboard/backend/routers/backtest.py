@@ -14,6 +14,7 @@ from fastapi import (
 
 from apps.dashboard.backend.auth import websocket_api_key_authorized
 from apps.dashboard.backend.jobs import (
+    JobLimitExceededError,
     create_job,
     get_job,
     run_backtest_job,
@@ -30,7 +31,12 @@ router = APIRouter()
 @router.post("/backtest/run", response_model=JobStatusOut)
 async def start_backtest(req: BacktestRequest, background_tasks: BackgroundTasks):
     """Submit a backtest job. Returns job_id immediately; poll /backtest/{id} for result."""
-    job_id = create_job()
+    try:
+        job_id = create_job()
+    except JobLimitExceededError as exc:
+        # Queue is full of pending/running jobs: back-pressure the client
+        # with 429 instead of accepting unbounded work.
+        raise HTTPException(status_code=429, detail=str(exc))
     background_tasks.add_task(run_backtest_job, job_id, req)
     return JobStatusOut(job_id=job_id, status="pending")
 

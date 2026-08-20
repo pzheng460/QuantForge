@@ -42,7 +42,15 @@ class OptionLifecycle:
         else:
             side = OrderSide.SELL if contracts > 0 else OrderSide.BUY
             signed_shares = -shares if contracts > 0 else shares
-        ledger.apply_fill(underlying, side, shares, contract.strike)
+        # A short PUT assignment forces the holder to BUY the underlying at
+        # the strike — a mandatory, non-rejectable exercise event. The cash
+        # guard would raise InsufficientCash when the ledger cannot fund the
+        # purchase, but option assignment cannot be refused, so bypass the
+        # cash guard on the BUY leg of a short-put assignment only.
+        enforce_cash = not (contract.right is OptionRight.PUT and contracts < 0)
+        ledger.apply_fill(
+            underlying, side, shares, contract.strike, enforce_cash=enforce_cash
+        )
         return ExpirationResult(
             contracts,
             Assignment(

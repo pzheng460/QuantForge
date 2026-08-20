@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -50,6 +51,17 @@ def _ticker_input(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("ticker must be a string")
     return validate_report_ticker(value)
+
+
+def _report_name(report_path: Path | str) -> str:
+    """Return only the report's file name, never the absolute disk path.
+
+    OptionReportStore.save returns an absolute Path under the operator's home
+    directory; echoing that to the client leaks the server filesystem layout.
+    The frontend only displays this as an opaque audit label, so the basename
+    (e.g. ``20260725T100000000000Z.json``) is sufficient and safe.
+    """
+    return Path(report_path).name
 
 
 class GlobalRiskUpdate(BaseModel):
@@ -244,7 +256,7 @@ def _schwab_analysis(request: SchwabOptionAnalysisRequest):
 def analyze_schwab_options(request: SchwabOptionAnalysisRequest):
     report, _candidates, _ledger, _connector, _fetched_at = _schwab_analysis(request)
     report_path = OptionReportStore().save(report)
-    return {"report": report, "report_path": str(report_path)}
+    return {"report": report, "report_path": _report_name(report_path)}
 
 
 @router.post("/options/schwab/run-once")
@@ -255,7 +267,7 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
         report_path = OptionReportStore().save(report)
         return {
             "report": report,
-            "report_path": str(report_path),
+            "report_path": _report_name(report_path),
             "receipt": None,
         }
     candidate = next(
@@ -350,6 +362,6 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
     )
     return {
         "report": report,
-        "report_path": str(report_path),
+        "report_path": _report_name(report_path),
         "receipt": service.execute(intent),
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import stat
+import time
 
 import pytest
 
@@ -53,6 +54,100 @@ def test_hour_bars_are_aggregated_from_thirty_minute_candles(tmp_path, monkeypat
     assert connector.fetch_chart_bars("AAPL", "1h") == [
         [0, 10.0, 14.0, 9.0, 13.0, 5.0]
     ]
+
+
+def test_fetch_chart_bars_drops_in_progress_bar(tmp_path, monkeypatch):
+    """The currently-forming (partial) candle must be dropped — mirroring the
+    CCXT data path — so warmup never seeds indicators with a half-baked bar."""
+    connector = SchwabConnector(
+        _credentials(),
+        token_path=tmp_path / "tokens.json",
+        access_token="token",
+    )
+    now_ms = int(time.time() * 1000)
+    completed_ms = (now_ms // 60_000) * 60_000 - 60_000  # previous minute
+    forming_ms = (now_ms // 60_000) * 60_000  # current minute (still forming)
+    monkeypatch.setattr(
+        connector,
+        "fetch_bars",
+        lambda *_args, **_kwargs: [
+            {
+                "datetime": completed_ms,
+                "open": 10,
+                "high": 12,
+                "low": 9,
+                "close": 11,
+                "volume": 2,
+            },
+            {
+                "datetime": forming_ms,
+                "open": 11,
+                "high": 14,
+                "low": 10,
+                "close": 13,
+                "volume": 3,
+            },
+        ],
+    )
+
+    rows = connector.fetch_chart_bars("AAPL", "1m")
+    assert rows == [[completed_ms, 10.0, 12.0, 9.0, 11.0, 2.0]]
+
+
+def test_option_chain_warns_when_request_would_be_silently_truncated(
+    tmp_path, monkeypatch, caplog
+):
+    """Schwab caps strikes per expiry at 100 with no pagination; requesting more
+    must log a warning (a consumer building an options surface from a censored
+    chain would otherwise make decisions on an incomplete book)."""
+    captured = {}
+
+    def fake_request(_method, _url, params=None, **_kwargs):
+        captured["params"] = params
+
+        class _Resp:
+            def json(self):
+                return {}
+
+        return _Resp()
+
+    connector = SchwabConnector(
+        _credentials(),
+        token_path=tmp_path / "tokens.json",
+        access_token="token",
+    )
+    monkeypatch.setattr(connector, "_request", fake_request)
+
+    with caplog.at_level("WARNING", logger="quantforge.brokers.schwab"):
+        connector.get_option_chain("NVDA", strike_count=150)
+
+    assert captured["params"]["strikeCount"] == 100  # clamped on the wire
+    assert "silently truncated" in caplog.text
+
+
+def test_option_chain_within_limit_does_not_warn(tmp_path, monkeypatch, caplog):
+    def fake_request(_method, _url, params=None, **_kwargs):
+        captured["params"] = params
+
+        class _Resp:
+            def json(self):
+                return {}
+
+        return _Resp()
+
+    captured = {}
+    connector = SchwabConnector(
+        _credentials(),
+        token_path=tmp_path / "tokens.json",
+        access_token="token",
+    )
+    monkeypatch.setattr(connector, "_request", fake_request)
+
+    with caplog.at_level("WARNING", logger="quantforge.brokers.schwab"):
+        connector.get_option_chain("NVDA", strike_count=20)
+
+    assert captured["params"]["strikeCount"] == 20
+    assert "silently truncated" not in caplog.text
 
 
 def test_market_data_and_trading_use_separate_access_tokens(tmp_path):
