@@ -1,252 +1,100 @@
-# ⚒️ QuantForge
+# QuantForge
 
-> High-performance crypto quantitative trading framework for strategy development, backtesting, and live execution.
+QuantForge 是一个 Python-first 多资产量化研究与交易平台，统一支持：
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)
+- 美股与 Charles Schwab 实盘接入
+- 美股期权链、单腿及 2–4 腿组合订单、到期与 Assignment
+- 加密货币现货及永续/期货（CCXT）
+- Python 策略回测、参数优化、Paper 与 Live 执行
+- 不可绕过的全局订单风控
 
-```
- ██████  ██    ██  █████  ███    ██ ████████ ███████  ██████  ██████   ██████  ███████
-██    ██ ██    ██ ██   ██ ████   ██    ██    ██      ██    ██ ██   ██ ██       ██
-██    ██ ██    ██ ███████ ██ ██  ██    ██    █████   ██    ██ ██████  ██   ███ █████
-██    ██ ██    ██ ██   ██ ██  ██ ██    ██    ██      ██    ██ ██   ██ ██    ██ ██
- ██████   ██████  ██   ██ ██   ████    ██    ██       ██████  ██   ██  ██████  ███████
-```
+策略源码由代码库审核和版本管理。网页只提供策略选择、参数、风险配置、
+回测和运行控制，不提供在线代码编辑。
 
----
-
-## What is QuantForge?
-
-QuantForge is a Python framework for building, backtesting, and deploying crypto trading strategies. It connects to major exchanges via high-performance WebSocket feeds, provides a clean strategy API, and includes a TradingView-style backtest visualization UI.
-
-**Key capabilities:**
-- 🏗️ **Strategy Framework** — Event-driven, timer-based, or custom signal strategies with minimal boilerplate
-- 📊 **Backtesting Engine** — Historical data replay with TradingView-style chart visualization (lightweight-charts v5)
-- 🔌 **Multi-Exchange** — Binance, OKX, Bybit, Bitget, Hyperliquid — unified API
-- ⚡ **High Performance** — uvloop + picows (Cython WebSocket) + msgspec serialization + Rust core components
-- 📈 **Indicators** — Custom indicator framework with automatic warmup from historical data
-- 🛠️ **Order Management** — Professional OMS/EMS with position tracking, PnL monitoring, and algorithmic execution (TWAP)
-
-## Performance
-
-QuantForge is built for speed:
-
-| Component | Technology | Advantage |
-|---|---|---|
-| Event Loop | [uvloop](https://github.com/MagicStack/uvloop) | 2-4x faster than default asyncio |
-| WebSocket | [picows](https://github.com/tarasko/picows) | Cython-based, C++ Boost.Beast-level speed |
-| Serialization | [msgspec](https://jcristharif.com/msgspec/) | Faster than orjson/ujson |
-| Core Bus & Clock | Rust ([nautilus](https://github.com/nautechsystems/nautilus_trader)) | Memory-safe, zero-cost abstractions |
-
-## Supported Exchanges
-
-| Binance | OKX | Bybit | Bitget | Hyperliquid |
-|:---:|:---:|:---:|:---:|:---:|
-| ✅ Spot/Futures | ✅ Spot/Futures | ✅ Linear | ✅ UTA/Futures | ✅ Perps |
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Redis
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-
-### Installation
+## 快速开始
 
 ```bash
-# From source
-git clone https://github.com/pzheng460/QuantForge.git
-cd QuantForge
-uv venv && uv pip install -e .
-
-# Or with pip
-pip install -e .
+uv sync
+uv run pytest -q
+uv run quantforge-cli strategies list
+uv run quantforge-cli web start
 ```
 
-### Configuration
-
-Create `.keys/.secrets.toml` with your exchange API credentials:
-
-```toml
-[BITGET]
-[BITGET.UTA_DEMO]
-api_key = "your_api_key"
-secret = "your_secret"
-passphrase = "your_passphrase"
-```
-
-### Hello World Strategy
-
-```python
-from decimal import Decimal
-from quantforge.strategy import Strategy
-from quantforge.constants import OrderSide, OrderType
-from quantforge.schema import BookL1
-
-class SimpleStrategy(Strategy):
-    def __init__(self):
-        super().__init__()
-        self.subscribe_bookl1(symbols=["BTCUSDT-PERP.BINANCE"])
-        self.triggered = False
-
-    def on_bookl1(self, bookl1: BookL1):
-        if not self.triggered:
-            self.create_order(
-                symbol="BTCUSDT-PERP.BINANCE",
-                side=OrderSide.BUY,
-                type=OrderType.MARKET,
-                amount=Decimal("0.001"),
-            )
-            self.triggered = True
-```
-
-## Strategy Modes
-
-### Event-Driven
-React to real-time market data (order book, trades, klines):
-
-```python
-def on_bookl1(self, bookl1: BookL1):
-    # Your logic on every book update
-    pass
-
-def on_kline(self, kline: Kline):
-    # Your logic on every kline
-    pass
-```
-
-### Timer-Based
-Execute logic at fixed intervals:
-
-```python
-def __init__(self):
-    super().__init__()
-    self.schedule(self.algo, trigger="interval", seconds=60)
-
-def algo(self):
-    # Runs every 60 seconds
-    pass
-```
-
-### Custom Signal
-Integrate external signals:
-
-```python
-def on_custom_signal(self, signal: object):
-    # React to any custom signal object
-    pass
-```
-
-## Custom Indicators
-
-Build indicators with automatic warmup from historical data:
-
-```python
-from quantforge.indicator import Indicator
-from quantforge.constants import KlineInterval
-
-class EMA(Indicator):
-    def __init__(self, period: int):
-        super().__init__(
-            params={"period": period},
-            name=f"EMA_{period}",
-            warmup_period=period * 2,
-            warmup_interval=KlineInterval.HOUR_1,
-        )
-        self.period = period
-        self.value = None
-        self._k = 2 / (period + 1)
-
-    def handle_kline(self, kline):
-        if not kline.confirm:
-            return
-        if self.value is None:
-            self.value = kline.close
-        else:
-            self.value = kline.close * self._k + self.value * (1 - self._k)
-```
-
-Register in your strategy:
-
-```python
-self.ema_fast = EMA(period=5)
-self.register_indicator(
-    symbols="BTCUSDT-PERP.BITGET",
-    indicator=self.ema_fast,
-    data_type=DataType.KLINE,
-    account_type=BitgetAccountType.UTA_DEMO,
-)
-```
-
-## Backtesting
-
-Run backtests with historical data and visualize results in a TradingView-style UI:
+前端：
 
 ```bash
-uv run python -m strategy.backtest.runner
+cd apps/dashboard/frontend
+npm install
+npm run build
 ```
 
-The web UI serves on `http://localhost:5173` with interactive charts, trade markers, equity curves, and performance metrics.
+## 核心结构
 
-## Web Callbacks
-
-Expose FastAPI endpoints alongside a running strategy:
-
-```python
-from quantforge.web import create_strategy_app
-from quantforge.config import WebConfig
-
-class MyStrategy(Strategy):
-    web_app = create_strategy_app(title="My Strategy API")
-
-    @web_app.post("/toggle")
-    async def toggle(self, payload: dict = Body(...)):
-        self.signal = payload.get("signal", True)
-        return {"signal": self.signal}
-
-# In config:
-web_config = WebConfig(enabled=True, host="127.0.0.1", port=9000)
-```
-
-## Architecture
-
-```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Exchange    │────▶│  PublicConnector  │────▶│  Strategy   │
-│  WebSocket   │     │  (Market Data)   │     │  (Your Code)│
-└─────────────┘     └──────────────────┘     └──────┬──────┘
-                                                     │
-┌─────────────┐     ┌──────────────────┐            │
-│  Exchange    │◀───│  PrivateConnector │◀───────────┘
-│  REST API    │     │  (OMS / EMS)     │   create_order()
-└─────────────┘     └──────────────────┘
-```
-
-- **PublicConnector**: Streams market data (BookL1, Kline, Trade)
-- **PrivateConnector**: Manages orders, positions, account state
-- **OMS (Order Management System)**: Tracks order lifecycle
-- **EMS (Execution System)**: Submits orders, handles fills
-
-## Project Structure
-
-```
+```text
 quantforge/
-├── core/           # MessageBus, Clock, config
-├── exchange/       # Exchange connectors (Binance, OKX, Bybit, Bitget, Hyperliquid)
-├── indicator/      # Indicator framework with warmup
-├── backtest/       # Backtesting engine & analysis
-├── web/            # FastAPI web server
-└── schema/         # Data models (msgspec Structs)
-
-strategy/           # Strategy implementations
-web/frontend/       # TradingView-style backtest UI
+  strategy/       Python 策略 API、注册表、Bar 与指标
+  strategies/     内置技术策略和 TSLA/NVDA 期权管理策略
+  backtest/       共享回测引擎
+  domain/         股票、期权、加密资产及订单意图
+  portfolio/      统一账本
+  risk/           强制风险边界
+  execution/      唯一订单执行服务
+  adapters/       Schwab、CCXT 与行情适配器
+  options/        定价、生命周期和期权管理规则
+  brokers/        Broker 客户端
 ```
 
-## Attribution
+执行路径固定为：
 
-QuantForge was originally forked from [NexusTrader](https://github.com/RiverTrading/NexusTrader) by RiverTrading / Quantweb3. We gratefully acknowledge the foundational work of the NexusTrader project and its contributors.
+```text
+Python Strategy → Canonical Order Intent → RiskEngine
+                → ExecutionService → Schwab / CCXT / Paper
+```
 
-## License
+## 数据与回测标记
 
-MIT — see [LICENSE](./LICENSE) for details.
+股票和加密回测使用对应市场的历史 OHLCV。Schwab 当前期权链用于实时分析；
+历史期权研究使用标的价格与波动率模型近似，并明确标记
+`approximate_unvalidated`，不能当作历史 NBBO。
+
+## 实盘引擎
+
+- Bar 实盘引擎在收盘 Bar 上决策并以 MARKET 单立即提交；优先使用真实行情
+  报价（Schwab bid/ask、CCXT ticker）驱动价差与报价时效风控，行情不可得时
+  才回退到 Bar 收盘价的近似估值。
+- 引擎退出采用"看门狗"策略：循环静默退出（如行情源挂起）会自动按退避
+  重启（上限 3 次，健康运行后计数清零），超过预算或构建失败则标记
+  `failed` 并等待人工介入；确定性异常（如风控拒绝）不会自动重启。
+- 单实例文件锁防止两个 Dashboard 进程同时下单；所有引擎共享每日新增仓位
+  计数（`~/.quantforge/risk/daily-entries.json`），重启不丢。
+
+## 任务持久化
+
+回测/优化任务注册表默认落盘 `~/.quantforge/jobs/registry.json`。设置
+`QUANTFORGE_REDIS_HOST`（或 `QUANTFORGE_REDIS_URL`）并安装 `redis` 包后，
+注册表改存 Redis；Redis 不可用时自动回退文件后端。起一个本地 Redis 有两
+种方式：
+
+- 有 Docker：`docker compose up redis`。
+- 无 root（本机已装好，直接 `scripts/dev-redis.sh start`）：项目提供了从
+  官方源码编译到 `~/.quantforge/redis` 的无 root 安装（编译于本机执行过），
+  启停脚本用法：
+  ```bash
+  scripts/dev-redis.sh start     # 启动 127.0.0.1:6379（daemon，pidfile 管理）
+  scripts/dev-redis.sh status
+  scripts/dev-redis.sh stop
+  ```
+
+`docker-compose.yml` 中的 PostgreSQL 目前没有应用消费者（尚未有代码读取
+或写入它）。
+
+## 安全
+
+密钥只存放在 `.keys/.secrets.toml` 或用户目录的受限 token store，不提交到
+Git。Live 订单无需逐单人工确认，但必须通过额度、杠杆、价差、报价时效、
+裸期权与每日新增仓位等硬性检查。
+
+Dashboard 后端默认只绑定 `127.0.0.1`（见 `apps/dashboard/start.sh`）。
+如需对外提供服务，必须显式 `--host 0.0.0.0` 并设置 `QUANTFORGE_API_KEY`
+环境变量——此时所有 `/api*` 请求都需要 `X-API-Key` 请求头（WebSocket 用
+`?api_key=` 查询参数），未设置 key 时脚本会拒绝以非 loopback 地址启动。

@@ -1,0 +1,265 @@
+export interface SchemaField {
+  name: string
+  type: 'float' | 'int' | 'str' | 'bool'
+  default: number | string | boolean | null
+  label: string
+  min?: number
+  max?: number
+  step?: number
+}
+
+export interface StrategySchema {
+  name: string
+  display_name: string
+  config_fields: SchemaField[]
+  engine?: 'python'
+  version?: string
+  config_schema?: Record<string, unknown>
+}
+
+export interface Exchange {
+  id: string
+  name: string
+  default_symbol: string
+  maker_fee: number
+  taker_fee: number
+  supports_backtest?: boolean
+}
+
+export interface TradeRecord {
+  timestamp: string
+  side: string
+  price: number
+  exit_price: number
+  amount: number
+  fee: number
+  pnl: number
+  pnl_pct: number
+  entry_time?: string
+  exit_time?: string
+  bars_held?: number
+  mfe?: number       // Maximum Favorable Excursion (USDT)
+  mae?: number       // Maximum Adverse Excursion (USDT, negative)
+  mfe_pct?: number   // MFE as % of position value
+  mae_pct?: number   // MAE as % of position value
+}
+
+export interface EquityPoint {
+  t: string
+  strategy: number
+  bh: number
+}
+
+export interface DrawdownPoint {
+  t: string
+  dd: number
+}
+
+export interface MonthlyReturn {
+  year: number
+  month: number
+  return: number
+}
+
+export interface BacktestResult {
+  total_return_pct: number
+  bh_return_pct: number
+  annualized_return_pct: number
+  max_drawdown_pct: number
+  max_dd_duration_days: number
+  sharpe_ratio: number
+  sortino_ratio: number
+  calmar_ratio: number
+  annualized_volatility_pct: number
+  recovery_factor: number
+  total_trades: number
+  win_rate_pct: number
+  profit_factor: number | null
+  payoff_ratio: number
+  avg_win: number
+  avg_loss: number
+  expectancy: number
+  largest_win: number
+  largest_loss: number
+  max_consecutive_wins: number
+  max_consecutive_losses: number
+  avg_trade_duration_hours: number
+  final_equity: number
+  initial_capital: number
+  equity_curve: { t: string; strategy: number; bh: number }[]
+  drawdown_curve: { t: string; dd: number }[]
+  monthly_returns: MonthlyReturn[]
+  trades: TradeRecord[]
+  strategy: string
+  exchange: string
+  period_start: string
+  period_end: string
+  config_name: string
+  data_quality: string
+}
+
+export interface JobStatus {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  error?: string
+  result?: BacktestResult
+}
+
+export interface BacktestRequest {
+  strategy: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  period?: string
+  start_date?: string
+  end_date?: string
+  leverage?: number
+  warmup_bars?: number
+  /** Quote-currency allocation per position. */
+  position_size_usdt?: number
+  config_override?: Record<string, number | string | boolean>
+}
+
+// ─── Optimizer types ──────────────────────────────────────────────────────────
+
+export interface OptimizeRequest {
+  strategy: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  period?: string
+  start_date?: string
+  end_date?: string
+  leverage?: number
+  warmup_bars?: number
+  /** USDT notional per trade — see BacktestRequest. */
+  position_size_usdt?: number
+  metric?: string
+  mode: 'grid' | 'wfo' | 'full'
+}
+
+export interface GridRow {
+  rank: number
+  params: Record<string, unknown>
+  sharpe: number
+  total_return_pct: number
+  max_drawdown_pct: number
+  total_trades: number
+  win_rate_pct: number
+}
+
+export interface GridSearchResult {
+  best_params: Record<string, unknown>
+  best_sharpe: number
+  best_return_pct: number
+  best_drawdown_pct: number
+  rows: GridRow[]
+  train_start: string
+  train_end: string
+}
+
+export interface WFOWindow {
+  window: number
+  train_start: string
+  train_end: string
+  test_start: string
+  test_end: string
+  best_params: Record<string, unknown>
+  train_sharpe: number
+  train_return_pct: number
+  test_sharpe: number
+  test_return_pct: number
+  test_drawdown_pct: number
+}
+
+export interface WFOResult {
+  windows: WFOWindow[]
+  windows_count: number
+  avg_train_return: number
+  avg_test_return: number
+  robustness_ratio: number
+  positive_windows: number
+  total_test_return: number
+}
+
+export interface ThreeStageResult {
+  best_params: Record<string, unknown>
+  s1_in_sample_return: number
+  s1_in_sample_sharpe: number
+  s1_in_sample_drawdown: number
+  s1_in_sample_trades: number
+  s1_pass: boolean
+  s2_windows_count: number
+  s2_avg_train_return: number
+  s2_avg_test_return: number
+  s2_robustness_ratio: number
+  s2_positive_windows: number
+  s2_total_test_return: number
+  s2_pass: boolean
+  s3_holdout_return: number
+  s3_bh_return: number
+  s3_holdout_sharpe: number
+  s3_holdout_drawdown: number
+  s3_holdout_trades: number
+  s3_holdout_win_rate: number
+  s3_degradation: number
+  s3_pass: boolean
+  all_pass: boolean
+  bh_full_return: number
+}
+
+export interface OptimizeProgress {
+  completed: number
+  total: number
+  avg_secs_per_combo?: number | null
+  elapsed_secs?: number | null
+}
+
+export interface OptimizeJobStatus {
+  job_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  error?: string
+  mode?: string
+  progress?: OptimizeProgress
+  grid_result?: GridSearchResult
+  wfo_result?: WFOResult
+  full_result?: ThreeStageResult
+}
+
+// ─── Live monitoring types ──────────────────────────────────────────────────
+
+export interface LiveStartRequest {
+  strategy: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  demo: boolean
+  position_size_usdt: number
+  leverage: number
+  warmup_bars: number
+  config_override?: Record<string, number>
+  max_order_notional?: number
+  max_spread_pct?: number
+  max_leverage?: number
+  max_daily_new_positions?: number
+}
+
+export interface LiveEngineOut {
+  engine_id: string
+  status: 'warmup' | 'running' | 'restarting' | 'stopped' | 'failed'
+  strategy: string
+  exchange: string
+  symbol: string
+  timeframe: string
+  demo: boolean
+  leverage: number
+  created_at: string
+  stopped_at?: string
+  error?: string
+}
+
+export interface GlobalRiskState {
+  halted: boolean
+  reason: string
+  updated_at: string
+}

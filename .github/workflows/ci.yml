@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Create local secrets fixture
+        # quantforge.constants raises unless .keys/.secrets.toml exists;
+        # CI uses the committed template (never real credentials).
+        run: |
+          mkdir -p .keys
+          cp .keys/.secrets.toml.example .keys/.secrets.toml
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff (backend + tests)
+        run: uv run ruff check quantforge apps/dashboard/backend test
+
+      - name: Pytest
+        # No test is marked slow today (the whole suite runs in ~3s), so the
+        # suffix would be an empty filter; run everything.
+        run: uv run pytest -q
+
+      - name: Frontend typecheck + build
+        working-directory: apps/dashboard/frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
