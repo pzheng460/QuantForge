@@ -91,9 +91,13 @@ class DailyEntryCounter:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self._entries, indent=2))
+            # 0600 from creation so the file is never world/group-readable
+            # (not even for the instant before os.replace + chmod).
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(self._entries, handle, indent=2)
+                handle.write("\n")
             os.replace(tmp, self.path)
-            self.path.chmod(0o600)
         except OSError:
             logger.error("Unable to persist daily new-position counter")
 
