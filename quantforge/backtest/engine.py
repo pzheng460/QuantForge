@@ -95,9 +95,7 @@ def run_backtest(
         executed = price * (1 - cfg.slippage_pct if position > 0 else 1 + cfg.slippage_pct)
         gross = (executed - entry_price) * quantity * position
         exit_fee = abs(executed * quantity) * cfg.commission_pct
-        cash += entry_price * quantity + gross - exit_fee if position > 0 else (
-            entry_price * quantity + gross - exit_fee
-        )
+        cash += entry_price * quantity + gross - exit_fee
         trades.append(
             BacktestTrade(
                 direction="long" if position > 0 else "short",

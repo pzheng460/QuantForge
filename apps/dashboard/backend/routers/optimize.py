@@ -12,6 +12,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
+from apps.dashboard.backend.auth import websocket_api_key_authorized
 from apps.dashboard.backend.jobs import (
     create_job,
     get_job,
@@ -63,6 +64,10 @@ def cancel_optimize(job_id: str):
 @router.websocket("/ws/optimize/{job_id}")
 async def optimize_websocket(websocket: WebSocket, job_id: str):
     """Stream optimization job status via WebSocket — full status every tick."""
+    if not websocket_api_key_authorized(websocket):
+        # Refuse the upgrade before accepting: HTTP middleware never sees WS.
+        await websocket.close(code=4401)
+        return
     await websocket.accept()
     closed = False
     try:

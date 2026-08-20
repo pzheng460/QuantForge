@@ -8,20 +8,25 @@ def test_cli_exposes_python_strategy_workflows():
 
     assert result.exit_code == 0
     for command in [
-        "agent",
         "api",
         "backtest",
-        "control",
         "engines",
         "live",
         "optimize",
-        "paper",
-        "risk",
+        "schwab",
         "strategies",
         "web",
     ]:
         assert command in result.output
-    for removed in ["dsl", "deployment", "auto-tune"]:
+    for removed in [
+        "agent",
+        "auto-tune",
+        "control",
+        "deployment",
+        "dsl",
+        "paper",
+        "risk",
+    ]:
         assert f"  {removed:<11}" not in result.output
 
 
@@ -39,3 +44,25 @@ def test_strategy_registry_cli_is_available():
     assert result.exit_code == 0
     assert "ema_crossover" in result.output
     assert "tsla_nvda_options" in result.output
+
+
+def test_web_start_refuses_non_loopback_without_api_key(monkeypatch):
+    """Binding the backend to 0.0.0.0 without QUANTFORGE_API_KEY must abort:
+    the backend would otherwise expose unauthenticated live-trading controls."""
+    monkeypatch.delenv("QUANTFORGE_API_KEY", raising=False)
+    result = CliRunner().invoke(
+        cli, ["web", "start", "--host", "0.0.0.0", "--no-frontend"]
+    )
+    assert result.exit_code != 0
+    assert "QUANTFORGE_API_KEY" in result.output
+
+
+def test_web_start_refuses_non_loopback_with_whitespace_only_key(monkeypatch):
+    """A whitespace-only key must NOT satisfy the bind guard: the backend
+    strips the value and would run with auth DISABLED."""
+    monkeypatch.setenv("QUANTFORGE_API_KEY", "   ")
+    result = CliRunner().invoke(
+        cli, ["web", "start", "--host", "0.0.0.0", "--no-frontend"]
+    )
+    assert result.exit_code != 0
+    assert "QUANTFORGE_API_KEY" in result.output

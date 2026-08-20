@@ -9,14 +9,86 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable, TypeVar
 
 from quantforge.domain.intents import MultiLegOrderIntent, OrderIntent, OrderSide
+from quantforge.domain.instruments import (
+    AssetClass,
+    CryptoFuture,
+    CryptoPerpetual,
+    CryptoSpot,
+    InstrumentId,
+)
+from quantforge.execution import SubmissionOutcomeUnknown
 from quantforge.strategy.bar import Bar
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+
+
+class CcxtPositionError(RuntimeError):
+    """Raised when a position query fails transiently — callers must NOT
+    treat this as "flat" (that would risk stacking a duplicate position)."""
+
+
+#: ccxt exchanges that accept a client-order-id on create_order for idempotency.
+_IDEMPOTENCY_SUPPORTED = {"binance", "okx", "bybit", "bitget", "kucoin", "gate"}
+
+
+def _as_bool(value: object, default: bool = True) -> bool:
+    """Robustly coerce CCXT market flags (True/1/"true" → True; everything
+    else including "false"/"0" → False)."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def instrument_from_ccxt_market(market: dict, *, venue: str):
+    symbol = str(market["symbol"])
+    common = {
+        "base_currency": str(market.get("base") or ""),
+        "quote_currency": str(market.get("quote") or "USDT"),
+    }
+    market_type = str(market.get("type") or "").lower()
+    if market_type == "spot":
+        return CryptoSpot(
+            id=InstrumentId(symbol, AssetClass.CRYPTO_SPOT, venue),
+            **common,
+        )
+    derivative = {
+        **common,
+        "settlement_currency": str(market.get("settle") or "USDT"),
+        "contract_size": float(market.get("contractSize") or 1),
+        "linear": _as_bool(market.get("linear"), default=True),
+        "max_leverage": float(market.get("maxLeverage") or 1),
+    }
+    if market_type == "future":
+        expiry_ms = market.get("expiry")
+        if not expiry_ms:
+            raise ValueError(f"delivery future lacks expiry: {symbol}")
+        expiration = datetime.fromtimestamp(
+            float(expiry_ms) / 1000, tz=timezone.utc
+        ).date()
+        return CryptoFuture(
+            id=InstrumentId(symbol, AssetClass.CRYPTO_FUTURE, venue),
+            expiration=expiration,
+            currency=derivative["settlement_currency"],
+            **derivative,
+        )
+    if market_type == "swap":
+        return CryptoPerpetual(
+            id=InstrumentId(symbol, AssetClass.CRYPTO_PERPETUAL, venue),
+            currency=derivative["settlement_currency"],
+            **derivative,
+        )
+    raise ValueError(f"unsupported CCXT market type: {market_type or 'unknown'}")
+
 
 # Timeframe → seconds mapping. Single source of truth for the whole
 # codebase — anywhere else that needs bar duration (window math in
@@ -219,10 +291,23 @@ class CcxtConnector:
         If ``True``, use sandbox/demo API keys.
     """
 
-    def __init__(self, exchange_id: str, symbol: str, demo: bool = True) -> None:
+    def __init__(
+        self,
+        exchange_id: str,
+        symbol: str,
+        demo: bool = True,
+        margin_mode: str = "cross",
+    ) -> None:
         self.exchange_id = exchange_id
         self.symbol = symbol
         self.demo = demo
+        if margin_mode not in ("cross", "isolated"):
+            raise ValueError(f"margin_mode must be 'cross' or 'isolated', got {margin_mode!r}")
+        self.margin_mode = margin_mode
+        # ``True`` for perp/future symbols (contain ":"); spot has no leverage.
+        self._is_derivative_symbol = ":" in symbol
+        self._leverage_set: float | None = None
+        self._margin_mode_set: str | None = None
         self._exchange = self._create_exchange()
 
     def _create_exchange(self):
@@ -301,6 +386,41 @@ class CcxtConnector:
         exchange.load_markets()
         return exchange
 
+    def fetch_quote(self) -> dict | None:
+        """Fetch a real-time bid/ask quote for ``self.symbol`` from ccxt.
+
+        Returns ``{"bid": float, "ask": float, "time": datetime | None}`` using
+        the ticker's live bid/ask when present, falling back to the last trade
+        price when the book is thin (bid/ask zero). Returns ``None`` when the
+        exchange call fails or yields no usable price, so callers can decide
+        how to degrade (never fabricate a price here).
+        """
+        try:
+            ticker = self._exchange.fetch_ticker(self.symbol)
+        except Exception:  # noqa: BLE001 — quote is best-effort
+            logger.warning("fetch_ticker failed for %s", self.symbol, exc_info=True)
+            return None
+        try:
+            bid = ticker.get("bid")
+            ask = ticker.get("ask")
+            if not bid or not ask:
+                bid = ask = ticker.get("last")
+            if not bid or not ask:
+                return None
+            ts = ticker.get("timestamp")
+            return {
+                "bid": float(bid),
+                "ask": float(ask),
+                "time": (
+                    datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+                    if ts
+                    else None
+                ),
+            }
+        except (TypeError, ValueError) as exc:
+            logger.warning("Unusable ticker payload for %s: %s", self.symbol, exc)
+            return None
+
     # ─── Bitget UTA helpers ──────────────────────────────────────────────────
 
     @property
@@ -344,46 +464,156 @@ class CcxtConnector:
         order_type: str = "market",
         price: float | None = None,
         reduce_only: bool = False,
+        client_order_id: str | None = None,
     ) -> dict:
         """Submit via Bitget's UTA v3 place-order endpoint.
 
         Returns a dict in the same shape ccxt's create_order would, with
         ``id`` and ``status`` keys so callers don't care about the path.
         """
-        import time as _time
-
+        category = self._bitget_uta_category()
         params: dict = {
             "symbol": self._bitget_uta_symbol(),
-            "category": self._bitget_uta_category(),
+            "category": category,
             "side": side.upper(),  # Bitget UTA wants BUY / SELL
             "orderType": order_type,
             "qty": str(qty),
-            "clientOid": f"qf-{int(_time.time() * 1000)}",
+            # A stable idempotency key (the intent id when known) lets Bitget
+            # reject a duplicate submission of the same order after a timeout.
+            "clientOid": client_order_id or f"qf-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}",
         }
         if order_type == "limit":
             if price is None:
                 raise ValueError("limit order requires price")
             params["price"] = str(price)
-        if reduce_only and params["category"] != "SPOT":
+        if reduce_only and category != "SPOT":
             params["reduceOnly"] = "YES"
+        # UTA has no standalone setMarginMode endpoint: the margin mode is
+        # carried per order on place-order (futures only, 'crossed'/'isolated').
+        if category != "SPOT":
+            params["marginMode"] = "crossed" if self.margin_mode == "cross" else "isolated"
 
         logger.info(
             "Bitget UTA placeOrder: %s",
             {k: v for k, v in params.items() if k != "clientOid"},
         )
         resp = self._exchange.privateUtaPostV3TradePlaceOrder(params)
+        code = resp.get("code")
+        if code not in (None, "0", 0, "00000"):
+            raise RuntimeError(
+                f"Bitget UTA rejected order (code={code}): {resp.get('msg')}"
+            )
         data = resp.get("data") or {}
+        order_id = data.get("orderId")
+        if not order_id:
+            # The venue accepted the request (HTTP 2xx) without returning an
+            # id: the order may well be live. Unknown outcome, never retry.
+            raise SubmissionOutcomeUnknown(
+                "Bitget UTA accepted order without an order id"
+            )
         return {
-            "id": data.get("orderId"),
+            "id": order_id,
             "clientOrderId": data.get("clientOid"),
             "status": "submitted",
             "raw": resp,
         }
 
+    # ─── Leverage and margin mode ────────────────────────────────────────────
+
+    def ensure_leverage(self, leverage: float) -> None:
+        """Push the intent's leverage to the exchange before trading.
+
+        The risk engine caps ``leverage``; this transmits the value so the
+        exchange does not silently fall back to its account default (which may
+        exceed the sanctioned cap). Failures fail closed for live derivative
+        symbols: an order approved for a low leverage must never be submitted
+        while the exchange is still at an unknown/default (possibly far
+        higher) leverage, because a smaller adverse move then liquidates the
+        position. Demo mode logs and continues (no real money is at stake);
+        spot symbols have no leverage and also continue.
+        """
+        if self._leverage_set == leverage:
+            return
+        try:
+            self._exchange.set_leverage(leverage, self.symbol)
+        except Exception as exc:  # noqa: BLE001 — exchange capability variance
+            if self._is_derivative_symbol and not self.demo:
+                logger.error(
+                    "Unable to set %s leverage to %s (%s) — refusing to trade "
+                    "at unknown leverage",
+                    self.symbol,
+                    leverage,
+                    exc,
+                )
+                raise RuntimeError(
+                    f"unable to set {self.symbol} leverage to {leverage}; "
+                    "refusing to trade at unknown leverage"
+                ) from exc
+            # Demo or spot: note it and proceed (orders are simulated, or
+            # leverage is not applicable). Do NOT memoize — retry on the next
+            # submission in case the exchange becomes able to honor it.
+            logger.warning(
+                "Unable to set %s leverage to %s (%s) — using account default",
+                self.symbol,
+                leverage,
+                exc,
+            )
+            return
+        self._leverage_set = leverage
+        logger.info("Set %s leverage to %s", self.symbol, leverage)
+
+    def ensure_margin_mode(self) -> None:
+        """Explicitly set the strategy's cross/isolated margin mode.
+
+        Bitget UTA carries ``marginMode`` per order on the place-order
+        endpoint (there is no UTA ``setMarginMode`` call), so the UTA path
+        needs no pre-trade call — the per-order parameter on
+        :meth:`_bitget_uta_place_order` is the source of truth. Every other
+        venue uses ccxt's unified ``set_margin_mode`` and fails closed on live
+        derivative symbols when it cannot be pushed: trading at the exchange
+        account's default margin mode (which may be isolated when the strategy
+        expects cross, or vice versa) is a real-money leverage hazard.
+        """
+        if self._margin_mode_set == self.margin_mode:
+            return
+        if self.is_bitget_uta or not self._is_derivative_symbol:
+            # UTA: per-order marginMode; spot: no margin mode to set.
+            self._margin_mode_set = self.margin_mode
+            return
+        try:
+            self._exchange.set_margin_mode(self.margin_mode, self.symbol)
+        except Exception as exc:  # noqa: BLE001 — exchange capability variance
+            if not self.demo:
+                logger.error(
+                    "Unable to set %s margin mode to %s (%s) — refusing to "
+                    "trade at an unknown margin mode",
+                    self.symbol,
+                    self.margin_mode,
+                    exc,
+                )
+                raise RuntimeError(
+                    f"unable to set {self.symbol} margin mode to "
+                    f"{self.margin_mode}; refusing to trade at unknown margin mode"
+                ) from exc
+            logger.warning(
+                "Unable to set %s margin mode to %s (%s) — demo, using default",
+                self.symbol,
+                self.margin_mode,
+                exc,
+            )
+            return
+        self._margin_mode_set = self.margin_mode
+        logger.info("Set %s margin mode to %s", self.symbol, self.margin_mode)
+
     # ─── Public API ──────────────────────────────────────────────────────────
 
     def submit_market_order(
-        self, side: str, qty: float, reduce_only: bool = False
+        self,
+        side: str,
+        qty: float,
+        reduce_only: bool = False,
+        leverage: float = 1,
+        client_order_id: str | None = None,
     ) -> dict:
         """Submit a market order.
 
@@ -395,7 +625,14 @@ class CcxtConnector:
             Order quantity (in contracts or base currency).
         reduce_only : bool
             If ``True``, only reduce existing position.
+        leverage : float
+            Requested leverage for the position (applied where supported).
+        client_order_id : str | None
+            Stable idempotency key (the intent id) so a timeout retry of the
+            same intent cannot double-fill at the venue.
         """
+        self.ensure_leverage(leverage)
+        self.ensure_margin_mode()
         logger.info(
             "Submitting MARKET %s %.6f %s (reduce_only=%s)",
             side.upper(),
@@ -407,18 +644,99 @@ class CcxtConnector:
         # spot endpoint which rejects UTA accounts with 40085. Route directly
         # to the UTA place-order endpoint instead.
         if self.is_bitget_uta:
-            result = self._bitget_uta_place_order(
-                side=side, qty=qty, order_type="market", reduce_only=reduce_only
+            result = self._submit_unknown_aware(
+                lambda: self._bitget_uta_place_order(
+                    side=side,
+                    qty=qty,
+                    order_type="market",
+                    reduce_only=reduce_only,
+                    client_order_id=client_order_id,
+                )
             )
         else:
             params: dict = {"reduceOnly": True} if reduce_only else {}
-            result = self._exchange.create_order(
-                self.symbol, "market", side, qty, params=params
+            self._idempotency_params(params, client_order_id)
+            result = self._submit_unknown_aware(
+                lambda: self._exchange.create_order(
+                    self.symbol, "market", side, qty, params=params
+                )
             )
         logger.info(
             "Order result: id=%s status=%s", result.get("id"), result.get("status")
         )
         return result
+
+    def _submit_unknown_aware(self, action: Callable[[], dict]) -> dict:
+        """Execute an order submission, mapping network/timeout failures to an
+        unknown outcome.
+
+        A ccxt request that dies on the wire may still have been accepted by
+        the venue (the response is what timed out). Treating it as a definitive
+        rejection makes ``ExecutionService`` release the risk reservation and
+        re-authorize the same intent on retry — double-fill. So ``NetworkError``
+        / ``RequestTimeout`` become ``SubmissionOutcomeUnknown``, which the
+        execution service re-raises WITHOUT releasing. Genuine local/rejection
+        errors (``InvalidOrder``, ``InsufficientFunds``, ``AuthenticationError``)
+        still propagate normally so never-sent orders DO release.
+        """
+        import ccxt
+
+        try:
+            return action()
+        except SubmissionOutcomeUnknown:
+            raise
+        except (ccxt.NetworkError, ccxt.RequestTimeout, TimeoutError) as exc:
+            raise SubmissionOutcomeUnknown(str(exc)) from exc
+
+    def submit_limit_order(
+        self,
+        side: str,
+        qty: float,
+        price: float,
+        reduce_only: bool = False,
+        leverage: float = 1,
+        client_order_id: str | None = None,
+    ) -> dict:
+        """Submit a limit order through UTA or the generic CCXT adapter."""
+        if price <= 0:
+            raise ValueError("limit price must be positive")
+        self.ensure_leverage(leverage)
+        self.ensure_margin_mode()
+        if self.is_bitget_uta:
+            return self._submit_unknown_aware(
+                lambda: self._bitget_uta_place_order(
+                    side=side,
+                    qty=qty,
+                    order_type="limit",
+                    price=price,
+                    reduce_only=reduce_only,
+                    client_order_id=client_order_id,
+                )
+            )
+        params: dict = {"reduceOnly": True} if reduce_only else {}
+        self._idempotency_params(params, client_order_id)
+        return self._submit_unknown_aware(
+            lambda: self._exchange.create_order(
+                self.symbol,
+                "limit",
+                side,
+                qty,
+                price,
+                params,
+            )
+        )
+
+    def _idempotency_params(self, params: dict, client_order_id: str | None) -> None:
+        """Attach a client order id where the exchange supports it, so a
+        caller retrying a timed-out order cannot double-fill.
+
+        The idempotency key is the intent id when available (stable across a
+        retry of the SAME intent); a fresh uuid is only a fallback for direct
+        connector callers that have no intent.
+        """
+        if self.exchange_id in _IDEMPOTENCY_SUPPORTED:
+            key = client_order_id or f"qf-{uuid.uuid4().hex}"
+            params.setdefault("clientOrderId", key)
 
     def get_position(self) -> dict | None:
         """Get current position for the symbol.
@@ -468,14 +786,18 @@ class CcxtConnector:
                         }
                 return None
             except Exception as exc:  # noqa: BLE001
-                logger.warning("UTA fetch_position failed (%s) — assuming flat", exc)
-                return None
+                logger.warning("UTA fetch_position failed (%s)", exc)
+                raise CcxtPositionError(
+                    f"UTA position query failed; cannot treat as flat: {exc}"
+                ) from exc
         # Non-bitget / non-UTA path
         try:
             positions = self._exchange.fetch_positions([self.symbol])
         except Exception as exc:  # noqa: BLE001
-            logger.warning("fetch_positions failed (%s) — assuming flat", exc)
-            return None
+            logger.warning("fetch_positions failed (%s)", exc)
+            raise CcxtPositionError(
+                f"position query failed; cannot treat as flat: {exc}"
+            ) from exc
         for pos in positions:
             contracts = float(pos.get("contracts", 0))
             if contracts > 0:
@@ -486,6 +808,10 @@ class CcxtConnector:
                     "unrealizedPnl": float(pos.get("unrealizedPnl", 0)),
                 }
         return None
+
+    def cancel_all_orders(self) -> list:
+        """Cancel all open orders for this engine symbol."""
+        return list(self._exchange.cancel_all_orders(self.symbol) or [])
 
 
 class CcxtExecutionAdapter:
@@ -499,14 +825,37 @@ class CcxtExecutionAdapter:
             raise ValueError("CCXT multi-leg atomic orders are not supported")
         if intent.instrument.id.venue.lower() != self.connector.exchange_id.lower():
             raise ValueError("intent venue does not match CCXT connector")
-        if intent.order_type.value != "market":
-            raise ValueError("first-stage CCXT live adapter accepts market intents only")
-        result = self.connector.submit_market_order(
-            "buy" if intent.side is OrderSide.BUY else "sell",
-            intent.quantity,
-            reduce_only=intent.reduce_only,
-        )
+        # Re-check the instrument-level leverage cap right before submission;
+        # the intent's requested leverage must be respected by the exchange.
+        inst = intent.instrument
+        if (
+            inst.id.asset_class
+            in {AssetClass.CRYPTO_PERPETUAL, AssetClass.CRYPTO_FUTURE}
+            and intent.leverage > getattr(inst, "max_leverage", 1)
+        ):
+            raise ValueError("intent leverage exceeds instrument max leverage")
+        side = "buy" if intent.side is OrderSide.BUY else "sell"
+        if intent.order_type.value == "market":
+            result = self.connector.submit_market_order(
+                side,
+                intent.quantity,
+                reduce_only=intent.reduce_only,
+                leverage=intent.leverage,
+                client_order_id=intent.intent_id,
+            )
+        elif intent.order_type.value == "limit" and intent.limit_price is not None:
+            result = self.connector.submit_limit_order(
+                side,
+                intent.quantity,
+                intent.limit_price,
+                reduce_only=intent.reduce_only,
+                leverage=intent.leverage,
+                client_order_id=intent.intent_id,
+            )
+        else:
+            raise ValueError("CCXT adapter accepts market and priced limit intents")
         order_id = str(result.get("id") or "")
         if not order_id:
-            raise RuntimeError("exchange accepted order without an id")
+            # Returned success without an id: the order may have been accepted.
+            raise SubmissionOutcomeUnknown("exchange accepted order without an id")
         return order_id

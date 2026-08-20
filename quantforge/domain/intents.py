@@ -37,6 +37,36 @@ class OrderIntent:
     intent_id: str = field(default_factory=lambda: uuid4().hex)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
+    def __post_init__(self) -> None:
+        if not self.strategy_id or not str(self.strategy_id).strip():
+            raise ValueError("strategy_id is required")
+        if not isinstance(self.instrument, Instrument):
+            raise ValueError("intent requires an instrument")
+        if self.side not in (OrderSide.BUY, OrderSide.SELL):
+            raise ValueError("intent side must be BUY or SELL")
+        if self.quantity is None or self.quantity <= 0:
+            raise ValueError("quantity must be positive")
+        if self.leverage is None or self.leverage <= 0:
+            raise ValueError("leverage must be positive")
+        if self.limit_price is not None and self.limit_price <= 0:
+            raise ValueError("limit_price must be positive")
+        if self.stop_price is not None and self.stop_price <= 0:
+            raise ValueError("stop_price must be positive")
+        if self.quote_bid is not None and self.quote_bid <= 0:
+            raise ValueError("quote_bid must be positive")
+        if self.quote_ask is not None and self.quote_ask <= 0:
+            raise ValueError("quote_ask must be positive")
+        if (
+            self.quote_bid is not None
+            and self.quote_ask is not None
+            and self.quote_ask < self.quote_bid
+        ):
+            raise ValueError("quote_ask must be >= quote_bid")
+        if self.quote_timestamp is not None and self.quote_timestamp.tzinfo is None:
+            raise ValueError("quote_timestamp must be timezone-aware")
+        if not self.intent_id:
+            raise ValueError("intent_id must not be empty")
+
 
 @dataclass(frozen=True, slots=True)
 class MultiLegOrderIntent:
@@ -44,3 +74,15 @@ class MultiLegOrderIntent:
     legs: tuple[OrderIntent, ...]
     net_limit_price: float | None = None
     intent_id: str = field(default_factory=lambda: uuid4().hex)
+
+    def __post_init__(self) -> None:
+        if not self.legs:
+            raise ValueError("multi-leg intent requires at least one leg")
+        if not all(isinstance(leg, OrderIntent) for leg in self.legs):
+            raise ValueError("every leg must be an OrderIntent")
+        if any(leg.strategy_id != self.strategy_id for leg in self.legs):
+            raise ValueError("all legs must share the multi-leg strategy_id")
+        if not self.intent_id:
+            raise ValueError("intent_id must not be empty")
+        if self.net_limit_price is not None and self.net_limit_price == 0:
+            raise ValueError("net_limit_price must be non-zero or None")

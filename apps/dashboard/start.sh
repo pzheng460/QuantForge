@@ -6,7 +6,13 @@
 #   ./apps/dashboard/start.sh --prod     — production mode (vite build, FastAPI serves dist/)
 #   ./apps/dashboard/start.sh --https    — HTTPS backend for OAuth callbacks
 #   ./apps/dashboard/start.sh --prod --https — production mode over HTTPS
+#   ./apps/dashboard/start.sh --host 0.0.0.0 — bind a non-loopback interface
 #   ./apps/dashboard/start.sh stop       — stop both services
+#
+# SECURITY: the backend binds 127.0.0.1 by default so live-trading controls
+# are not reachable from the network. If you explicitly bind 0.0.0.0
+# (--host 0.0.0.0), set QUANTFORGE_API_KEY in the environment so the backend
+# requires an `X-API-Key` header on every /api* request.
 
 set -e
 
@@ -38,13 +44,27 @@ fi
 
 MODE="dev"
 HTTPS="false"
-for arg in "$@"; do
-    case "$arg" in
+HOST="127.0.0.1"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --prod|prod) MODE="prod" ;;
         --https) HTTPS="true" ;;
-        *) echo "Unknown argument: $arg"; exit 2 ;;
+        --host) HOST="${2:?--host requires an IP}"; shift ;;
+        *) echo "Unknown argument: $1"; exit 2 ;;
     esac
+    shift
 done
+
+if [ "$HOST" != "127.0.0.1" ] && [ "$HOST" != "localhost" ]; then
+    echo "WARNING: binding to $HOST exposes live-trading controls to the network."
+    # Whitespace-only values are NOT a key: the backend strips too, so a blank
+    # key would pass this guard yet install no auth — refuse it.
+    if [ -z "$(printf '%s' "${QUANTFORGE_API_KEY:-}" | tr -d '[:space:]')" ]; then
+        echo "ERROR: QUANTFORGE_API_KEY is empty; refuse to expose the dashboard unauthenticated."
+        echo "       Set QUANTFORGE_API_KEY (and, ideally, use --https) before binding $HOST."
+        exit 1
+    fi
+fi
 
 SSL_ARGS=()
 BACKEND_SCHEME="http"
@@ -67,17 +87,17 @@ if [ "$MODE" = "prod" ]; then
     (cd "$APP_DIR/frontend" && npm run build) > "$LOG_FRONTEND" 2>&1
     echo "Starting backend (uvicorn :8000, single worker, prod, serves SPA from dist/)..."
     uv run uvicorn apps.dashboard.backend.main:app \
-        --host 0.0.0.0 --port 8000 \
+        --host "$HOST" --port 8000 \
         "${SSL_ARGS[@]}" \
         > "$LOG_BACKEND" 2>&1 &
     echo $! > "$PIDFILE_BACKEND"
     URL_FRONTEND="$BACKEND_URL"
 else
-    # Dev: limit --reload scope so StatReload doesn't eat CPU scanning
-    # eval/ artifacts, node_modules, or agent_jobs JSON writes.
+    # Dev: limit --reload scope so StatReload does not scan build artifacts
+    # or node_modules.
     echo "Starting backend (uvicorn :8000, dev, --reload bounded)..."
     uv run uvicorn apps.dashboard.backend.main:app \
-        --host 0.0.0.0 --port 8000 \
+        --host "$HOST" --port 8000 \
         "${SSL_ARGS[@]}" \
         --reload \
         --reload-dir apps/dashboard/backend \
@@ -107,8 +127,11 @@ echo "==================================="
 echo "  QuantForge Web UI is running ($MODE)"
 echo "==================================="
 echo "  Frontend: $URL_FRONTEND"
-echo "  Backend:  $BACKEND_URL"
+echo "  Backend:  $BACKEND_URL (bind: $HOST)"
 echo "  API docs: $BACKEND_URL/docs"
+if [ "$HOST" != "127.0.0.1" ] && [ "$HOST" != "localhost" ]; then
+    echo "  Auth:     X-API-Key required (QUANTFORGE_API_KEY set)"
+fi
 echo ""
 echo "  Logs:"
 echo "    Backend:  $LOG_BACKEND"

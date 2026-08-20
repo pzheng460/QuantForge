@@ -160,7 +160,12 @@ export default function BacktestPage() {
       max: field.max,
       step: field.step,
     })))
-  }, [setSelectedStrategy, setStrategyParams, strategies])
+    // The options strategy backtest only supports single-name TSLA/NVDA bars:
+    // prefill the ticker so the managed model isn't fed an arbitrary symbol.
+    if (name === 'tsla_nvda_options' && !symbol) {
+      setSymbol('NVDA')
+    }
+  }, [setSelectedStrategy, setStrategyParams, strategies, symbol, setSymbol])
 
   const handleParamChange = useCallback((paramName: string, newValue: number) => {
     setStrategyParams((prev) =>

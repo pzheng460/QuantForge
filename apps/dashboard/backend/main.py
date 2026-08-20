@@ -6,10 +6,12 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+from apps.dashboard.backend.auth import api_key_configured, request_api_key_authorized
 
 # ─── Logging: capture INFO from quantforge.* loggers ─────────────────────────
 # Keep live-engine and broker lifecycle logs visible in the service console.
@@ -40,9 +42,8 @@ from apps.dashboard.backend.routers import (  # noqa: E402
     backtest,
     optimize,
     live,
-    agent,
-    bot,
     brokers,
+    risk_options,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,14 +85,44 @@ app.include_router(strategies.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(optimize.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
-app.include_router(agent.router, prefix="/api")
-app.include_router(bot.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
+app.include_router(risk_options.router, prefix="/api")
+
+# ─── Optional API-key authentication ────────────────────────────────────────
+# The dashboard binds to 127.0.0.1 by default (see apps/dashboard/start.sh).
+# When an operator deliberately exposes it to the network (--host 0.0.0.0),
+# they must set QUANTFORGE_API_KEY; every /api* request (except /api/health)
+# then requires the `X-API-Key` header, otherwise trading controls on this
+# backend are reachable by anyone on the network.
+#
+# Starlette's HTTP middleware does NOT run for WebSocket upgrades, so the WS
+# handlers enforce the same key themselves (see auth.py).
+if api_key_configured():
+
+    @app.middleware("http")
+    async def require_api_key(request: Request, call_next):
+        if request.url.path.startswith("/api") and request.url.path != "/api/health":
+            if not request_api_key_authorized(request):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "invalid or missing API key"},
+                )
+        return await call_next(request)
 
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+async def unknown_api(path: str):
+    """Keep unknown API requests from falling through to the SPA."""
+    raise HTTPException(status_code=404, detail="API route not found")
 
 
 # ─── Production static serving ───────────────────────────────────────────────

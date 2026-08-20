@@ -73,8 +73,6 @@ export function livePerformanceToBacktestResult(
     max_drawdown_pct: perf.max_drawdown_pct,
     max_dd_duration_days: 0,
     sharpe_ratio: 0,
-    sharpe_ci_lo: null,
-    sharpe_ci_hi: null,
     sortino_ratio: 0,
     calmar_ratio: 0,
     annualized_volatility_pct: 0,
@@ -98,12 +96,6 @@ export function livePerformanceToBacktestResult(
     avg_trade_duration_hours: 0,
     final_equity: perf.current_balance,
     initial_capital: initial,
-    net_profit: perf.total_pnl,
-    gross_profit: winTrades.reduce((s, t) => s + t.pnl, 0),
-    gross_loss: loseTrades.reduce((s, t) => s + t.pnl, 0),
-    commission_paid: 0,
-    num_winning_trades: perf.winning_trades,
-    num_losing_trades: perf.losing_trades,
     equity_curve,
     drawdown_curve,
     monthly_returns: [],
@@ -113,5 +105,6 @@ export function livePerformanceToBacktestResult(
     period_start: perf.start_time,
     period_end: perf.last_update,
     config_name: perf.config_name || '',
+    data_quality: 'historical_market_data',
   }
 }

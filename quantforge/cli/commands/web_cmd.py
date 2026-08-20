@@ -47,6 +47,14 @@ def _stop(pid_file: Path) -> bool:
     return True
 
 
+def _active_api_key() -> str:
+    """The API key auth actually relies on: whitespace-only values are NOT a
+    key. The backend matches on the trimmed value, so the bind guard must use
+    the same definition or a blank key would pass here yet disable auth there.
+    """
+    return (os.environ.get("QUANTFORGE_API_KEY") or "").strip()
+
+
 @click.group("web")
 def web_group():
     """Start, stop, and inspect the web UI services."""
@@ -55,10 +63,23 @@ def web_group():
 @web_group.command("start")
 @click.option("--backend-port", default=8000, show_default=True)
 @click.option("--frontend-port", default=5173, show_default=True)
-@click.option("--host", default="0.0.0.0", show_default=True)
+@click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--no-frontend", is_flag=True, help="Start only the FastAPI backend.")
 def start_cmd(backend_port: int, frontend_port: int, host: str, no_frontend: bool):
     """Start backend and frontend in the background."""
+    # A non-loopback bind exposes live-trading controls to the network. The
+    # backend only installs API-key auth when a NON-BLANK QUANTFORGE_API_KEY
+    # is set (see apps/dashboard/backend/auth.py), so refuse the bind without
+    # one (mirrors apps/dashboard/start.sh).
+    if host not in ("127.0.0.1", "localhost") and not _active_api_key():
+        click.echo(
+            f"ERROR: binding to {host} exposes live-trading controls to the "
+            "network. QUANTFORGE_API_KEY is empty; refuse to expose the "
+            "dashboard unauthenticated. Set QUANTFORGE_API_KEY before binding "
+            f"{host}.",
+            err=True,
+        )
+        raise click.Abort()
     stop_cmd.callback()
     WEB_DIR.mkdir(exist_ok=True)
 

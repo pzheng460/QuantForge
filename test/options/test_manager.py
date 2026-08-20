@@ -62,6 +62,8 @@ def test_manager_selects_liquid_delta_fit_covered_call():
             maximum_covered_ratio=0.5,
             stock_price=350,
             trend_state="横盘",
+            earnings_date=today + timedelta(days=90),
+            earnings_confirmed=True,
             candidates=candidates,
         )
     )

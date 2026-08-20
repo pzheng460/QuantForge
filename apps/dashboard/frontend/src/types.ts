@@ -11,9 +11,7 @@ export interface SchemaField {
 export interface StrategySchema {
   name: string
   display_name: string
-  default_interval: string
   config_fields: SchemaField[]
-  filter_fields: SchemaField[]
   engine?: 'python'
   version?: string
   config_schema?: Record<string, unknown>
@@ -70,8 +68,6 @@ export interface BacktestResult {
   max_drawdown_pct: number
   max_dd_duration_days: number
   sharpe_ratio: number
-  sharpe_ci_lo: number | null
-  sharpe_ci_hi: number | null
   sortino_ratio: number
   calmar_ratio: number
   annualized_volatility_pct: number
@@ -90,22 +86,8 @@ export interface BacktestResult {
   avg_trade_duration_hours: number
   final_equity: number
   initial_capital: number
-  // TradingView-compatible fields (optional, populated when backend supports them)
-  net_profit?: number
-  gross_profit?: number
-  gross_loss?: number
-  commission_paid?: number
-  avg_trade_dollar?: number
-  avg_trade_pct?: number
-  avg_bars_held?: number
-  avg_bars_held_winning?: number
-  avg_bars_held_losing?: number
-  open_pl?: number
-  total_open_trades?: number
-  num_winning_trades?: number
-  num_losing_trades?: number
-  equity_curve: EquityPoint[]
-  drawdown_curve: DrawdownPoint[]
+  equity_curve: { t: string; strategy: number; bh: number }[]
+  drawdown_curve: { t: string; dd: number }[]
   monthly_returns: MonthlyReturn[]
   trades: TradeRecord[]
   strategy: string
@@ -113,7 +95,7 @@ export interface BacktestResult {
   period_start: string
   period_end: string
   config_name: string
-  data_quality?: 'historical_market_data' | 'approximate_unvalidated'
+  data_quality: string
 }
 
 export interface JobStatus {
@@ -135,9 +117,7 @@ export interface BacktestRequest {
   warmup_bars?: number
   /** Quote-currency allocation per position. */
   position_size_usdt?: number
-  mesa_index?: number
   config_override?: Record<string, number | string | boolean>
-  filter_override?: Record<string, number | string | boolean>
 }
 
 // ─── Optimizer types ──────────────────────────────────────────────────────────
@@ -156,7 +136,6 @@ export interface OptimizeRequest {
   position_size_usdt?: number
   metric?: string
   mode: 'grid' | 'wfo' | 'full'
-  n_jobs?: number
 }
 
 export interface GridRow {
@@ -220,8 +199,6 @@ export interface ThreeStageResult {
   s3_holdout_return: number
   s3_bh_return: number
   s3_holdout_sharpe: number
-  s3_sharpe_ci_lo: number | null
-  s3_sharpe_ci_hi: number | null
   s3_holdout_drawdown: number
   s3_holdout_trades: number
   s3_holdout_win_rate: number
@@ -267,7 +244,6 @@ export interface LiveTrade {
 export interface LivePerformance {
   start_time: string
   last_update: string
-  mesa_index: number
   config_name: string
   initial_balance: number
   current_balance: number
@@ -306,7 +282,7 @@ export interface LiveStartRequest {
 
 export interface LiveEngineOut {
   engine_id: string
-  status: 'warmup' | 'running' | 'stopped' | 'failed'
+  status: 'warmup' | 'running' | 'restarting' | 'stopped' | 'failed'
   strategy: string
   exchange: string
   symbol: string
@@ -318,47 +294,8 @@ export interface LiveEngineOut {
   performance?: LivePerformance
 }
 
-// ─── Agent workflow types ──────────────────────────────────────────────────
-
-export interface AgentRunRequest {
-  skill_path: string  // e.g., "quantforge-optimizer"
-  strategy: string
-  exchange: string
-  symbol?: string
-  timeframe?: string
-  max_iterations: number
-  model?: string
-  max_budget_usd?: number
-}
-
-export interface AgentEvent {
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'error' | 'done'
-  tool_name?: string  // 'Read' | 'Edit' | 'Write' | 'Bash' | etc
-  content: string  // text content or tool input/output
-  file_path?: string  // for Read/Edit/Write
-  diff?: { old: string; new: string }  // for Edit
-  duration_ms?: number  // for tool calls
-  timestamp: string
-}
-
-export interface AgentJobStatus {
-  job_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  started_at?: string
-  events_count: number
-  error?: string
-}
-
-export interface AgentMetric {
-  name: string
-  pattern: string
-  higher_is_better?: boolean
-  primary?: boolean
-}
-
-export interface AgentSkillInfo {
-  name: string
-  description: string
-  defaults: Record<string, unknown>
-  metrics: AgentMetric[]
+export interface GlobalRiskState {
+  halted: boolean
+  reason: string
+  updated_at: string
 }

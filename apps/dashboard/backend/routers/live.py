@@ -14,6 +14,8 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
+from apps.dashboard.backend.auth import websocket_api_key_authorized
+from apps.dashboard.backend.http_errors import safe_exception_detail
 from apps.dashboard.backend.models import (
     LiveEngineOut,
     LivePerformanceOut,
@@ -111,6 +113,10 @@ def get_live_performance():
 @router.websocket("/ws/live/performance")
 async def ws_live_performance(ws: WebSocket):
     """Stream live performance updates every 3 seconds."""
+    if not websocket_api_key_authorized(ws):
+        # Refuse the upgrade before accepting: HTTP middleware never sees WS.
+        await ws.close(code=4401)
+        return
     await ws.accept()
     try:
         last_update = ""
@@ -165,9 +171,15 @@ async def start_live(req: LiveStartRequest) -> LiveEngineOut:
             },
         )
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(
+            status_code=404,
+            detail=safe_exception_detail(e, prefix="engine configuration/data not found"),
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=safe_exception_detail(e, prefix="failed to start engine"),
+        )
 
     from apps.dashboard.backend.live_engines import get_engine
 
@@ -243,5 +255,10 @@ def delete_live_engine(engine_id: str):
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Engine {engine_id} not found")
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(
+            status_code=409,
+            detail=safe_exception_detail(
+                exc, prefix="engine is still active; stop it before deleting"
+            ),
+        )
     return {"engine_id": engine_id, "deleted": True}

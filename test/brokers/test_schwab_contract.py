@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from quantforge.brokers.schwab import SchwabConnector, SchwabCredentials
+from quantforge.brokers.schwab import (
+    SchwabAmbiguousOrderError,
+    SchwabConnector,
+    SchwabCredentials,
+    SchwabOrderError,
+)
 
 
 class _Response:
@@ -126,3 +131,69 @@ def test_atomic_option_spread_contract(tmp_path):
     assert payload["price"] == "2.5"
     assert payload["complexOrderStrategyType"] == "CUSTOM"
     assert len(payload["orderLegCollection"]) == 2
+
+
+def _connector(tmp_path, session):
+    return SchwabConnector(
+        credentials=SchwabCredentials(
+            app_key="app-key",
+            app_secret="app-secret",
+            callback_url="https://127.0.0.1:8182/callback",
+        ),
+        account_hash="HASH123",
+        token_path=tmp_path / "tokens.json",
+        session=session,
+        access_token="access-token",
+    )
+
+
+@pytest.mark.critical
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_order_post_ambiguous_http_status_is_unknown_outcome(tmp_path, status):
+    """A rate-limit 429 or gateway 5xx on an order POST must raise
+    SchwabAmbiguousOrderError (never a definitive rejection), so the execution
+    layer keeps the reservation and cannot double-fill by re-submitting.
+    The order may already be live at the broker when such a response is sent.
+    """
+
+    class _FailSession(_Session):
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            if method == "POST":
+                return _Response(status)
+            return _Response(200, {"status": "FILLED", "orderId": 1})
+
+    session = _FailSession()
+    connector = _connector(tmp_path, session)
+    with pytest.raises(SchwabAmbiguousOrderError):
+        connector.place_order(
+            symbol="AAPL",
+            instruction="BUY",
+            quantity=2,
+            order_type="LIMIT",
+            price=190.25,
+        )
+
+
+@pytest.mark.critical
+def test_order_post_4xx_is_definitive_rejection(tmp_path):
+    """A 4xx validation response means Schwab refused the order; the execution
+    layer may release the reservation."""
+
+    class _RejectSession(_Session):
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            if method == "POST":
+                return _Response(400)
+            return _Response(200, {"status": "FILLED", "orderId": 1})
+
+    session = _RejectSession()
+    connector = _connector(tmp_path, session)
+    with pytest.raises(SchwabOrderError):
+        connector.place_order(
+            symbol="AAPL",
+            instruction="BUY",
+            quantity=2,
+            order_type="LIMIT",
+            price=190.25,
+        )

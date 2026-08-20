@@ -241,6 +241,13 @@
     background: hsl(var(--positive) / 0.35);
     animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
+
+  /* Offline state: muted red, no pulse. */
+  .status-dot--offline,
+  .status-dot--offline::after {
+    background: hsl(var(--destructive) / 0.8);
+    animation: none;
+  }
 }
 
 @layer utilities {

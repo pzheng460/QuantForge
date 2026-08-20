@@ -8,10 +8,7 @@ import type {
   LivePerformance,
   LiveStartRequest,
   LiveEngineOut,
-  AgentRunRequest,
-  AgentJobStatus,
-  AgentSkillInfo,
-  AgentEvent,
+  GlobalRiskState,
 } from '../types'
 
 export class ApiError extends Error {
@@ -22,6 +19,23 @@ export class ApiError extends Error {
 }
 
 const BASE = '/api'
+
+/**
+ * Optional API key for remote deployments (backend bound to 0.0.0.0 with
+ * QUANTFORGE_API_KEY set). Stored by the operator in localStorage so the UI
+ * can authenticate; localhost deployments do not need one.
+ */
+const apiKey = (): string => localStorage.getItem('qf_api_key') ?? ''
+
+function authHeaders(): Record<string, string> {
+  const key = apiKey()
+  return key ? { 'X-API-Key': key } : {}
+}
+
+function authQuery(): string {
+  const key = apiKey()
+  return key ? `?api_key=${encodeURIComponent(key)}` : ''
+}
 
 async function parseErrorMessage(res: Response): Promise<string> {
   try {
@@ -37,7 +51,7 @@ async function parseErrorMessage(res: Response): Promise<string> {
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { signal })
+  const res = await fetch(`${BASE}${path}`, { signal, headers: authHeaders() })
   if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res))
   return res.json()
 }
@@ -45,7 +59,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
     signal,
   })
@@ -54,7 +68,7 @@ async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promi
 }
 
 async function del<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', signal })
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', signal, headers: authHeaders() })
   if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res))
   return res.json()
 }
@@ -96,15 +110,28 @@ export const api = {
   deleteLive: (engineId: string): Promise<{ engine_id: string; deleted: boolean }> =>
     del(`/live/engines/${engineId}`),
   liveEngines: (): Promise<LiveEngineOut[]> => get('/live/engines'),
+  globalRisk: (): Promise<GlobalRiskState> => get('/risk/global'),
+  setGlobalRisk: (halted: boolean, reason = ''): Promise<GlobalRiskState> =>
+    fetch(`${BASE}/risk/global`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ halted, reason }),
+    }).then(async (res) => {
+      if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res))
+      return res.json()
+    }),
+  analyzeSchwabOptions: (request: Record<string, unknown>): Promise<{
+    report: {
+      action: string
+      reasons: string[]
+      contract_symbol?: string
+      contracts: number
+      limit_price?: number
+      data_quality: string
+    }
+    report_path: string
+  }> => post('/options/schwab/analyze', request),
 
-  // Agent workflow management
-  runAgent: (req: AgentRunRequest): Promise<AgentJobStatus> =>
-    post('/agent/run', req),
-  getAgentStatus: (jobId: string): Promise<AgentJobStatus> =>
-    get(`/agent/${jobId}`),
-  stopAgent: (jobId: string): Promise<void> =>
-    post(`/agent/${jobId}/stop`, {}),
-  agentSkills: (): Promise<AgentSkillInfo[]> => get('/agent/skills'),
 }
 
 /** Subscribe to an optimize job via WebSocket. Returns a cleanup function. */
@@ -114,7 +141,9 @@ export function subscribeOptimize(
   onError?: (e: Event) => void
 ): () => void {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/optimize/${jobId}`)
+  const ws = new WebSocket(
+    `${protocol}://${window.location.host}/api/ws/optimize/${jobId}${authQuery()}`
+  )
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
@@ -124,6 +153,9 @@ export function subscribeOptimize(
   }
   ws.onclose = (e) => {
     console.log(`[ws:optimize] closed (code=${e.code}, reason=${e.reason})`)
+    // Close (including a failed upgrade / auth rejection) must also
+    // disconnect the UI state — onerror alone doesn't fire on close.
+    onError?.(e)
   }
   if (onError) ws.onerror = onError
   return () => {
@@ -138,7 +170,9 @@ export function subscribeLivePerformance(
   onError?: (e: Event) => void
 ): () => void {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/live/performance`)
+  const ws = new WebSocket(
+    `${protocol}://${window.location.host}/api/ws/live/performance${authQuery()}`
+  )
   ws.onmessage = (e) => {
     try {
       onMessage(JSON.parse(e.data))
@@ -148,30 +182,9 @@ export function subscribeLivePerformance(
   }
   ws.onclose = (e) => {
     console.log(`[ws:live] closed (code=${e.code}, reason=${e.reason})`)
-  }
-  if (onError) ws.onerror = onError
-  return () => {
-    if (ws.readyState === WebSocket.OPEN) ws.close()
-  }
-}
-
-/** Subscribe to agent events via WebSocket. Returns a cleanup function. */
-export function subscribeAgent(
-  jobId: string,
-  onMessage: (event: AgentEvent) => void,
-  onError?: (e: Event) => void
-): () => void {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/agent/${jobId}`)
-  ws.onmessage = (e) => {
-    try {
-      onMessage(JSON.parse(e.data))
-    } catch (err) {
-      console.warn('[ws:agent] failed to parse message:', err)
-    }
-  }
-  ws.onclose = (e) => {
-    console.log(`[ws:agent] closed (code=${e.code}, reason=${e.reason})`)
+    // Close (including a failed upgrade / auth rejection) must also
+    // disconnect the UI state — onerror alone doesn't fire on close.
+    onError?.(e)
   }
   if (onError) ws.onerror = onError
   return () => {

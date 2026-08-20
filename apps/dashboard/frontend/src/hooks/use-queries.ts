@@ -1,10 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client'
 import type {
   BacktestRequest,
   LiveStartRequest,
   OptimizeRequest,
-  AgentRunRequest,
 } from '../types'
 
 // ─── Catalog queries (shared across pages) ─────────────────────────────────
@@ -97,46 +96,5 @@ export function useRunOptimize() {
 export function useCancelOptimize() {
   return useMutation({
     mutationFn: (jobId: string) => api.cancelOptimize(jobId),
-  })
-}
-
-// ─── Agent queries ──────────────────────────────────────────────────────────
-
-export function useAgentSkills() {
-  return useQuery({
-    queryKey: ['agent-skills'],
-    queryFn: () => api.agentSkills(),
-  })
-}
-
-export function useAgentStatus(jobId: string | null, enabled: boolean) {
-  return useQuery({
-    queryKey: ['agent', jobId],
-    queryFn: () => api.getAgentStatus(jobId!),
-    enabled: !!jobId && enabled,
-    refetchInterval: (q) => {
-      // Stop polling once the job is in a terminal state OR the backend
-      // says it doesn't exist (404 — typically backend restarted, job lost).
-      if (q.state.error instanceof ApiError && q.state.error.status === 404) return false
-      const s = q.state.data?.status
-      if (s === 'completed' || s === 'failed' || s === 'cancelled') return false
-      return 2000
-    },
-    retry: (failureCount, error) => {
-      if (error instanceof ApiError && error.status === 404) return false
-      return failureCount < 3
-    },
-  })
-}
-
-export function useRunAgent() {
-  return useMutation({
-    mutationFn: (req: AgentRunRequest) => api.runAgent(req),
-  })
-}
-
-export function useStopAgent() {
-  return useMutation({
-    mutationFn: (jobId: string) => api.stopAgent(jobId),
   })
 }

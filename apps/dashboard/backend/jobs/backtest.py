@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import date, datetime, timedelta, timezone
 
+from apps.dashboard.backend.http_errors import sanitize_exception
 from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
@@ -13,8 +15,8 @@ from apps.dashboard.backend.jobs.data import (
 )
 from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
-    _jobs,
     check_cancelled,
+    update_job,
 )
 from apps.dashboard.backend.models import (
     BacktestRequest,
@@ -23,26 +25,49 @@ from apps.dashboard.backend.models import (
 )
 from apps.dashboard.backend.jobs.data import timeframe_to_seconds
 
+logger = logging.getLogger(__name__)
+
+
+def _approximate_earnings_calendar(start: date, end: date) -> tuple[date, ...]:
+    """Quarterly (~91-day) anchors for the managed covered-call backtest,
+    extended well past the period end.
+
+    The managed model blocks entries when the NEXT earnings date is unknown —
+    parity with the live OptionManager, which refuses all new covered calls
+    without a known earnings date. A calendar that stops inside the period
+    would therefore block the entire tail, so anchors continue past ``end``;
+    within the period the strategy always has a known next report and only the
+    dte+buffer days around each anchor are blocked, matching live behavior.
+    """
+    dates: list[date] = []
+    day = start
+    horizon = end + timedelta(days=182)
+    while day <= horizon:
+        dates.append(day)
+        day += timedelta(days=91)
+    return tuple(dates)
+
 
 async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
     """Run a Python strategy backtest in the background and store the result."""
-    _jobs[job_id]["status"] = "running"
+    update_job(job_id, status="running")
 
     try:
         result = await asyncio.to_thread(_run_python_backtest, req)
         check_cancelled(job_id)
-        _jobs[job_id]["result"] = result
-        _jobs[job_id]["status"] = "completed"
+        update_job(job_id, result=result, status="completed")
 
     except JobCancelled:
-        _jobs[job_id]["status"] = "cancelled"
+        update_job(job_id, status="cancelled")
 
     except Exception as exc:
-        import traceback
-
-        _jobs[job_id]["status"] = "failed"
-        _jobs[job_id]["error"] = (
-            f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+        # Keep the full traceback server-side; the client only needs a stable
+        # failure category (no raw exception text / workspace paths).
+        logger.exception("Backtest job %s failed", job_id)
+        update_job(
+            job_id,
+            status="failed",
+            error=sanitize_exception(exc, prefix="backtest job failed"),
         )
 
 
@@ -50,7 +75,10 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
     """Execute a registered Python strategy synchronously."""
     import quantforge.strategies  # noqa: F401
     from quantforge.backtest import BacktestConfig, run_backtest
-    from quantforge.options import run_covered_call_approximation
+    from quantforge.options.backtest import (
+        ManagedCoveredCallConfig,
+        run_managed_covered_call_approximation,
+    )
     from quantforge.strategy import get_strategy
     from quantforge.strategy.bar import BarStrategy
 
@@ -89,20 +117,45 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
         data_quality = "historical_market_data"
     elif req.strategy == "tsla_nvda_options":
         option_config = strategy_cls.config_model(**(req.config_override or {}))
-        approximation = run_covered_call_approximation(
-            all_ohlcv[warmup_bar_count:],
-            initial_capital=initial_capital,
-            dte=max(option_config.dte_min, min(30, option_config.dte_max)),
-            target_delta=(
-                option_config.entry_delta_min + option_config.entry_delta_max
+        ticker = (req.symbol or "").upper().split(":")[0].split("/")[0]
+        if ticker not in ("TSLA", "NVDA"):
+            # The managed model prices per ticker and drives roll/delta/close
+            # management like the live manager; refusals beat silently feeding
+            # it arbitrary bars and pretending the result is a covered call.
+            raise ValueError(
+                "tsla_nvda_options backtest requires symbol TSLA or NVDA; "
+                f"got {req.symbol or '(none)'}"
             )
-            / 2,
-            coverage_ratio=option_config.coverage_ratio,
+        # Use the LIVE strategy's management knobs so the backtest exercises
+        # the same decision engine the engine runs: roll_delta, profit_take,
+        # earnings buffer and coverage all flow in. The full bar history
+        # (warmup + period) feeds the 200-bar indicator warmup; evaluation
+        # starts at the formal period, keeping the equity curve period-aligned.
+        managed = run_managed_covered_call_approximation(
+            ticker,
+            all_ohlcv,
+            initial_capital=initial_capital,
+            config=ManagedCoveredCallConfig(
+                minimum_core_shares=0,
+                maximum_covered_ratio=option_config.coverage_ratio,
+                dte_min=option_config.dte_min,
+                dte_max=option_config.dte_max,
+                profit_take_pct=option_config.profit_take,
+                roll_delta=option_config.roll_delta,
+                earnings_buffer_days=option_config.earnings_buffer_days,
+            ),
+            earnings_dates=_approximate_earnings_calendar(
+                start_dt.date(), end_dt.date()
+            ),
+            evaluation_start=start_dt.date(),
         )
-        result = approximation.result
-        all_ohlcv = all_ohlcv[warmup_bar_count:]
-        warmup_bar_count = 0
-        data_quality = approximation.quality
+        result = managed.result
+        if result is None:
+            raise RuntimeError("managed covered-call backtest produced no result")
+        # NOTE: all_ohlcv / warmup_bar_count are deliberately NOT rewritten:
+        # the managed model's trade indices span the warmup+period bars and
+        # must map back onto the full array for timestamps.
+        data_quality = managed.quality
     else:
         raise ValueError(f"{req.strategy} does not provide a backtest adapter")
     trades = result.trades
@@ -352,8 +405,6 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
         max_drawdown_pct=max_dd,
         max_dd_duration_days=max_dd_duration_days,
         sharpe_ratio=sharpe_ratio,
-        sharpe_ci_lo=None,
-        sharpe_ci_hi=None,
         sortino_ratio=sortino_ratio,
         calmar_ratio=calmar_ratio,
         annualized_volatility_pct=ann_vol,

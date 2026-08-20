@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { subscribeLivePerformance } from '../api/client'
+import { api, subscribeLivePerformance } from '../api/client'
 import { useDashboardStore } from '../stores/dashboardStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useCatalog } from '../hooks/useCatalog'
@@ -36,7 +36,7 @@ import { ResizeHandle } from '@/components/ResizeHandle'
 
 function StatusBadge({ status }: { status: string }) {
   const v: Record<string, 'success' | 'warning' | 'secondary' | 'destructive'> = {
-    running: 'success', warmup: 'warning', stopped: 'secondary', failed: 'destructive',
+    running: 'success', warmup: 'warning', restarting: 'warning', stopped: 'secondary', failed: 'destructive',
   }
   return (
     <Badge variant={v[status] || 'secondary'} className="gap-1 text-[10px]">
@@ -44,6 +44,82 @@ function StatusBadge({ status }: { status: string }) {
       {status === 'warmup' && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
       {status.toUpperCase()}
     </Badge>
+  )
+}
+
+function OptionsAnalysisPanel({ ticker }: { ticker: string }) {
+  const [earningsDate, setEarningsDate] = useState('')
+  const [coreShares, setCoreShares] = useState(0)
+  const [report, setReport] = useState<{
+    action: string
+    reasons: string[]
+    contract_symbol?: string
+    contracts: number
+    limit_price?: number
+  } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Options Daily Analysis</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <div className="space-y-2">
+          <div>
+            <Label>Confirmed Earnings Date</Label>
+            <Input
+              type="date"
+              value={earningsDate}
+              onChange={(event) => setEarningsDate(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label>Minimum Core Shares</Label>
+            <Input
+              type="number"
+              min={0}
+              value={coreShares}
+              onChange={(event) => setCoreShares(Number(event.target.value))}
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="w-full"
+            onClick={() => {
+              api.analyzeSchwabOptions({
+                ticker,
+                as_of: new Date().toISOString().slice(0, 10),
+                minimum_core_shares: coreShares,
+                maximum_covered_ratio: 0.5,
+                trend_state: '横盘',
+                earnings_date: earningsDate || null,
+                earnings_confirmed: Boolean(earningsDate),
+              })
+                .then((value) => {
+                  setReport(value.report)
+                  setError(null)
+                })
+                .catch((reason) => setError(String(reason)))
+            }}
+          >
+            Analyze Live Chain
+          </Button>
+          {report && (
+            <div className="rounded border border-border p-2 text-[10px]">
+              <div className="font-semibold">{report.action}</div>
+              <div>{report.reasons.join('；')}</div>
+              {report.contract_symbol && (
+                <div className="font-mono">
+                  {report.contract_symbol} × {report.contracts}
+                  {report.limit_price != null ? ` @ ${report.limit_price}` : ''}
+                </div>
+              )}
+            </div>
+          )}
+          {error && <div className="text-[10px] text-destructive">{error}</div>}
+        </div>
+      </SidebarGroupContent>
+    </SidebarGroup>
   )
 }
 
@@ -176,9 +252,15 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
   const setWsConnected = useDashboardStore((s) => s.setWsConnected)
   const { height: bottomHeight, onPointerDown: onDragStart } = useResizablePanel(280)
 
-  // WebSocket subscription — drop stale messages where total_trades regresses
+  // WebSocket subscription — drop stale messages where total_trades regresses.
+  // The high-water mark is PER ENGINE: switching engines (or a restart with a
+  // fresh trade counter) must reset it, otherwise the new engine's messages
+  // are dropped forever.
   const highWaterRef = useRef(0)
+  const engineId = activeEngine?.engine_id
   useEffect(() => {
+    highWaterRef.current = 0
+    setWsConnected(false)
     const cleanup = subscribeLivePerformance(
       (msg) => {
         if (msg.total_trades >= highWaterRef.current) {
@@ -190,7 +272,7 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
       () => setWsConnected(false),
     )
     return () => cleanup()
-  }, [setPerf, setWsConnected])
+  }, [setPerf, setWsConnected, engineId])
 
   // Only rebuild when tradeCount changes (new trade). Never go back to null.
   const lastGoodResult = useRef<BacktestResult | null>(null)
@@ -262,6 +344,8 @@ function LiveReportPanel({ activeEngine }: { activeEngine?: LiveEngineOut }) {
 
 export default function DashboardPage() {
   const { strategies, exchanges } = useCatalog()
+  const [globalRiskHalted, setGlobalRiskHalted] = useState(false)
+  const [globalRiskError, setGlobalRiskError] = useState<string | null>(null)
 
   // Zustand store — UI state only, no data-fetching state
   const {
@@ -317,12 +401,18 @@ export default function DashboardPage() {
     },
   })
 
-  const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup')
+  const activeEngine = engines.find((e) => e.status === 'running' || e.status === 'warmup' || e.status === 'restarting')
 
   useEffect(() => {
     if (!initialized && strategies.length > 0) setInitialized(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategies, initialized])
+
+  useEffect(() => {
+    api.globalRisk()
+      .then((state) => setGlobalRiskHalted(state.halted))
+      .catch((error) => setGlobalRiskError(String(error)))
+  }, [])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleStrategyChange = useCallback((name: string) => {
@@ -386,10 +476,41 @@ export default function DashboardPage() {
         <Sidebar collapsible="none" className="border-r border-border">
           <SidebarHeader className="px-3 py-2 border-b border-border flex-row items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Live Trading</span>
-            {activeEngine && <StatusBadge status={activeEngine.status} />}
+            <div className="flex items-center gap-2">
+              {globalRiskHalted && <Badge variant="destructive">HALTED</Badge>}
+              {activeEngine && <StatusBadge status={activeEngine.status} />}
+            </div>
           </SidebarHeader>
 
           <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>Global Risk</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full"
+                  variant={globalRiskHalted ? 'default' : 'destructive'}
+                  onClick={() => {
+                    const next = !globalRiskHalted
+                    api.setGlobalRisk(
+                      next,
+                      next ? 'Dashboard emergency stop' : 'Operator resumed trading',
+                    )
+                      .then((state) => {
+                        setGlobalRiskHalted(state.halted)
+                        setGlobalRiskError(null)
+                      })
+                      .catch((error) => setGlobalRiskError(String(error)))
+                  }}
+                >
+                  {globalRiskHalted ? 'Resume Global Trading' : 'Emergency Stop All Engines'}
+                </Button>
+                {globalRiskError && (
+                  <div className="mt-1 text-[10px] text-destructive">{globalRiskError}</div>
+                )}
+              </SidebarGroupContent>
+            </SidebarGroup>
             <SidebarGroup>
               <SidebarGroupLabel>Strategy</SidebarGroupLabel>
               <SidebarGroupContent>
@@ -426,6 +547,10 @@ export default function DashboardPage() {
                   </div>
                 </SidebarGroupContent>
               </SidebarGroup>
+            )}
+
+            {exchange === 'schwab' && selectedStrategy === 'tsla_nvda_options' && (
+              <OptionsAnalysisPanel ticker={symbol || 'TSLA'} />
             )}
 
             <SidebarGroup>
@@ -516,7 +641,7 @@ export default function DashboardPage() {
             </SidebarGroup>
 
             {engines.length > 0 && (() => {
-              const active = engines.filter((e) => e.status === 'warmup' || e.status === 'running')
+              const active = engines.filter((e) => e.status === 'warmup' || e.status === 'running' || e.status === 'restarting')
               const archived = engines.filter((e) => e.status === 'stopped' || e.status === 'failed')
               return (
                 <>

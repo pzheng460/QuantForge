@@ -9,6 +9,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 _VALID_PERIODS = {"1w", "1m", "3m", "6m", "1y", "2y", "3y", "5y"}
 _VALID_EXCHANGES = {"bitget", "binance", "okx", "bybit", "hyperliquid", "schwab"}
 _VALID_MODES = {"grid", "wfo", "full"}
+
+#: Server-side hard ceilings for live-trading risk parameters. Limits are set
+#: by the operator, but a request may NEVER raise them past these absolute
+#: bounds — the same non-bypassable philosophy as the run-once options path.
+MAX_ORDER_NOTIONAL_USD = 100_000
+MAX_LEVERAGE = 50
+MAX_DAILY_NEW_POSITIONS = 50
+MAX_POSITION_SIZE_USD = 1_000_000
 _VALID_TIMEFRAMES = {
     "1m",
     "3m",
@@ -58,9 +66,7 @@ class BacktestRequest(BaseModel):
     warmup_bars: int = 500
     # Optional capital allocation for this strategy run.
     position_size_usdt: Optional[float] = None
-    mesa_index: int = 0
     config_override: Optional[Dict[str, Any]] = None
-    filter_override: Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
     def check_request(self):
@@ -111,13 +117,6 @@ class BacktestRequest(BaseModel):
             raise ValueError("leverage must be between 0.1 and 50")
         return v
 
-    @field_validator("mesa_index")
-    @classmethod
-    def validate_mesa_index(cls, v: int) -> int:
-        if v < 0:
-            raise ValueError("mesa_index must be >= 0")
-        return v
-
 
 class TradeOut(BaseModel):
     timestamp: str
@@ -146,8 +145,6 @@ class BacktestResultOut(BaseModel):
     max_drawdown_pct: float
     max_dd_duration_days: float
     sharpe_ratio: float
-    sharpe_ci_lo: Optional[float]
-    sharpe_ci_hi: Optional[float]
     sortino_ratio: float
     calmar_ratio: float
     annualized_volatility_pct: float
@@ -201,14 +198,6 @@ class SchemaField(BaseModel):
     step: Optional[float] = None
 
 
-class StrategySchema(BaseModel):
-    name: str
-    display_name: str
-    default_interval: str
-    config_fields: List[SchemaField]
-    filter_fields: List[SchemaField]
-
-
 # ─── Optimizer models ────────────────────────────────────────────────────────
 
 
@@ -226,7 +215,6 @@ class OptimizeRequest(BaseModel):
     position_size_usdt: Optional[float] = None
     metric: str = "sharpe"
     mode: str = "grid"  # grid | wfo | full
-    n_jobs: int = 1
 
     @model_validator(mode="after")
     def check_request(self):
@@ -349,8 +337,6 @@ class ThreeStageResultOut(BaseModel):
     s3_holdout_return: float
     s3_bh_return: float
     s3_holdout_sharpe: float
-    s3_sharpe_ci_lo: Optional[float]
-    s3_sharpe_ci_hi: Optional[float]
     s3_holdout_drawdown: float
     s3_holdout_trades: int
     s3_holdout_win_rate: float
@@ -401,7 +387,6 @@ class LivePerformanceOut(BaseModel):
     # Session info
     start_time: str = ""
     last_update: str = ""
-    mesa_index: int = 0
     config_name: str = ""
     # Balance
     initial_balance: float = 0.0
@@ -440,14 +425,18 @@ class LiveStartRequest(BaseModel):
     symbol: Optional[str] = None
     timeframe: str = "1h"
     demo: bool = True
-    position_size_usdt: float = 100.0
-    leverage: int = 1
+    position_size_usdt: float = Field(default=100.0, gt=0, le=MAX_POSITION_SIZE_USD)
+    leverage: int = Field(default=1, ge=1, le=MAX_LEVERAGE)
     warmup_bars: int = 500
     config_override: Optional[Dict[str, Any]] = None
-    max_order_notional: float = Field(default=10_000, gt=0)
+    max_order_notional: float = Field(
+        default=10_000, gt=0, le=MAX_ORDER_NOTIONAL_USD
+    )
     max_spread_pct: float = Field(default=0.15, gt=0, le=1)
-    max_leverage: float = Field(default=3, ge=1)
-    max_daily_new_positions: int = Field(default=10, ge=1)
+    max_leverage: float = Field(default=3, ge=1, le=MAX_LEVERAGE)
+    max_daily_new_positions: int = Field(
+        default=10, ge=1, le=MAX_DAILY_NEW_POSITIONS
+    )
 
     @model_validator(mode="after")
     def validate_live_broker(self):
@@ -476,74 +465,3 @@ class LiveEngineOut(BaseModel):
     stopped_at: Optional[str] = None
     error: Optional[str] = None
     performance: Optional[LivePerformanceOut] = None
-
-
-# ─── Agent workflow models ────────────────────────────────────────────────────
-
-
-class AgentRunRequest(BaseModel):
-    skill_path: str  # e.g., "quantforge-optimizer"
-    strategy: str
-    exchange: str = "bitget"
-    symbol: Optional[str] = None
-    timeframe: str = "1h"
-    max_iterations: int = 5
-    agent_provider: str = "claude"
-    model: Optional[str] = None
-    max_budget_usd: float = 5.0
-
-    @field_validator("exchange")
-    @classmethod
-    def validate_exchange(cls, v: str) -> str:
-        if v not in _VALID_EXCHANGES:
-            raise ValueError(f"exchange must be one of {_VALID_EXCHANGES}")
-        return v
-
-    @field_validator("agent_provider")
-    @classmethod
-    def validate_agent_provider(cls, v: str) -> str:
-        from quantforge.agent_providers import normalize_provider
-
-        return normalize_provider(v)
-
-    @field_validator("skill_path")
-    @classmethod
-    def validate_skill_path(cls, v: str) -> str:
-        from pathlib import Path
-
-        skill_dir = Path.home() / ".openclaw" / "skills" / v
-        if not skill_dir.exists():
-            raise ValueError(f"Skill not found: {v}")
-        return v
-
-
-class AgentEvent(BaseModel):
-    type: str  # 'thinking' | 'tool_call' | 'tool_result' | 'error' | 'done'
-    tool_name: Optional[str] = None  # 'Read' | 'Edit' | 'Write' | 'Bash' | etc
-    content: str = ""  # text content or tool input/output
-    file_path: Optional[str] = None  # for Read/Edit/Write
-    diff: Optional[Dict[str, str]] = None  # for Edit: {old: str, new: str}
-    duration_ms: Optional[int] = None  # for tool calls
-    timestamp: str = ""
-
-
-class AgentJobStatus(BaseModel):
-    job_id: str
-    status: str  # pending | running | completed | failed | cancelled
-    started_at: Optional[str] = None
-    events_count: int = 0
-    error: Optional[str] = None
-
-
-class AgentMetric(BaseModel):
-    name: str
-    pattern: str
-    higher_is_better: Optional[bool]
-    primary: bool = False
-
-
-class AgentSkillInfo(BaseModel):
-    name: str
-    description: str
-    defaults: Dict[str, Any]
-    metrics: List[AgentMetric]

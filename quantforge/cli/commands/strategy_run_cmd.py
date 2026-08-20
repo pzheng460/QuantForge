@@ -65,7 +65,10 @@ def optimize_cmd(strategy, exchange, symbol, timeframe, period):
 @click.option("--symbol", default="BTC/USDT:USDT")
 @click.option("--timeframe", default="1h")
 @click.option("--demo/--no-demo", default=True)
-def live_cmd(strategy, exchange, symbol, timeframe, demo):
+@click.option("--position-size-usdt", default=100, type=float)
+@click.option("--leverage", default=1, type=float)
+@click.option("--warmup-bars", default=500, type=int)
+def live_cmd(strategy, exchange, symbol, timeframe, demo, position_size_usdt, leverage, warmup_bars):
     """Start a registered Python strategy through the risk-controlled server."""
     _submit(
         "/live/start",
@@ -75,8 +78,8 @@ def live_cmd(strategy, exchange, symbol, timeframe, demo):
             "symbol": symbol,
             "timeframe": timeframe,
             "demo": demo,
-            "position_size_usdt": 100,
-            "leverage": 1,
-            "warmup_bars": 500,
+            "position_size_usdt": position_size_usdt,
+            "leverage": leverage,
+            "warmup_bars": warmup_bars,
         },
     )

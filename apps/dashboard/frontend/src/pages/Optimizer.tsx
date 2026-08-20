@@ -3,21 +3,12 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { subscribeOptimize, subscribeAgent, ApiError } from '../api/client'
+import { subscribeOptimize } from '../api/client'
 import { useOptimizerStore } from '../stores/optimizerStore'
 import { useCatalog } from '../hooks/useCatalog'
 import { optimizeSchema, type OptimizeFormData } from '@/lib/schemas'
 import { FormField } from '@/components/ui/form-field'
-import {
-  useAgentSkills,
-  useAgentStatus,
-  useRunOptimize,
-  useRunAgent,
-  useCancelOptimize,
-  useStopAgent,
-} from '../hooks/use-queries'
-import AgentTraceViewer from '../components/AgentTraceViewer'
-import MetricsSummary from '../components/MetricsSummary'
+import { useRunOptimize, useCancelOptimize } from '../hooks/use-queries'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,7 +31,6 @@ import type {
   OptimizeJobStatus,
   OptimizeProgress,
   GridSearchResult,
-  AgentRunRequest,
 } from '../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -55,10 +45,6 @@ const PERIODS: { value: string; label: string }[] = [
   { value: '3y', label: '3 years' },
   { value: '5y', label: '5 years' },
 ]
-const MODES = [
-  { value: 'grid', label: 'Grid Search', desc: 'Python-based parameter grid optimization' },
-]
-
 function pct(v: number, sign = true) {
   const s = sign && v > 0 ? '+' : ''
   return `${s}${v.toFixed(2)}%`
@@ -268,8 +254,6 @@ export default function OptimizerPage() {
     startDate, setStartDate,
     endDate, setEndDate,
     leverage, setLeverage,
-    mode, setMode,
-    nJobs, setNJobs,
     jobId, setJobId,
     status, setStatus,
     jobResult, setJobResult,
@@ -278,36 +262,9 @@ export default function OptimizerPage() {
     initialized, setInitialized,
   } = useOptimizerStore()
 
-  // Agent-specific state (persisted in store across tab switches)
-  const {
-    agentJobId, setAgentJobId,
-    agentEvents, addAgentEvent,
-    agentError, setAgentError,
-    agentSkills: storedSkills, setAgentSkills,
-    selectedSkill, setSelectedSkill,
-    resetAgent,
-  } = useOptimizerStore()
-
-  // React Query: load agent skills
-  const agentSkillsQuery = useAgentSkills()
-
-  // Sync React Query agent skills into Zustand (so the rest of the component works)
-  const agentSkills = agentSkillsQuery.data ?? storedSkills
-  useEffect(() => {
-    if (agentSkillsQuery.data) {
-      setAgentSkills(agentSkillsQuery.data)
-      if (agentSkillsQuery.data.length > 0 && !selectedSkill) {
-        setSelectedSkill(agentSkillsQuery.data[0].name)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentSkillsQuery.data])
-
   // React Query mutations
   const runOptimizeMutation = useRunOptimize()
   const cancelOptimizeMutation = useCancelOptimize()
-  const runAgentMutation = useRunAgent()
-  const stopAgentMutation = useStopAgent()
 
   // React Hook Form with Zod validation for configuration fields
   const {
@@ -328,34 +285,6 @@ export default function OptimizerPage() {
 
   const wsCleanupRef = useRef<(() => void) | null>(null)
 
-  // Derive agentStatus from store
-  const { agentStatus, setAgentStatus } = useOptimizerStore()
-
-  // React Query: poll agent status (replaces manual setInterval)
-  const isAgentPolling = !!agentJobId && agentStatus !== 'completed' && agentStatus !== 'failed' && agentStatus !== 'cancelled'
-  const agentStatusQuery = useAgentStatus(agentJobId, isAgentPolling)
-
-  // Sync agent status query into Zustand
-  useEffect(() => {
-    if (!agentStatusQuery.data) return
-    const job = agentStatusQuery.data
-    setAgentStatus(job.status)
-    if (job.error) setAgentError(job.error)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentStatusQuery.data])
-
-  // Detect 404 — backend lost the job (typically due to uvicorn --reload
-  // restarting the process and clearing in-memory state). Auto-reset so
-  // the user isn't stuck polling a phantom job.
-  useEffect(() => {
-    const err = agentStatusQuery.error
-    if (err instanceof ApiError && err.status === 404) {
-      console.warn('[optimizer] agent job lost on backend (404) — resetting')
-      resetAgent()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentStatusQuery.error])
-
   // Set default state on first-ever load
   useEffect(() => {
     if (!initialized && strategies.length > 0) {
@@ -366,7 +295,7 @@ export default function OptimizerPage() {
 
   // WebSocket subscription for grid search -- reconnects on remount if job is still running
   useEffect(() => {
-    if (!jobId || mode !== 'grid') return
+    if (!jobId) return
     if (status === 'completed' || status === 'failed') return
     wsCleanupRef.current?.()
     wsCleanupRef.current = subscribeOptimize(
@@ -387,23 +316,7 @@ export default function OptimizerPage() {
     )
     return () => { wsCleanupRef.current?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, mode])
-
-  // WebSocket subscription for AI agent
-  useEffect(() => {
-    if (!agentJobId) return
-    if (agentStatus === 'completed' || agentStatus === 'failed' || agentStatus === 'cancelled') return
-
-    const cleanup = subscribeAgent(
-      agentJobId,
-      (event) => { addAgentEvent(event) },
-      () => { console.warn('Agent WS disconnected') },
-    )
-    return cleanup
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentJobId, agentStatus])
-
-  // Agent status polling is now handled by React Query (useAgentStatus above)
+  }, [jobId])
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
@@ -422,7 +335,7 @@ export default function OptimizerPage() {
     const req: OptimizeRequest = {
       strategy: data.strategy, exchange: data.exchange,
       symbol: data.symbol || undefined,
-      leverage: data.leverage, mode: 'grid', n_jobs: nJobs,
+      leverage: data.leverage, mode: 'grid',
     }
     // Custom dates override Quick Period when both filled in.
     if (startDate && endDate) {
@@ -437,51 +350,19 @@ export default function OptimizerPage() {
       onError: (e) => { setError(String(e)); setLoading(false) },
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nJobs, period, startDate, endDate])
-
-  const onValidAIRun = useCallback((data: OptimizeFormData) => {
-    if (!selectedSkill) return
-    setStrategy(data.strategy)
-    setExchange(data.exchange)
-    setSymbol(data.symbol ?? '')
-    setLeverage(data.leverage)
-
-    resetAgent()
-    setAgentStatus('pending')
-
-    const req: AgentRunRequest = {
-      skill_path: selectedSkill,
-      strategy: data.strategy,
-      exchange: data.exchange,
-      symbol: data.symbol || undefined,
-      timeframe: '1h',
-      max_iterations: 5,
-    }
-    runAgentMutation.mutate(req, {
-      onSuccess: (job) => setAgentJobId(job.job_id),
-      onError: (e) => setAgentError(String(e)),
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSkill])
+  }, [period, startDate, endDate])
 
   const handleCancel = useCallback(() => {
-    if (mode === 'grid' && jobId) {
+    if (jobId) {
       cancelOptimizeMutation.mutate(jobId, {
         onSuccess: () => { setStatus('cancelled'); setLoading(false) },
       })
-    } else if (mode === 'ai' && agentJobId) {
-      stopAgentMutation.mutate(agentJobId, {
-        onSuccess: () => setAgentStatus('cancelled'),
-      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, jobId, agentJobId])
+  }, [jobId])
 
   const selectedExchange = exchanges.find((e) => e.id === exchange)
-  const selectedSkillInfo = agentSkills.find((s) => s.name === selectedSkill)
-  const isRunning =
-    (mode === 'grid' && (status === 'pending' || status === 'running')) ||
-    (mode === 'ai' && (agentStatus === 'pending' || agentStatus === 'running'))
+  const isRunning = status === 'pending' || status === 'running'
 
   return (
     <ResizableSidebarShell storageKey="optimizer">
@@ -493,30 +374,6 @@ export default function OptimizerPage() {
         </SidebarHeader>
 
         <SidebarContent>
-          {/* Mode selector */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Mode</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <div className="grid grid-cols-2 gap-2">
-                {MODES.map((m) => (
-                  <Button
-                    key={m.value}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setMode(m.value as 'grid' | 'ai')}
-                    className={cn(
-                      'h-auto text-left p-2 rounded-sm justify-start flex-col items-start whitespace-normal',
-                      mode === m.value && 'border-primary bg-primary/10 text-primary',
-                    )}
-                  >
-                    <span className="text-xs font-medium">{m.label}</span>
-                    <span className="text-[10px] text-muted-foreground leading-tight">{m.desc}</span>
-                  </Button>
-                ))}
-              </div>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
           {/* Configuration */}
           <SidebarGroup>
             <SidebarGroupLabel>Configuration</SidebarGroupLabel>
@@ -583,8 +440,7 @@ export default function OptimizerPage() {
           </SidebarGroup>
 
           {/* Grid-specific: period / date range / parallel jobs */}
-          {mode === 'grid' && (
-            <SidebarGroup>
+          <SidebarGroup>
               <SidebarGroupLabel>Period</SidebarGroupLabel>
               <SidebarGroupContent className="space-y-2">
                 <p className="text-[10px] text-muted-foreground leading-snug">
@@ -632,45 +488,8 @@ export default function OptimizerPage() {
                     Using <span className="font-mono text-foreground">{startDate} → {endDate}</span> (overrides period)
                   </p>
                 )}
-
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs">Parallel Jobs</Label>
-                  <Select value={String(nJobs)} onValueChange={(v) => setNJobs(Number(v))}>
-                    <SelectTrigger className="text-xs h-8">
-                      <SelectValue placeholder="Jobs" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[1, 2, 4, 8, -1].map((n) => (
-                        <SelectItem key={n} value={String(n)}>{n === -1 ? 'All CPUs' : n}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </SidebarGroupContent>
-            </SidebarGroup>
-          )}
-
-          {/* AI-specific: skill selector */}
-          {mode === 'ai' && (
-            <SidebarGroup>
-              <SidebarGroupLabel>AI Skill</SidebarGroupLabel>
-              <SidebarGroupContent className="space-y-2">
-                <Select value={selectedSkill} onValueChange={setSelectedSkill}>
-                  <SelectTrigger className="text-xs h-8">
-                    <SelectValue placeholder="Select skill" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agentSkills.map((s) => (
-                      <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedSkillInfo && (
-                  <p className="text-xs text-muted-foreground">{selectedSkillInfo.description}</p>
-                )}
-              </SidebarGroupContent>
-            </SidebarGroup>
-          )}
+          </SidebarGroup>
         </SidebarContent>
 
         <SidebarFooter className="border-t border-border p-3 space-y-2">
@@ -682,21 +501,20 @@ export default function OptimizerPage() {
               onClick={handleCancel}
             >
               <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-              Cancel {mode === 'grid' ? 'Grid Search' : 'AI Optimize'}
+              Cancel Grid Search
             </Button>
           ) : (
             <Button
               size="sm"
               className="w-full"
-              onClick={handleSubmitOpt(mode === 'grid' ? onValidGridRun : onValidAIRun)}
-              disabled={!strategy || (mode === 'ai' && !selectedSkill)}
+              onClick={handleSubmitOpt(onValidGridRun)}
+              disabled={!strategy}
             >
-              {mode === 'grid' ? 'Run Grid Search' : 'Run AI Optimize'}
+              Run Grid Search
             </Button>
           )}
           <div className="flex items-center gap-2">
-            {mode === 'grid' && status && <StatusBadge status={status} />}
-            {mode === 'ai' && agentStatus && <StatusBadge status={agentStatus} />}
+            {status && <StatusBadge status={status} />}
             {isRunning && (
               <span className="text-[10px] text-muted-foreground">This may take several minutes&hellip;</span>
             )}
@@ -707,7 +525,7 @@ export default function OptimizerPage() {
       <SidebarInset>
         <div className="h-full flex flex-col p-6 overflow-hidden">
           {/* ── Error displays ───────────────────────────────────────── */}
-          {error && mode === 'grid' && (
+          {error && (
             <Card className="border-destructive/50 mb-4 shrink-0">
               <CardContent className="pt-4">
                 <p className="text-sm font-medium text-red-500 mb-1">Grid search failed</p>
@@ -716,48 +534,20 @@ export default function OptimizerPage() {
             </Card>
           )}
 
-          {agentError && mode === 'ai' && (
-            <Card className="border-destructive/50 mb-4 shrink-0">
-              <CardContent className="pt-4">
-                <p className="text-sm font-medium text-red-500 mb-1">AI optimization failed</p>
-                <pre className="text-xs text-red-400 whitespace-pre-wrap overflow-auto max-h-48">{agentError}</pre>
-              </CardContent>
-            </Card>
-          )}
-
           {/* ── Grid Search progress ─────────────────────────────────── */}
-          {mode === 'grid' && isRunning && (
+          {isRunning && (
             <GridProgressPanel progress={jobResult?.progress} status={status} />
           )}
 
           {/* ── Grid Results ─────────────────────────────────────────── */}
-          {mode === 'grid' && jobResult?.status === 'completed' && jobResult.grid_result && (
+          {jobResult?.status === 'completed' && jobResult.grid_result && (
             <div className="flex-1 min-h-0 overflow-y-auto">
               <GridResults r={jobResult.grid_result} />
             </div>
           )}
 
-          {/* ── AI Trace Viewer ──────────────────────────────────────── */}
-          {mode === 'ai' && agentJobId && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
-              <Card className="lg:col-span-2 overflow-hidden flex flex-col">
-                <CardContent className="flex-1 min-h-0 p-0">
-                  <AgentTraceViewer events={agentEvents} status={agentStatus} className="h-full" />
-                </CardContent>
-              </Card>
-              <Card className="overflow-hidden flex flex-col">
-                <CardContent className="p-0 flex-1 min-h-0">
-                  <MetricsSummary
-                    events={agentEvents}
-                    metrics={selectedSkillInfo?.metrics ?? []}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
           {/* Empty state */}
-          {!isRunning && !error && !agentError && !(mode === 'grid' && jobResult?.status === 'completed') && !(mode === 'ai' && agentJobId) && (
+          {!isRunning && !error && jobResult?.status !== 'completed' && (
             <div className="flex flex-1 items-center justify-center min-h-0">
               <div className="text-center max-w-md">
                 <div className="text-muted-foreground text-lg mb-2">No Results Yet</div>

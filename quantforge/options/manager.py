@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from quantforge.options.actions import (
+    CLOSE_AND_HOLD,
+    CLOSE_SHORT_CALL,
+    NO_ACTION,
+    OPEN_COVERED_CALL,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class OptionCandidate:
@@ -68,6 +75,8 @@ class OptionManager:
         delta_max: float = 0.25,
         earnings_buffer_days: int = 7,
         profit_take: float = 0.70,
+        roll_delta: float = 0.50,
+        maximum_covered_ratio: float = 1.0,
     ) -> None:
         self.dte_min = dte_min
         self.dte_max = dte_max
@@ -75,6 +84,8 @@ class OptionManager:
         self.delta_max = delta_max
         self.earnings_buffer_days = earnings_buffer_days
         self.profit_take = profit_take
+        self.roll_delta = roll_delta
+        self.maximum_covered_ratio = maximum_covered_ratio
 
     def evaluate(self, data: OptionManagerInput) -> OptionDecision:
         for call in data.short_calls:
@@ -85,17 +96,17 @@ class OptionManager:
             )
             if profit >= self.profit_take:
                 return OptionDecision(
-                    "平仓短 Call",
+                    CLOSE_SHORT_CALL,
                     ("已获取至少 70% 权利金，优先消除剩余 Gamma 风险",),
                     call.symbol,
                     call.contracts,
                     call.ask,
                 )
             dte = (call.expiration - data.as_of).days
-            trigger = max(0.4, 0.5 - 0.08 * max(0, (14 - dte) / 14))
+            trigger = max(0.4, self.roll_delta - 0.08 * max(0, (14 - dte) / 14))
             if call.delta >= trigger:
                 return OptionDecision(
-                    "买回后暂不重开",
+                    CLOSE_AND_HOLD,
                     ("短 Call Delta 达到动态管理阈值，需要先比较 Roll 条件",),
                     call.symbol,
                     call.contracts,
@@ -103,12 +114,18 @@ class OptionManager:
                 )
 
         max_by_core = max(0, (data.shares - data.minimum_core_shares) // 100)
-        max_by_ratio = max(0, int(data.shares * data.maximum_covered_ratio) // 100)
+        covered_ratio = min(data.maximum_covered_ratio, self.maximum_covered_ratio)
+        max_by_ratio = max(0, int(data.shares * covered_ratio) // 100)
         contracts = min(max_by_core, max_by_ratio)
         if contracts < 1:
-            return OptionDecision("不操作", ("可覆盖股数不足，保留核心仓位",))
+            return OptionDecision(NO_ACTION, ("可覆盖股数不足，保留核心仓位",))
         if data.trend_state == "强势上涨":
-            return OptionDecision("不操作", ("股票处于强势上涨，不主动封顶收益",))
+            return OptionDecision(NO_ACTION, ("股票处于强势上涨，不主动封顶收益",))
+        if data.earnings_date is None:
+            return OptionDecision(
+                NO_ACTION,
+                ("缺少财报日期，无法确认候选合约不跨财报",),
+            )
 
         viable = []
         earnings_blocked = False
@@ -142,7 +159,7 @@ class OptionManager:
                 if earnings_blocked
                 else "没有同时满足 DTE、Delta 与流动性要求的合约"
             )
-            return OptionDecision("不操作", (reason,))
+            return OptionDecision(NO_ACTION, (reason,))
         best = max(
             viable,
             key=lambda item: (
@@ -152,7 +169,7 @@ class OptionManager:
             ),
         )
         return OptionDecision(
-            "开 Covered Call",
+            OPEN_COVERED_CALL,
             ("不跨财报，Delta 与流动性符合规则",),
             best.symbol,
             contracts,

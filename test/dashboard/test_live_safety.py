@@ -95,3 +95,36 @@ def test_live_start_rejects_inline_source_and_missing_strategy(client):
     )
 
     assert response.status_code == 422
+
+
+def test_live_start_rejects_above_server_cap_notional(client):
+    """The operator-set notional ceiling may never be raised past the absolute
+    server bound — the schema's Field(le=...) turns it into a 422."""
+    response = client.post(
+        "/api/live/start", json=_payload(max_order_notional=200_000)
+    )
+    assert response.status_code == 422
+
+
+def test_live_start_rejects_above_server_cap_leverage(client):
+    response = client.post("/api/live/start", json=_payload(max_leverage=500))
+    assert response.status_code == 422
+
+
+def test_live_start_rejects_absurd_intent_leverage(client):
+    response = client.post("/api/live/start", json=_payload(leverage=100))
+    assert response.status_code == 422
+
+
+def test_live_start_rejects_absurd_position_size(client):
+    response = client.post(
+        "/api/live/start", json=_payload(position_size_usdt=5_000_000)
+    )
+    assert response.status_code == 422
+
+
+def test_live_start_rejects_absurd_daily_positions(client):
+    response = client.post(
+        "/api/live/start", json=_payload(max_daily_new_positions=999)
+    )
+    assert response.status_code == 422

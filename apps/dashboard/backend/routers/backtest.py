@@ -12,6 +12,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
+from apps.dashboard.backend.auth import websocket_api_key_authorized
 from apps.dashboard.backend.jobs import (
     create_job,
     get_job,
@@ -59,6 +60,10 @@ def cancel_backtest(job_id: str):
 @router.websocket("/ws/backtest/{job_id}")
 async def backtest_websocket(websocket: WebSocket, job_id: str):
     """Stream backtest job status via WebSocket."""
+    if not websocket_api_key_authorized(websocket):
+        # Refuse the upgrade before accepting: HTTP middleware never sees WS.
+        await websocket.close(code=4401)
+        return
     await websocket.accept()
     try:
         while True:
@@ -70,10 +75,15 @@ async def backtest_websocket(websocket: WebSocket, job_id: str):
             status = job["status"]
             if status == "completed":
                 result = job["result"]
+                # Fresh results are pydantic models; after a restart the
+                # registry round-trip yields a plain dict. Handle both.
+                serialized = (
+                    result.model_dump() if hasattr(result, "model_dump") else result
+                )
                 await websocket.send_json(
                     {
                         "status": "completed",
-                        "result": result.model_dump() if result else None,
+                        "result": serialized,
                     }
                 )
                 break

@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import type { BacktestResult } from '../types'
 
+/** ISO date (YYYY-MM-DD, UTC) `days` days before today. */
+function isoDaysAgo(days: number): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() - days)
+  return d.toISOString().slice(0, 10)
+}
+
 export interface StrategyParam {
   name: string
   type: 'int' | 'float'
@@ -58,8 +65,10 @@ export const useBacktestStore = create<BacktestState>((set) => ({
   exchange: 'bitget',
   symbol: 'BTC/USDT:USDT',
   timeframe: '1h',
-  startDate: '2026-01-01',
-  endDate: '2026-03-12',
+  // Default to a rolling window instead of a fixed date pair so the UI never
+  // defaults to stale/past history.
+  startDate: isoDaysAgo(366),
+  endDate: isoDaysAgo(1),
   warmupBars: 500,
   positionSizeUsdt: undefined,
 

@@ -78,15 +78,10 @@ def test_strategy_source_is_not_exposed(client):
 # ─── Agent router ────────────────────────────────────────────────────────────
 
 
-def test_agent_skills_returns_list(client):
-    r = client.get("/api/agent/skills")
-    assert r.status_code == 200
-    assert isinstance(r.json(), list)
-
-
-def test_agent_status_404_on_unknown_job(client):
-    r = client.get("/api/agent/00000000-0000-0000-0000-000000000000")
+def test_unknown_api_route_does_not_fall_through_to_spa(client):
+    r = client.get("/api/does-not-exist")
     assert r.status_code == 404
+    assert r.json()["detail"] == "API route not found"
 
 
 # ─── Optimize router ─────────────────────────────────────────────────────────

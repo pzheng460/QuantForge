@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from apps.dashboard.backend.http_errors import sanitize_exception
 from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
@@ -18,6 +20,7 @@ from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
     _jobs,
     check_cancelled,
+    update_job,
 )
 from apps.dashboard.backend.models import (
     GridRowOut,
@@ -29,8 +32,12 @@ from apps.dashboard.backend.models import (
 )
 from quantforge.backtest import BacktestConfig, BacktestResult, run_backtest
 
+logger = logging.getLogger(__name__)
 
-def _metrics(result: BacktestResult) -> dict[str, float]:
+
+def _metrics(
+    result: BacktestResult, *, periods_per_year: float = 252.0
+) -> dict[str, float]:
     curve = result.equity_curve
     returns = [
         curve[i] / curve[i - 1] - 1
@@ -43,7 +50,11 @@ def _metrics(result: BacktestResult) -> dict[str, float]:
         if returns
         else 0
     )
-    sharpe = mean / math.sqrt(variance) * math.sqrt(252) if variance else 0
+    sharpe = (
+        (mean / math.sqrt(variance) * math.sqrt(periods_per_year))
+        if variance
+        else 0
+    )
     peak = result.initial_capital
     drawdown = 0.0
     for equity in curve:
@@ -120,7 +131,10 @@ def _evaluate(strategy_cls, rows, params, req, warmup=0):
         ),
         warmup_bars=warmup,
     )
-    return result, _metrics(result)
+    # Annualize using the actual bars-per-year for the requested timeframe,
+    # matching jobs/backtest.py instead of assuming daily bars.
+    periods_per_year = 365.25 * 24 * 3600 / timeframe_to_seconds(req.timeframe)
+    return result, _metrics(result, periods_per_year=periods_per_year)
 
 
 def _run_python_optimize(
@@ -137,11 +151,14 @@ def _run_python_optimize(
         result, metrics = _evaluate(strategy_cls, rows, params, req, cutoff)
         scored.append((params, result, metrics))
         if job_id and job_id in _jobs:
-            _jobs[job_id]["progress"] = {
-                "completed": index,
-                "total": len(grid),
-            }
             check_cancelled(job_id)
+            # Persist progress throttled (every 10 combos / at the end) to
+            # avoid a disk write per grid row.
+            if index % 10 == 0 or index == len(grid):
+                update_job(
+                    job_id,
+                    progress={"completed": index, "total": len(grid)},
+                )
     key = {
         "sharpe": lambda item: item[2]["sharpe"],
         "return": lambda item: item[2]["return"],
@@ -266,8 +283,6 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
         s3_holdout_return=holdout_metrics["return"] * 100,
         s3_bh_return=bh,
         s3_holdout_sharpe=holdout_metrics["sharpe"],
-        s3_sharpe_ci_lo=None,
-        s3_sharpe_ci_hi=None,
         s3_holdout_drawdown=holdout_metrics["drawdown"] * 100,
         s3_holdout_trades=len(holdout_result.trades),
         s3_holdout_win_rate=holdout_metrics["win_rate"] * 100,
@@ -279,27 +294,30 @@ def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
 
 
 async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
-    _jobs[job_id]["status"] = "running"
-    _jobs[job_id]["mode"] = req.mode
+    update_job(job_id, status="running", mode=req.mode)
     try:
         if req.mode == "grid":
-            _jobs[job_id]["grid_result"] = await asyncio.to_thread(
-                _run_python_optimize, req, job_id
+            update_job(
+                job_id,
+                grid_result=await asyncio.to_thread(_run_python_optimize, req, job_id),
             )
         elif req.mode == "wfo":
-            _jobs[job_id]["wfo_result"] = await asyncio.to_thread(_run_wfo, req)
+            update_job(job_id, wfo_result=await asyncio.to_thread(_run_wfo, req))
         else:
-            _jobs[job_id]["full_result"] = await asyncio.to_thread(
-                _run_three_stage, req
+            update_job(
+                job_id,
+                full_result=await asyncio.to_thread(_run_three_stage, req),
             )
         check_cancelled(job_id)
-        _jobs[job_id]["status"] = "completed"
+        update_job(job_id, status="completed")
     except JobCancelled:
-        _jobs[job_id]["status"] = "cancelled"
+        update_job(job_id, status="cancelled")
     except Exception as exc:
-        import traceback
-
-        _jobs[job_id]["status"] = "failed"
-        _jobs[job_id]["error"] = (
-            f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+        # Keep the full traceback server-side; the client only needs a stable
+        # failure category (no raw exception text).
+        logger.exception("Optimize job %s failed", job_id)
+        update_job(
+            job_id,
+            status="failed",
+            error=sanitize_exception(exc, prefix="optimize job failed"),
         )

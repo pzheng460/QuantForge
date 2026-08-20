@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from quantforge.strategy.api import Strategy
 from quantforge.strategy.indicators import Indicator, create_indicator
@@ -50,7 +50,10 @@ class BarStrategy(Strategy):
         return PositionTarget(self.position)
 
     def process_bar(self, bar: Bar) -> PositionTarget:
-        object.__setattr__(bar, "index", self.bar_index)
+        # Bars are frozen/immutable; stamp the strategy's running bar index by
+        # copying rather than mutating the shared feed object.
+        if bar.index != self.bar_index:
+            bar = replace(bar, index=self.bar_index)
         for indicator in self._indicators:
             indicator._update(bar)
         target = self.on_bar(bar)

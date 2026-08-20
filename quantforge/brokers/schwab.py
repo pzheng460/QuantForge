@@ -8,9 +8,11 @@ import logging
 import math
 import os
 import secrets
+import threading
 import time
 import tomllib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -24,6 +26,44 @@ logger = logging.getLogger(__name__)
 AUTH_BASE = "https://api.schwabapi.com/v1/oauth"
 TRADER_BASE = "https://api.schwabapi.com/trader/v1"
 MARKET_DATA_BASE = "https://api.schwabapi.com/marketdata/v1"
+
+# Named network/token tuning constants (previously scattered magic numbers).
+_REQUEST_TIMEOUT = 30.0
+_GET_RETRY_ATTEMPTS = 3
+_RETRY_MAX_DELAY = 5.0
+_TOKEN_EXPIRY_BUFFER_SECONDS = 60
+_DEFAULT_EXPIRES_IN = 1800
+# POST paths whose terminal state is "unknown" on ANY transport failure.
+_ORDER_URL_SUFFIX = "/orders"
+
+
+def _as_positive_float(value: Any) -> float | None:
+    """Coerce a quote field to a positive float, or None when unusable."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _parse_quote_time(value: Any) -> datetime | None:
+    """Parse Schwab's quoteTime (ISO string or epoch milliseconds) to UTC."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value) / 1000, tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return None
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    return None
 
 
 class SchwabError(RuntimeError):
@@ -82,6 +122,7 @@ class SchwabTokenStore:
             raise
         os.replace(tmp, self.path)
         self.path.chmod(0o600)
+        logger.info("Schwab token store persisted to %s", self.path)
 
 
 class SchwabOAuthClient:
@@ -136,7 +177,7 @@ class SchwabOAuthClient:
                     "Accept": "application/json",
                 },
                 data=data,
-                timeout=30.0,
+                timeout=_REQUEST_TIMEOUT,
             )
         except requests.RequestException as exc:
             raise SchwabAuthError("Schwab authentication request failed") from exc
@@ -197,6 +238,9 @@ class SchwabConnector:
         )
         self._token = self.token_store.load() or {}
         use_shared_token = market_credentials is None and market_token_path is None
+        self._use_shared_token = use_shared_token
+        self._token_lock = threading.RLock()
+        self._orders_lock = threading.Lock()
         self.market_token_store = (
             self.token_store
             if use_shared_token
@@ -219,12 +263,19 @@ class SchwabConnector:
         )
         self._tracked_orders: dict[str, str] = {}
         if access_token:
-            self._token = {"access_token": access_token, "expires_in": 1800}
+            self._token = {
+                "access_token": access_token,
+                "expires_in": _DEFAULT_EXPIRES_IN,
+            }
         if market_access_token:
             self._market_token = {
                 "access_token": market_access_token,
-                "expires_in": 1800,
+                "expires_in": _DEFAULT_EXPIRES_IN,
             }
+        if use_shared_token:
+            # Keep both views pointing at the same token object so refresh
+            # cannot split them into divergent tokens (see _access_token).
+            self._market_token = self._token
 
     @property
     def authenticated(self) -> bool:
@@ -239,27 +290,39 @@ class SchwabConnector:
         return bool(self._market_token.get("access_token"))
 
     def _access_token(self, *, market_data: bool = False) -> str:
-        token = self._market_token if market_data else self._token
-        oauth = self.market_oauth if market_data else self.oauth
-        token_store = self.market_token_store if market_data else self.token_store
-        obtained = float(token.get("obtained_at", time.time()))
-        expires = float(token.get("expires_in", 1800))
-        if time.time() >= obtained + expires - 60:
-            refresh_token = token.get("refresh_token")
-            if not refresh_token:
+        # Serialize refresh so concurrent callers cannot race the token
+        # rotation or write back stale tokens.
+        with self._token_lock:
+            token = self._market_token if market_data else self._token
+            oauth = self.market_oauth if market_data else self.oauth
+            token_store = self.market_token_store if market_data else self.token_store
+            obtained = float(token.get("obtained_at", time.time()))
+            expires = float(token.get("expires_in", _DEFAULT_EXPIRES_IN))
+            if time.time() >= obtained + expires - _TOKEN_EXPIRY_BUFFER_SECONDS:
+                refresh_token = token.get("refresh_token")
+                if not refresh_token:
+                    raise SchwabAuthError("Schwab authorization is required")
+                refreshed = oauth.refresh(str(refresh_token))
+                if not refreshed.get("refresh_token"):
+                    refreshed["refresh_token"] = refresh_token
+                    token_store.save(refreshed)
+                if self._use_shared_token:
+                    # Shared token: keep every view consistent.
+                    self._token = refreshed
+                    self._market_token = refreshed
+                elif market_data:
+                    self._market_token = refreshed
+                else:
+                    self._token = refreshed
+                token = refreshed
+                logger.info(
+                    "Schwab %s token refreshed",
+                    "market-data" if market_data else "trading",
+                )
+            value = token.get("access_token")
+            if not value:
                 raise SchwabAuthError("Schwab authorization is required")
-            token = oauth.refresh(str(refresh_token))
-            if not token.get("refresh_token"):
-                token["refresh_token"] = refresh_token
-                token_store.save(token)
-            if market_data:
-                self._market_token = token
-            else:
-                self._token = token
-        value = token.get("access_token")
-        if not value:
-            raise SchwabAuthError("Schwab authorization is required")
-        return str(value)
+            return str(value)
 
     def _request(self, method: str, url: str, **kwargs):
         headers = {
@@ -268,33 +331,61 @@ class SchwabConnector:
         }
         if "json" in kwargs:
             headers["Content-Type"] = "application/json"
+        is_order_submission = method == "POST" and url.endswith(_ORDER_URL_SUFFIX)
         try:
             response = None
-            attempts = 3 if method == "GET" else 1
+            attempts = _GET_RETRY_ATTEMPTS if method == "GET" else 1
             for attempt in range(attempts):
                 response = self.session.request(
-                    method, url, headers=headers, timeout=30.0, **kwargs
+                    method, url, headers=headers, timeout=_REQUEST_TIMEOUT, **kwargs
                 )
                 if response.status_code != 429 and response.status_code < 500:
                     break
                 if attempt + 1 < attempts:
-                    delay = min(float(response.headers.get("Retry-After", 2**attempt)), 5)
+                    delay = min(
+                        float(response.headers.get("Retry-After", 2**attempt)),
+                        _RETRY_MAX_DELAY,
+                    )
                     time.sleep(delay)
-            assert response is not None
-        except requests.Timeout as exc:
-            if method == "POST" and url.endswith("/orders"):
-                raise SchwabAmbiguousOrderError(
-                    "Schwab order outcome is unknown after timeout; trading paused"
-                ) from exc
-            raise SchwabError("Schwab request timed out") from exc
+            if response is None:
+                raise SchwabError("Schwab request produced no response")
         except requests.RequestException as exc:
+            if is_order_submission:
+                # The order may already be live at the broker. Any transport
+                # failure (timeout, reset, conn drop, chunked-encoding error)
+                # leaves the outcome unknown: surface it as ambiguous so the
+                # execution layer never retries and double-fills.
+                logger.error("Schwab order outcome unknown after transport failure")
+                raise SchwabAmbiguousOrderError(
+                    "Schwab order outcome is unknown (transport failure); "
+                    "trading paused"
+                ) from exc
             raise SchwabError("Schwab request failed") from exc
         if response.status_code in (401, 403):
             raise SchwabAuthError(
                 f"Schwab authorization failed (HTTP {response.status_code})"
             )
+        if is_order_submission and (
+            response.status_code == 429 or response.status_code >= 500
+        ):
+            # A rate-limit 429 or gateway 5xx on an order POST means "the
+            # gateway broke / throttled us", not "the order was rejected".
+            # Schwab can have already accepted the order when such a response
+            # is emitted, so the outcome is genuinely unknown. Surface it as
+            # ambiguous: the execution layer keeps the reservation and never
+            # re-submits, preventing a double fill.
+            logger.error(
+                "Schwab order outcome unknown after HTTP %s",
+                response.status_code,
+            )
+            raise SchwabAmbiguousOrderError(
+                f"Schwab order outcome is unknown (HTTP {response.status_code}); "
+                "trading paused"
+            )
         if response.status_code >= 400:
-            error_type = SchwabOrderError if "/orders" in url else SchwabError
+            error_type = (
+                SchwabOrderError if _ORDER_URL_SUFFIX in url else SchwabError
+            )
             raise error_type(f"Schwab API rejected request (HTTP {response.status_code})")
         return response
 
@@ -333,6 +424,16 @@ class SchwabConnector:
         securities = response.json().get("securitiesAccount", {})
         return list(securities.get("positions") or [])
 
+    def get_account_snapshot(self) -> dict:
+        """Return balances and all positions for startup reconciliation."""
+        account = self._require_account()
+        response = self._request(
+            "GET",
+            f"{TRADER_BASE}/accounts/{account}",
+            params={"fields": "positions"},
+        )
+        return dict(response.json().get("securitiesAccount") or {})
+
     def get_position(self) -> dict | None:
         """Return the selected symbol's position in the live-engine shape."""
         if not self.symbol:
@@ -343,12 +444,12 @@ class SchwabConnector:
                 continue
             long_qty = float(position.get("longQuantity") or 0)
             short_qty = float(position.get("shortQuantity") or 0)
-            qty = long_qty or short_qty
-            if qty <= 0:
+            qty = long_qty - short_qty
+            if qty == 0:
                 return None
             return {
-                "side": "long" if long_qty > 0 else "short",
-                "contracts": qty,
+                "side": "long" if qty > 0 else "short",
+                "contracts": abs(qty),
                 "entryPrice": float(position.get("averagePrice") or 0),
                 "unrealizedPnl": 0.0,
             }
@@ -369,6 +470,30 @@ class SchwabConnector:
             if value is not None and float(value) > 0:
                 return float(value)
         raise SchwabError(f"Schwab returned no usable price for {symbol}")
+
+    def get_quote_bid_ask(self, symbol: str) -> dict | None:
+        """Return a live bid/ask quote for ``symbol`` or ``None`` if unusable.
+
+        Returns ``{"bid": float, "ask": float, "time": datetime | None}``. The
+        bid/ask come straight from Schwab's quote payload; ``time`` is the
+        quote time (None when only a last/mark price was available). Used by
+        the live engine so quote-age and spread limits are enforced against a
+        real quote instead of a fabricated one.
+        """
+        symbol = self.normalize_symbol(symbol)
+        payload = self.get_quote(symbol)
+        row = payload.get(symbol, payload)
+        quote = row.get("quote", row) if isinstance(row, dict) else {}
+        bid = _as_positive_float(quote.get("bidPrice"))
+        ask = _as_positive_float(quote.get("askPrice"))
+        if bid is not None and ask is not None:
+            return {"bid": bid, "ask": ask, "time": _parse_quote_time(quote.get("quoteTime"))}
+        last = _as_positive_float(quote.get("lastPrice"))
+        if last is None:
+            last = _as_positive_float(quote.get("mark"))
+        if last is not None:
+            return {"bid": last, "ask": last, "time": None}
+        return None
 
     def get_option_chain(
         self,
@@ -424,7 +549,7 @@ class SchwabConnector:
         return list(response.json().get("candles") or [])
 
     def fetch_chart_bars(self, symbol: str, timeframe: str) -> list[list]:
-        """Return closed candles in the OHLCV row shape used by Pine."""
+        """Return closed candles in the canonical OHLCV row shape."""
         if timeframe in {"1m", "5m", "15m", "30m", "1h"}:
             requested_minutes = int(timeframe[:-1]) * (60 if timeframe.endswith("h") else 1)
             base_minutes = 30 if requested_minutes >= 60 else requested_minutes
@@ -487,6 +612,20 @@ class SchwabConnector:
             for timestamp, group in sorted(buckets.items())
         ]
 
+    @staticmethod
+    def _extract_order_id(response: requests.Response) -> str:
+        """Pull the broker order id from the Location header of a POST response."""
+        location = response.headers.get("Location", "")
+        return location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+
+    def _track(self, order_id: str, status: str) -> None:
+        with self._orders_lock:
+            self._tracked_orders[order_id] = status
+
+    def _tracked_items(self) -> list[tuple[str, str]]:
+        with self._orders_lock:
+            return list(self._tracked_orders.items())
+
     def place_order(
         self,
         *,
@@ -535,13 +674,13 @@ class SchwabConnector:
         response = self._request(
             "POST", f"{TRADER_BASE}/accounts/{account}/orders", json=payload
         )
-        location = response.headers.get("Location", "")
-        order_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+        order_id = self._extract_order_id(response)
         if not order_id:
             raise SchwabAmbiguousOrderError(
                 "Schwab accepted an order without returning an order id; trading paused"
             )
-        self._tracked_orders[order_id] = "accepted"
+        self._track(order_id, "accepted")
+        logger.info("Schwab equity order submitted: id=%s %s %s", order_id, instruction, quantity)
         return BrokerOrder(order_id=order_id, status="accepted")
 
     def place_option_order(
@@ -588,13 +727,18 @@ class SchwabConnector:
         response = self._request(
             "POST", f"{TRADER_BASE}/accounts/{account}/orders", json=payload
         )
-        location = response.headers.get("Location", "")
-        order_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+        order_id = self._extract_order_id(response)
         if not order_id:
             raise SchwabAmbiguousOrderError(
                 "Schwab accepted an option order without returning an order id"
             )
-        self._tracked_orders[order_id] = "accepted"
+        self._track(order_id, "accepted")
+        logger.info(
+            "Schwab option order submitted: id=%s %s %s",
+            order_id,
+            instruction,
+            quantity,
+        )
         return BrokerOrder(order_id=order_id, status="accepted")
 
     def place_option_strategy(
@@ -632,9 +776,14 @@ class SchwabConnector:
                 }
             )
         if net_limit_price is None or net_limit_price == 0:
-            order_type = "MARKET"
-        else:
-            order_type = "NET_DEBIT" if net_limit_price > 0 else "NET_CREDIT"
+            # A market-priced multi-leg option combination has no execution
+            # anchor and makes net-debit/credit accounting meaningless; the
+            # framework policy is that multi-leg option orders are always
+            # submitted atomically at a net limit price.
+            raise ValueError(
+                "multi-leg option strategy requires a non-zero net limit price"
+            )
+        order_type = "NET_DEBIT" if net_limit_price > 0 else "NET_CREDIT"
         payload: dict[str, Any] = {
             "orderType": order_type,
             "session": "NORMAL",
@@ -642,25 +791,30 @@ class SchwabConnector:
             "orderStrategyType": "SINGLE",
             "complexOrderStrategyType": "CUSTOM",
             "orderLegCollection": normalized,
+            "price": str(abs(net_limit_price)),
         }
-        if order_type != "MARKET":
-            payload["price"] = str(abs(net_limit_price))
         response = self._request(
             "POST", f"{TRADER_BASE}/accounts/{account}/orders", json=payload
         )
-        location = response.headers.get("Location", "")
-        order_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+        order_id = self._extract_order_id(response)
         if not order_id:
             raise SchwabAmbiguousOrderError(
                 "Schwab accepted a multi-leg order without returning an order id"
             )
-        self._tracked_orders[order_id] = "accepted"
+        self._track(order_id, "accepted")
+        logger.info(
+            "Schwab multi-leg order submitted: id=%s %s(%s) legs=%d",
+            order_id,
+            order_type,
+            net_limit_price,
+            len(legs),
+        )
         return BrokerOrder(order_id=order_id, status="accepted")
 
     def submit_market_order(
         self, side: str, qty: float, reduce_only: bool = False
     ) -> dict:
-        """Compatibility entry point used by the current Pine OrderBridge."""
+        """Compatibility entry point for canonical order execution."""
         if not self.symbol:
             raise ValueError("Schwab connector requires a symbol for live orders")
         instruction = {
@@ -685,12 +839,12 @@ class SchwabConnector:
         )
         raw = response.json()
         status = _STATUS_MAP.get(str(raw.get("status", "")).upper(), "unknown")
-        self._tracked_orders[str(order_id)] = status
+        self._track(str(order_id), status)
         return BrokerOrder(order_id=str(raw.get("orderId", order_id)), status=status, raw=raw)
 
     def reconcile_orders(self) -> list[BrokerOrder]:
         results = []
-        for order_id, status in list(self._tracked_orders.items()):
+        for order_id, status in self._tracked_items():
             if status in {"filled", "canceled", "rejected"}:
                 continue
             order = self.get_order(order_id)
@@ -704,6 +858,19 @@ class SchwabConnector:
     def cancel_order(self, order_id: str) -> None:
         account = self._require_account()
         self._request("DELETE", f"{TRADER_BASE}/accounts/{account}/orders/{order_id}")
+
+    def cancel_tracked_orders(self) -> list[str]:
+        """Best-effort cancellation for every locally tracked working order."""
+        canceled = []
+        for order_id, status in self._tracked_items():
+            if status in {"filled", "canceled", "rejected"}:
+                continue
+            self.cancel_order(order_id)
+            self._track(order_id, "canceled")
+            canceled.append(order_id)
+        if canceled:
+            logger.warning("Cancelled %d tracked Schwab order(s)", len(canceled))
+        return canceled
 
     def _require_account(self) -> str:
         if not self.account_hash:
@@ -736,7 +903,10 @@ def credentials_for(product: str = "trading") -> SchwabCredentials:
             "CALLBACK_URL", ""
         )
     except (FileNotFoundError, OSError, tomllib.TOMLDecodeError, AttributeError, TypeError):
-        pass
+        logger.warning(
+            "Schwab secrets file at .keys/.secrets.toml is missing or unreadable; "
+            "falling back to environment configuration"
+        )
     missing = [name for name, value in values.items() if not value]
     if missing:
         raise SchwabAuthError(

@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from quantforge.options import (
+    OptionCandidate,
+    OptionManagerInput,
+    OptionReportStore,
+    OptionsEventEngine,
+    ShortCallPosition,
+    candidates_from_schwab_chain,
+    intent_from_option_decision,
+)
+from apps.dashboard.backend.models import MAX_ORDER_NOTIONAL_USD
+from quantforge.domain.instruments import AssetClass, EquityOption, InstrumentId
+from quantforge.brokers.reconciliation import reconcile_schwab_account
+from quantforge.risk import GlobalRiskControl
+from quantforge.strategies.tsla_nvda_options import (
+    TslaNvdaOptionsConfig,
+    TslaNvdaOptionsManager,
+)
+from quantforge.adapters.schwab import SchwabExecutionAdapter
+from quantforge.execution import ExecutionService, PaperExecutionAdapter
+from quantforge.options.actions import EXECUTABLE_ACTIONS
+from quantforge.options.manager import OptionDecision
+from quantforge.risk import RiskEngine, RiskLimits
+
+router = APIRouter(tags=["risk", "options"])
+_GLOBAL_RISK = GlobalRiskControl()
+
+# Server-side hard ceiling for a single real-money order placed through
+# /options/schwab/run-once. The client may pick any size below this cap but
+# can never raise it: encoding the ceiling in the schema's Field(le=...) makes
+# over-cap requests fail with 422 before any order is submitted. Shared with
+# the live-engine start path so the two real-money entry points use ONE bound.
+_RUN_ONCE_MAX_NOTIONAL_USD = MAX_ORDER_NOTIONAL_USD
+
+
+class GlobalRiskUpdate(BaseModel):
+    halted: bool
+    reason: str = ""
+
+
+class CandidateIn(BaseModel):
+    symbol: str
+    strike: float
+    expiration: date
+    bid: float = Field(ge=0)
+    ask: float = Field(ge=0)
+    delta: float
+    open_interest: int = 0
+    volume: int = 0
+
+
+class ShortCallIn(BaseModel):
+    symbol: str
+    strike: float
+    expiration: date
+    contracts: int = Field(gt=0)
+    entry_credit: float = Field(gt=0)
+    ask: float = Field(ge=0)
+    delta: float
+
+
+class OptionAnalysisRequest(BaseModel):
+    ticker: str
+    as_of: date
+    shares: int = Field(ge=0)
+    minimum_core_shares: int = Field(ge=0)
+    maximum_covered_ratio: float = Field(ge=0, le=1)
+    stock_price: float = Field(gt=0)
+    trend_state: str
+    earnings_date: date | None = None
+    earnings_confirmed: bool = False
+    candidates: list[CandidateIn] = Field(default_factory=list)
+    short_calls: list[ShortCallIn] = Field(default_factory=list)
+    config: dict = Field(default_factory=dict)
+
+
+class SchwabOptionAnalysisRequest(BaseModel):
+    ticker: str
+    as_of: date
+    minimum_core_shares: int = Field(ge=0)
+    maximum_covered_ratio: float = Field(ge=0, le=1)
+    trend_state: str
+    earnings_date: date | None = None
+    earnings_confirmed: bool = False
+    config: dict = Field(default_factory=dict)
+
+
+class SchwabOptionRunRequest(SchwabOptionAnalysisRequest):
+    demo: bool = True
+    max_order_notional: float = Field(
+        default=10_000, gt=0, le=_RUN_ONCE_MAX_NOTIONAL_USD
+    )
+
+
+@router.get("/risk/global")
+def get_global_risk():
+    return _GLOBAL_RISK.get()
+
+
+@router.put("/risk/global")
+async def update_global_risk(request: GlobalRiskUpdate):
+    if request.halted and _GLOBAL_RISK.path == GlobalRiskControl().path:
+        # The router's control is the standard shared file: halting also
+        # emergency-stops every running engine and persists the master halt
+        # there. A custom-path control (isolated deployments/tests) must NOT
+        # hijack the shared file — it only updates its own state below.
+        from apps.dashboard.backend.live_engines import emergency_halt_all
+
+        return await emergency_halt_all(request.reason)
+    return _GLOBAL_RISK.update(halted=request.halted, reason=request.reason)
+
+
+@router.post("/options/analyze")
+def analyze_options(request: OptionAnalysisRequest):
+    config = TslaNvdaOptionsConfig(**request.config)
+    strategy = TslaNvdaOptionsManager(config)
+    event = OptionManagerInput(
+        ticker=request.ticker.upper(),
+        as_of=request.as_of,
+        shares=request.shares,
+        minimum_core_shares=request.minimum_core_shares,
+        maximum_covered_ratio=request.maximum_covered_ratio,
+        stock_price=request.stock_price,
+        trend_state=request.trend_state,
+        earnings_date=request.earnings_date,
+        earnings_confirmed=request.earnings_confirmed,
+        candidates=tuple(
+            OptionCandidate(**candidate.model_dump())
+            for candidate in request.candidates
+        ),
+        short_calls=tuple(
+            ShortCallPosition(**position.model_dump())
+            for position in request.short_calls
+        ),
+    )
+    return OptionsEventEngine(strategy).analyze(event)
+
+
+def _schwab_analysis(request: SchwabOptionAnalysisRequest):
+    from apps.dashboard.backend.routers.brokers import _connector
+
+    connector = _connector()
+    ticker = request.ticker.upper()
+    ledger = reconcile_schwab_account(connector.get_account_snapshot())
+    # Capture when the chain was actually fetched: quote-age for the risk
+    # checks is measured against this timestamp, never against a synthesized
+    # "now" that would make require_fresh_quote vacuous.
+    fetched_at = datetime.now(UTC)
+    chain = connector.get_option_chain(ticker, contract_type="CALL", strike_count=100)
+    candidates = candidates_from_schwab_chain(chain)
+    by_symbol = {candidate.symbol: candidate for candidate in candidates}
+    short_calls = []
+    for position in ledger.positions.values():
+        instrument = position.instrument
+        if (
+            not isinstance(instrument, EquityOption)
+            or instrument.underlying is None
+            or instrument.underlying.symbol != ticker
+            or position.quantity >= 0
+        ):
+            continue
+        quote = by_symbol.get(instrument.id.symbol)
+        if quote is None:
+            continue
+        short_calls.append(
+            ShortCallPosition(
+                symbol=instrument.id.symbol,
+                strike=instrument.strike,
+                expiration=instrument.expiration,
+                contracts=int(abs(position.quantity)),
+                entry_credit=position.average_price,
+                ask=quote.ask,
+                delta=quote.delta,
+            )
+        )
+    event = OptionManagerInput(
+        ticker=ticker,
+        as_of=request.as_of,
+        shares=int(
+            ledger.quantity(
+                InstrumentId(ticker, AssetClass.EQUITY, "schwab")
+            )
+        ),
+        minimum_core_shares=request.minimum_core_shares,
+        maximum_covered_ratio=request.maximum_covered_ratio,
+        stock_price=connector.get_quote_price(ticker),
+        trend_state=request.trend_state,
+        earnings_date=request.earnings_date,
+        earnings_confirmed=request.earnings_confirmed,
+        candidates=candidates,
+        short_calls=tuple(short_calls),
+    )
+    strategy = TslaNvdaOptionsManager(
+        TslaNvdaOptionsConfig(**request.config)
+    )
+    report = OptionsEventEngine(strategy, ledger).analyze(event)
+    return report, candidates, ledger, connector, fetched_at
+
+
+@router.post("/options/schwab/analyze")
+def analyze_schwab_options(request: SchwabOptionAnalysisRequest):
+    report, _candidates, _ledger, _connector, _fetched_at = _schwab_analysis(request)
+    report_path = OptionReportStore().save(report)
+    return {"report": report, "report_path": str(report_path)}
+
+
+@router.post("/options/schwab/run-once")
+def run_schwab_options_once(request: SchwabOptionRunRequest):
+    """Analyze once and automatically submit an eligible action through risk."""
+    report, candidates, ledger, connector, chain_fetched_at = _schwab_analysis(request)
+    report_path = OptionReportStore().save(report)
+    if report.action not in EXECUTABLE_ACTIONS:
+        return {
+            "report": report,
+            "report_path": str(report_path),
+            "receipt": None,
+        }
+    candidate = next(
+        item for item in candidates if item.symbol == report.contract_symbol
+    )
+    decision = OptionDecision(
+        action=report.action,
+        reasons=report.reasons,
+        contract_symbol=report.contract_symbol,
+        contracts=report.contracts,
+        limit_price=report.limit_price,
+    )
+    intent = intent_from_option_decision(
+        decision,
+        candidate=candidate,
+        ticker=report.ticker,
+        strategy_id=report.strategy,
+        # Quote age is measured against the real chain fetch time. A stale
+        # chain therefore trips require_fresh_quote instead of passing.
+        quote_time=chain_fetched_at,
+    )
+    # The risk wrapper shares the persistent, process-wide daily new-position
+    # counter with the live engines: run-once orders draw from the same
+    # budget as engine orders, and the client cannot reset it by re-issuing
+    # requests (a fresh RiskEngine per request would otherwise zero it).
+    from apps.dashboard.backend.live_engines import _daily_entries
+
+    service = ExecutionService(
+        risk=RiskEngine(
+            RiskLimits(
+                live_enabled=True,
+                require_fresh_quote=True,
+                max_order_notional=request.max_order_notional,
+                max_daily_new_positions=10,
+            ),
+            global_control=_GLOBAL_RISK,
+            daily_entries=_daily_entries,
+        ),
+        ledger=ledger,
+        adapter=(
+            PaperExecutionAdapter()
+            if request.demo
+            else SchwabExecutionAdapter(connector)
+        ),
+    )
+    return {
+        "report": report,
+        "report_path": str(report_path),
+        "receipt": service.execute(intent),
+    }

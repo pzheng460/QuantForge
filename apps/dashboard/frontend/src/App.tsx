@@ -8,7 +8,6 @@ const BacktestPage = lazy(() => import('./pages/Backtest'))
 const OptimizerPage = lazy(() => import('./pages/Optimizer'))
 import { TimezoneProvider, useTimezone } from './hooks/useTimezone'
 import { Input } from '@/components/ui/input'
-import { EvolvingBadge } from './components/EvolvingBadge'
 import { cn } from '@/lib/utils'
 
 const COMMON_TZ = [
@@ -183,15 +182,42 @@ function TopBar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <EvolvingBadge />
           <TimezoneSelector />
-          <span className="hidden md:inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono text-muted-foreground border border-border bg-card">
-            <span className="status-dot" />
-            <span className="tracking-tight">connected</span>
-          </span>
+          <ConnectionPill />
         </div>
       </div>
     </header>
+  )
+}
+
+/** Live backend health indicator (polls /api/health). */
+function ConnectionPill() {
+  const [state, setState] = useState<'checking' | 'online' | 'offline'>('checking')
+
+  useEffect(() => {
+    let active = true
+    const check = async () => {
+      try {
+        const res = await fetch('/api/health', { cache: 'no-store' })
+        if (active) setState(res.ok ? 'online' : 'offline')
+      } catch {
+        if (active) setState('offline')
+      }
+    }
+    check()
+    const timer = window.setInterval(check, 15000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  const label = state === 'online' ? 'connected' : state === 'offline' ? 'offline' : 'connecting…'
+  return (
+    <span className="hidden md:inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono text-muted-foreground border border-border bg-card">
+      <span className={cn('status-dot', state === 'offline' && 'status-dot--offline')} />
+      <span className="tracking-tight">{label}</span>
+    </span>
   )
 }
 

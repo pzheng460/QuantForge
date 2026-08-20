@@ -3,6 +3,7 @@
 from quantforge.domain.instruments import (
     AssetClass,
     CryptoDerivative,
+    CryptoFuture,
     CryptoSpot,
     Equity,
     EquityOption,
@@ -21,6 +22,7 @@ from quantforge.domain.events import Assignment, EventType, MarketEvent
 __all__ = [
     "AssetClass",
     "CryptoDerivative",
+    "CryptoFuture",
     "CryptoSpot",
     "Equity",
     "EquityOption",

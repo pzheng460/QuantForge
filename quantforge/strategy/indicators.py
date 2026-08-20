@@ -70,9 +70,7 @@ class Indicator:
             result = self._inner.update(bar.close)
 
         if self._is_bb:
-            sma, upper, lower = (
-                result if result != (None, None, None) else (None, None, None)
-            )
+            sma, upper, lower = result
             self._history.appendleft(sma)
             self._upper_history.appendleft(upper)
             self._lower_history.appendleft(lower)

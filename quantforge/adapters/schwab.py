@@ -13,6 +13,16 @@ class SchwabExecutionAdapter:
     def submit(self, intent: OrderIntent | MultiLegOrderIntent) -> str:
         try:
             if isinstance(intent, MultiLegOrderIntent):
+                non_option = [
+                    leg.instrument.id.symbol
+                    for leg in intent.legs
+                    if not isinstance(leg.instrument, EquityOption)
+                ]
+                if non_option:
+                    raise ValueError(
+                        "multi-leg option strategies accept option legs only: "
+                        + ", ".join(non_option)
+                    )
                 legs = [
                     {
                         "symbol": leg.instrument.id.symbol,
@@ -34,7 +44,10 @@ class SchwabExecutionAdapter:
                     price=intent.limit_price,
                 )
                 return order.order_id
-            instruction = "BUY" if intent.side is OrderSide.BUY else "SELL"
+            if intent.side is OrderSide.BUY:
+                instruction = "BUY_TO_COVER" if intent.reduce_only else "BUY"
+            else:
+                instruction = "SELL" if intent.reduce_only else "SELL_SHORT"
             order = self.connector.place_order(
                 symbol=intent.instrument.id.symbol,
                 instruction=instruction,
