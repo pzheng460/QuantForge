@@ -67,3 +67,35 @@
 - **P2**：M1 成交时点差异文档化；M5 ledger/结算口径统一。
 - **P3**：L1 清理潜在直连下单面；L11 目录权限校验。
 - **工程门禁**：补一个真正的 CI（pytest + ruff + tsc/build），把 194 测试变成护栏而不是"本地常绿"。
+
+## 六、P1 修复记录（补丁批次 · 未再重新评分）
+
+本报告评分对应快照提交 `ef8f0fe`。以下为随后执行的 P1 批次，**逐项复核通过**；全新评分需另起新报告，此处只记录修复事实，不虚增分数。
+
+### 修复项
+- **M2 回测引擎保真度**（quantforge/backtest/engine.py）
+  - 入场不再让现金为负：`allocation_pct=1.0` + 佣金>0 时按 `min(allocation, 1/(1+commission))` 收紧实际投入比例，成交金额+"入场费"永远装得进现金；无钱可投则跳过该笔交易（不再"借钱"开仓）。
+  - 止损/移动止损出场填充价即止损位，不再二次乘 `1±slippage`（`close_trade(..., apply_slippage=False)`）；显式调仓/强制平仓仍按市价计滑点。
+- **M3 任务取消失效**（jobs/backtest.py、jobs/optimize.py、jobs/data.py、ccxt.py）
+  - `_run_python_backtest(req, job_id)` 全程携带取消钩子：数据分页每页检查（fetch_klines）、回测引擎每 `cancel_check_every`（默认 128）根 bar 检查（`BacktestConfig.cancel_check`）、指标/回撤大循环每 256 点检查。
+  - optimize `wfo`/`full` 模式补齐 `job_id` 透传（此前完全没有），每窗口/每阶段检查；`_load_data` 也接受 `job_id`。
+  - 取消从"线程返回后才生效"变为"运行中限时生效"，与 M4 叠加不再构成不可中断的资源耗尽向量。
+- **M4 显式日期区间无上限**（models.py、jobs/data.py）
+  - 请求模型层：显式跨度 >10 年 → 422（`_validate_date_range`）。
+  - 任务层：`check_bar_budget` 按 timeframe 折算 bar 数，> `MAX_BACKTEST_BARS`（2,000,000）→ 明确报错（10 年 1d 合法、10 年 1m 拒绝），在任何抓取前执行。
+- **M6 `/accounts` 泄漏原始 `account_hash`**（routers/brokers.py + 前端）
+  - `/accounts` 只返回 `{account_ref, account_type, display_id}`；`account_ref` 为原始 hash 的 SHA-256 前缀（单向、不可逆推回凭据）。
+  - `POST /account` 改按 `account_ref` 选中，服务端内部解析回真实 hash 落盘；真实 hash 永不出服务端。前端 client.ts + SchwabConnection 同步改 `account_ref`。
+- **工程门禁**：新增 `.github/workflows/ci.yml` —— uv 同步（含 dev 组）、ruff 检查后端+测试、`pytest -q -m "not slow"`、前端 `npm ci + tsc --noEmit + npm run build`；`main.yml` 的 Notion 同步流程保留不动。
+
+### 测试护栏（新增 12 个，总 194 → 206）
+- `test/backtest/test_backtest_engine.py`（3）：满仓+佣金现金永不为负；止损出场精确等于止损价（无双滑点）；`cancel_check` 及时中止。
+- `test/dashboard/test_job_cancel.py`（4）：回测任务取消检查在计算内部触发（回归：此前只在 to_thread 返回后）；端到端 `run_backtest_job` → registry `cancelled`；wfo/full 两模式均收到并响应 `job_id` 取消。
+- `test/dashboard/test_bar_budget.py`（4）：1m 全局跨度被拒；合理跨度通过；模型层 >10 年 422；5 年 1d 仍可用。
+- `test/dashboard/test_broker_accounts_masked.py`（1）：/accounts 无 `account_hash`、ref 不可逆推；按 ref 选中并落盘真实 hash；坏 ref 400。
+
+### 复核状态
+- `uv run ruff check quantforge apps/dashboard/backend test` ✅
+- `uv run pytest -q` → **206 passed** ✅
+- 前端 `npx tsc --noEmit` + `npm run build` ✅（本批次改动涉及前端后又重建）
+- 未改动的既定决策：M1 fill 时点差异维持"文档化"语义（不改变行为）；M5 ledger 结算口径仍为 P2；全部 Low 项维持原判。

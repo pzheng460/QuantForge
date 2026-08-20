@@ -14,6 +14,7 @@ from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
     _resolve_date_range,
+    check_bar_budget,
 )
 from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
@@ -98,20 +99,25 @@ def _parameter_grid(strategy_cls: type, limit: int = 500) -> list[dict[str, Any]
     return grid or [{}]
 
 
-def _load_data(req: OptimizeRequest) -> tuple[list[list], int, str, str]:
+def _load_data(
+    req: OptimizeRequest, job_id: str | None = None
+) -> tuple[list[list], int, str, str]:
     start, end = _resolve_date_range(req.period, req.start_date, req.end_date)
+    check_bar_budget(req.timeframe, start, end)
     start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     warmup_start = start_dt - timedelta(
         seconds=timeframe_to_seconds(req.timeframe) * req.warmup_bars
     )
     symbol = req.symbol or _DEFAULT_SYMBOLS[req.exchange]
+    cancel = (lambda: check_cancelled(job_id)) if job_id else None
     rows = _fetch_ohlcv(
         req.exchange,
         symbol,
         req.timeframe,
         int(warmup_start.timestamp() * 1000),
         int(end_dt.timestamp() * 1000),
+        cancel_check=cancel,
     )
     cutoff = next(
         (index for index, row in enumerate(rows) if row[0] >= start_dt.timestamp() * 1000),
@@ -120,7 +126,8 @@ def _load_data(req: OptimizeRequest) -> tuple[list[list], int, str, str]:
     return rows, cutoff, start, end
 
 
-def _evaluate(strategy_cls, rows, params, req, warmup=0):
+def _evaluate(strategy_cls, rows, params, req, warmup=0, job_id=None):
+    cancel = (lambda: check_cancelled(job_id)) if job_id else None
     result = run_backtest(
         strategy_cls,
         rows,
@@ -128,6 +135,7 @@ def _evaluate(strategy_cls, rows, params, req, warmup=0):
         config=BacktestConfig(
             initial_capital=req.position_size_usdt or 100_000,
             allocation_pct=getattr(strategy_cls, "allocation_pct", 1),
+            cancel_check=cancel,
         ),
         warmup_bars=warmup,
     )
@@ -144,11 +152,13 @@ def _run_python_optimize(
     from quantforge.strategy import get_strategy
 
     strategy_cls = get_strategy(req.strategy)
-    rows, cutoff, start, end = _load_data(req)
+    rows, cutoff, start, end = _load_data(req, job_id)
     grid = _parameter_grid(strategy_cls)
     scored = []
     for index, params in enumerate(grid, 1):
-        result, metrics = _evaluate(strategy_cls, rows, params, req, cutoff)
+        result, metrics = _evaluate(
+            strategy_cls, rows, params, req, cutoff, job_id
+        )
         scored.append((params, result, metrics))
         if job_id and job_id in _jobs:
             check_cancelled(job_id)
@@ -189,26 +199,28 @@ def _run_python_optimize(
     )
 
 
-def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
+def _run_wfo(req: OptimizeRequest, job_id: str | None = None) -> WFOResultOut:
     import quantforge.strategies  # noqa: F401
     from quantforge.strategy import get_strategy
 
     strategy_cls = get_strategy(req.strategy)
-    rows, cutoff, _, _ = _load_data(req)
+    rows, cutoff, _, _ = _load_data(req, job_id)
     period = rows[cutoff:]
     window_size = max(20, len(period) // 4)
     test_size = max(5, window_size // 3)
     windows = []
     for start in range(0, len(period) - window_size - test_size + 1, test_size):
+        if job_id and job_id in _jobs:
+            check_cancelled(job_id)
         train = period[start : start + window_size]
         test = period[start + window_size : start + window_size + test_size]
         candidates = []
         for params in _parameter_grid(strategy_cls, limit=100):
-            _, metric = _evaluate(strategy_cls, train, params, req)
+            _, metric = _evaluate(strategy_cls, train, params, req, job_id=job_id)
             candidates.append((metric["sharpe"], params, metric))
         candidates.sort(reverse=True, key=lambda item: item[0])
         _, best, train_metric = candidates[0]
-        _, test_metric = _evaluate(strategy_cls, test, best, req)
+        _, test_metric = _evaluate(strategy_cls, test, best, req, job_id=job_id)
         def to_date(row):
             return datetime.fromtimestamp(
                 row[0] / 1000, tz=timezone.utc
@@ -242,19 +254,21 @@ def _run_wfo(req: OptimizeRequest) -> WFOResultOut:
     )
 
 
-def _run_three_stage(req: OptimizeRequest) -> ThreeStageResultOut:
-    grid = _run_python_optimize(req)
-    wfo = _run_wfo(req)
+def _run_three_stage(req: OptimizeRequest, job_id: str | None = None) -> ThreeStageResultOut:
+    grid = _run_python_optimize(req, job_id)
+    wfo = _run_wfo(req, job_id)
+    if job_id and job_id in _jobs:
+        check_cancelled(job_id)
     import quantforge.strategies  # noqa: F401
     from quantforge.strategy import get_strategy
 
     strategy_cls = get_strategy(req.strategy)
-    rows, cutoff, _, _ = _load_data(req)
+    rows, cutoff, _, _ = _load_data(req, job_id)
     period = rows[cutoff:]
     holdout_index = max(1, int(len(period) * 0.8))
     holdout = period[holdout_index:]
     holdout_result, holdout_metrics = _evaluate(
-        strategy_cls, holdout, grid.best_params, req
+        strategy_cls, holdout, grid.best_params, req, job_id=job_id
     )
     bh = (holdout[-1][4] / holdout[0][4] - 1) * 100 if holdout else 0
     degradation = (
@@ -302,11 +316,14 @@ async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
                 grid_result=await asyncio.to_thread(_run_python_optimize, req, job_id),
             )
         elif req.mode == "wfo":
-            update_job(job_id, wfo_result=await asyncio.to_thread(_run_wfo, req))
+            update_job(
+                job_id,
+                wfo_result=await asyncio.to_thread(_run_wfo, req, job_id),
+            )
         else:
             update_job(
                 job_id,
-                full_result=await asyncio.to_thread(_run_three_stage, req),
+                full_result=await asyncio.to_thread(_run_three_stage, req, job_id),
             )
         check_cancelled(job_id)
         update_job(job_id, status="completed")

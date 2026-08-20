@@ -127,7 +127,7 @@ def test_failed_backtest_job_persists_sanitized_error_only(monkeypatch):
     monkeypatch.setattr(
         jobs,
         "_run_python_backtest",
-        lambda req: (_ for _ in ()).throw(
+        lambda req, job_id=None: (_ for _ in ()).throw(
             RuntimeError("auth token=supersecret EXPIRED at /home/pzheng46/QuantForge")
         ),
     )

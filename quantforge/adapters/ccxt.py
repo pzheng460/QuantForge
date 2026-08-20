@@ -133,6 +133,7 @@ def fetch_klines(
     since_ms: int,
     end_ms: int,
     page_limit: int = 1000,
+    cancel_check: Callable[[], None] | None = None,
 ) -> list[list]:
     """Canonical OHLCV fetcher used by both backtest and live engines.
 
@@ -140,6 +141,10 @@ def fetch_klines(
     dedups by timestamp, sorts ascending. Returns the raw ccxt OHLCV
     rows (``[ts, open, high, low, close, volume]``). Callers that need
     ``BarData`` should map over the result.
+
+    ``cancel_check`` is invoked before each page; it raises to abort a long
+    pagination (the dashboard jobs use it so cancellation stays effective
+    during the data-fetch phase).
 
     Centralising this prevents drift between backtest's old
     ``cli._fetch_ohlcv`` and live's old ``fetch_warmup_bars``, which
@@ -187,6 +192,8 @@ def fetch_klines(
     unique: list[list] = []
     current = since_ms
     while current < end_ms:
+        if cancel_check is not None:
+            cancel_check()
         chunk = _retry_transient(
             lambda: exchange.fetch_ohlcv(
                 symbol,

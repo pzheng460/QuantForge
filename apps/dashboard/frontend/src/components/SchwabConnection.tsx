@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface Account {
-  account_hash: string
+  account_ref: string
   account_type: string
   display_id: string
 }
@@ -52,10 +52,10 @@ export function SchwabConnection() {
     }
   }
 
-  const choose = async (accountHash: string) => {
-    setSelected(accountHash)
+  const choose = async (accountRef: string) => {
+    setSelected(accountRef)
     try {
-      await api.selectSchwabAccount(accountHash)
+      await api.selectSchwabAccount(accountRef)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -84,7 +84,7 @@ export function SchwabConnection() {
           <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={status.account_selected ? 'Account selected' : 'Select account'} /></SelectTrigger>
           <SelectContent>
             {accounts.map((account) => (
-              <SelectItem key={account.account_hash} value={account.account_hash}>
+              <SelectItem key={account.account_ref} value={account.account_ref}>
                 {account.account_type} ••••{account.display_id}
               </SelectItem>
             ))}

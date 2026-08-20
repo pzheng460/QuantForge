@@ -40,6 +40,12 @@ def _parse_date(value: str, field_name: str) -> datetime:
         raise ValueError(f"{field_name} must be YYYY-MM-DD") from exc
 
 
+# Upper bound on an explicit backtest/optimize date span. The frame-aware
+# bar-count ceiling (jobs.data.MAX_BACKTEST_BARS) is the real anti-DoS guard;
+# this catches absurd spans at validation time with a clean 422.
+_MAX_DATE_SPAN_DAYS = 10 * 365
+
+
 def _validate_date_range(start_date: Optional[str], end_date: Optional[str]) -> None:
     if start_date:
         start_dt = _parse_date(start_date, "start_date")
@@ -50,6 +56,10 @@ def _validate_date_range(start_date: Optional[str], end_date: Optional[str]) -> 
         )
         if start_dt >= end_dt:
             raise ValueError("start_date must be before end_date")
+        if (end_dt - start_dt).days > _MAX_DATE_SPAN_DAYS:
+            raise ValueError(
+                f"date range must not exceed {_MAX_DATE_SPAN_DAYS} days"
+            )
     elif end_date:
         _parse_date(end_date, "end_date")
 

@@ -79,10 +79,10 @@ export const api = {
     get('/brokers/schwab/status'),
   schwabAuthStart: (product: 'trading' | 'market_data'): Promise<{ authorization_url: string; product: string }> =>
     get(`/brokers/schwab/auth/start?product=${product}`),
-  schwabAccounts: (): Promise<Array<{ account_hash: string; account_type: string; display_id: string }>> =>
+  schwabAccounts: (): Promise<Array<{ account_ref: string; account_type: string; display_id: string }>> =>
     get('/brokers/schwab/accounts'),
-  selectSchwabAccount: (accountHash: string): Promise<{ selected: boolean; account_hash: string }> =>
-    post('/brokers/schwab/account', { account_hash: accountHash }),
+  selectSchwabAccount: (accountRef: string): Promise<{ selected: boolean; display_id: string }> =>
+    post('/brokers/schwab/account', { account_ref: accountRef }),
 
   runBacktest: (req: BacktestRequest): Promise<JobStatus> =>
     post('/backtest/run', req),

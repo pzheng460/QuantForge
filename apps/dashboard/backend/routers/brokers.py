@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -30,8 +31,16 @@ _TOKEN_PATHS = {
 }
 
 
+def _account_ref(account_hash: str) -> str:
+    """One-way reference for an account so the raw Schwab account_hash (the
+    credential value used to authorize Schwab API calls) never leaves the
+    server. The digest is not reversible for a high-entropy server-issued
+    hash, so the frontend only ever sees a selection token."""
+    return hashlib.sha256(account_hash.encode("utf-8")).hexdigest()[:16]
+
+
 class AccountSelection(BaseModel):
-    account_hash: str
+    account_ref: str
 
 
 def _load_config() -> dict:
@@ -113,7 +122,14 @@ def auth_callback(code: str = Query(...), state: str = Query(...)):
 @router.get("/accounts")
 def accounts():
     try:
-        return [account.__dict__ for account in _connector().get_accounts()]
+        return [
+            {
+                "account_ref": _account_ref(account.account_hash),
+                "account_type": account.account_type,
+                "display_id": account.display_id,
+            }
+            for account in _connector().get_accounts()
+        ]
     except SchwabAuthError as exc:
         raise HTTPException(status_code=401, detail=safe_exception_detail(exc, prefix="Schwab authentication failed")) from exc
 
@@ -147,13 +163,14 @@ def portfolio():
 def select_account(selection: AccountSelection):
     try:
         connector = _connector()
-        valid_hashes = {account.account_hash for account in connector.get_accounts()}
+        accounts = connector.get_accounts()
     except SchwabAuthError as exc:
         raise HTTPException(status_code=401, detail=safe_exception_detail(exc, prefix="Schwab authentication failed")) from exc
-    if selection.account_hash not in valid_hashes:
-        raise HTTPException(status_code=400, detail="Unknown Schwab account hash")
-    _save_config({"account_hash": selection.account_hash})
-    return {"selected": True, "account_hash": selection.account_hash}
+    for account in accounts:
+        if _account_ref(account.account_hash) == selection.account_ref:
+            _save_config({"account_hash": account.account_hash})
+            return {"selected": True, "display_id": account.display_id}
+    raise HTTPException(status_code=400, detail="Unknown Schwab account reference")
 
 
 def selected_account_hash() -> str | None:

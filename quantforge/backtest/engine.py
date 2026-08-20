@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,6 +13,12 @@ class BacktestConfig:
     commission_pct: float = 0
     slippage_pct: float = 0
     allocation_pct: float = 1
+    #: Optional hook invoked every ``cancel_check_every`` bars to abort a
+    #: long run. It raises to propagate cancellation (the dashboard jobs use
+    #: it to raise JobCancelled so /backtest/cancel stays effective on
+    #: CPU-bound runs). If it raises, run_backtest stops immediately.
+    cancel_check: Callable[[], None] | None = None
+    cancel_check_every: int = 128
 
 
 @dataclass(slots=True)
@@ -87,12 +94,19 @@ def run_backtest(
     excursion_high = 0.0
     excursion_low = 0.0
 
-    def close_trade(i: int, price: float) -> None:
+    def close_trade(i: int, price: float, *, apply_slippage: bool = True) -> None:
         nonlocal cash, position, quantity, entry_price, entry_fee
         nonlocal active_stop, active_trailing, trail_anchor
         if not position:
             return
-        executed = price * (1 - cfg.slippage_pct if position > 0 else 1 + cfg.slippage_pct)
+        if apply_slippage:
+            executed = price * (
+                1 - cfg.slippage_pct if position > 0 else 1 + cfg.slippage_pct
+            )
+        else:
+            # Stop/trailing exits already fill AT the stop level; adding
+            # slippage on top would double-penalize the exit.
+            executed = price
         gross = (executed - entry_price) * quantity * position
         exit_fee = abs(executed * quantity) * cfg.commission_pct
         cash += entry_price * quantity + gross - exit_fee
@@ -118,7 +132,10 @@ def run_backtest(
         active_trailing = None
         trail_anchor = None
 
+    cancel_check = cfg.cancel_check
     for i, bar in enumerate(normalized):
+        if cancel_check is not None and i % cfg.cancel_check_every == 0:
+            cancel_check()
         if pending is not None:
             target = pending.position
             if target != position:
@@ -127,15 +144,27 @@ def run_backtest(
                     executed = bar.open * (
                         1 + cfg.slippage_pct if target > 0 else 1 - cfg.slippage_pct
                     )
-                    notional = cash * cfg.allocation_pct
+                    # Never drive cash below zero: with allocation_pct=1 and
+                    # commission>0 the old code paid notional + entry fee out
+                    # of the same cash (double-dipping → negative cash on
+                    # every round-trip). Cap the deployed ratio so the entry
+                    # fee fits; if nothing is deployable, skip the trade.
+                    if cfg.commission_pct >= 0:
+                        effective_ratio = min(
+                            cfg.allocation_pct, 1 / (1 + cfg.commission_pct)
+                        )
+                    else:
+                        effective_ratio = cfg.allocation_pct
+                    notional = cash * effective_ratio
                     quantity = notional / executed
-                    entry_fee = notional * cfg.commission_pct
-                    cash -= notional + entry_fee
-                    position = target
-                    entry_price = executed
-                    entry_bar = i
-                    excursion_high = 0
-                    excursion_low = 0
+                    if quantity > 0:
+                        entry_fee = notional * cfg.commission_pct
+                        cash -= notional + entry_fee
+                        position = target
+                        entry_price = executed
+                        entry_bar = i
+                        excursion_high = 0
+                        excursion_low = 0
             active_stop = pending.stop_price
             active_trailing = pending.trailing_distance
             trail_anchor = bar.open if active_trailing else None
@@ -151,7 +180,9 @@ def run_backtest(
                         active_stop or float("-inf"), trail_anchor - active_trailing
                     )
                 if active_stop is not None and bar.low <= active_stop:
-                    close_trade(i, min(bar.open, active_stop))
+                    close_trade(
+                        i, min(bar.open, active_stop), apply_slippage=False
+                    )
             else:
                 excursion_high = max(excursion_high, (entry_price - bar.low) * quantity)
                 excursion_low = min(excursion_low, (entry_price - bar.high) * quantity)
@@ -161,7 +192,9 @@ def run_backtest(
                         active_stop or float("inf"), trail_anchor + active_trailing
                     )
                 if active_stop is not None and bar.high >= active_stop:
-                    close_trade(i, max(bar.open, active_stop))
+                    close_trade(
+                        i, max(bar.open, active_stop), apply_slippage=False
+                    )
 
         strategy.position = position
         target = strategy.process_bar(bar)

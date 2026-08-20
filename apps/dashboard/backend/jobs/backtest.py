@@ -11,6 +11,7 @@ from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
     _resolve_date_range,
+    check_bar_budget,
 )
 from apps.dashboard.backend.jobs.registry import (
     JobCancelled,
@@ -52,7 +53,7 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
     update_job(job_id, status="running")
 
     try:
-        result = await asyncio.to_thread(_run_python_backtest, req)
+        result = await asyncio.to_thread(_run_python_backtest, req, job_id)
         check_cancelled(job_id)
         update_job(job_id, result=result, status="completed")
 
@@ -70,8 +71,16 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
         )
 
 
-def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
-    """Execute a registered Python strategy synchronously."""
+def _run_python_backtest(
+    req: BacktestRequest, job_id: str | None = None
+) -> BacktestResultOut:
+    """Execute a registered Python strategy synchronously.
+
+    ``job_id`` powers cooperative cancellation: the data fetch checks between
+    pages, the backtest engine every ``cancel_check_every`` bars, and the
+    metric loops periodically — so a cancel stops a long run within a bounded
+    number of bars instead of only after it finishes.
+    """
     import quantforge.strategies  # noqa: F401
     from quantforge.backtest import BacktestConfig, run_backtest
     from quantforge.options.backtest import (
@@ -82,6 +91,7 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
     from quantforge.strategy.bar import BarStrategy
 
     start_str, end_str = _resolve_date_range(req.period, req.start_date, req.end_date)
+    check_bar_budget(req.timeframe, start_str, end_str)
     symbol = req.symbol or _DEFAULT_SYMBOLS.get(req.exchange, "BTC/USDT:USDT")
 
     start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -91,7 +101,10 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
     since_ms = int(warmup_start.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
-    all_ohlcv = _fetch_ohlcv(req.exchange, symbol, req.timeframe, since_ms, end_ms)
+    cancel = (lambda: check_cancelled(job_id)) if job_id else None
+    all_ohlcv = _fetch_ohlcv(
+        req.exchange, symbol, req.timeframe, since_ms, end_ms, cancel_check=cancel
+    )
     # Find the bar index where actual backtest period starts (after warmup)
     start_ms = int(start_dt.timestamp() * 1000)
     warmup_bar_count = 0
@@ -110,6 +123,7 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
             config=BacktestConfig(
                 initial_capital=initial_capital,
                 allocation_pct=getattr(strategy_cls, "allocation_pct", 1),
+                cancel_check=cancel,
             ),
             warmup_bars=warmup_bar_count,
         )
@@ -232,6 +246,8 @@ def _run_python_backtest(req: BacktestRequest) -> BacktestResultOut:
     bar_ms = timeframe_to_ms(req.timeframe)
     bar_days = bar_ms / (24 * 3_600_000)
     for i, eq in enumerate(period_equity):
+        if cancel and i % 256 == 0:
+            cancel()
         if eq > peak:
             peak = eq
             peak_idx = i
