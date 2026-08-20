@@ -60,10 +60,12 @@
 
 ## 四、残余项（已知，不构成本轮扣分主因）
 
-- **Medium-Low（新增发现）**：backtest/optimize 任务并发**无准入控制**（无 Semaphore/并发上限）——M4 已限制单任务资源，但 N 个合法并发仍可耗尽 `asyncio.to_thread` 池。建议加并发上限 + 排队。
+> **2026-08-20 增补（"继续"轮）**：以下两项已在本轮修复，从残余项移除：
+> 1. **并发任务无准入** → 已修复（见 §六）。
+> 2. **put 跨 strike 合并** → 复核发现该"过度保守上界"实为**漏判方向**（跨 strike 的 long put 会抵消 short put 的现金义务，$0 现金可裸卖 put@100 仅凭 long put@90），已修复为 strike 精确核算（见 §六）。
+
 - **Low（已知设计）**：`live/engine` 在 close 提交后乐观置 flat（`_target=0`），open 被拒时留 flat 待下 bar 重估——注释明确、broker 快照对账兜底，属 submission-then-reconcile 设计而非缺陷；改为 fill 确认式是更大的设计变更。
-- **Low（已知限制）**：`put_short` 跨 strike 合并取 `max(strike)` 是安全上界（不过度放行），但可能过度保守误拒多 strike 短 put 组合；covered-call 策略只持短 call，实际不触发。
-- **Low**：L6 告警（live 引擎未开 `require_fresh_quote`）在 demo/paper 与测试构造时高频触发，可能稀释信号——维持 warning 不升级硬错误（demo 合法用 bar-close），可考虑按进程降频。
+- **Low**：L6 告警（live 引擎未开 `require_fresh_quote`）——复核确认产品路径仅两个构造点且均传 `require_fresh_quote=True`，告警只会在"真钱引擎漏配"时触发，正是需要每次提醒的场景，故维持不降频。
 - **Low**：`killpg` 为 POSIX 专有（Windows 不可用）；目标部署平台为 Linux，可接受。
 - **L12（backlog）**：MultiLeg 反转/滚动构造器是功能缺口非缺陷，移入 backlog。
 - **无法沙箱验证**：真实 Schwab 符号/余额字段名、OAuth 刷新、实盘并发准入仍需实网确认。
@@ -71,6 +73,20 @@
 ## 五、验证基线
 
 - `uv run ruff check quantforge apps/dashboard/backend test` ✅
-- `uv run pytest -q` → **241 passed**（194 → 206 → 235 → 241）
+- `uv run pytest -q` → **246 passed**（194 → 206 → 235 → 241 → 246）
 - `npx tsc --noEmit` ✅（前端无改动，build 未重跑；CI 将覆盖）
 - 本轮修复均在审查期内完成并附回归测试；修复未提交（见 git status），提交由操作者决定。
+
+## 六、增补修复记录（2026-08-20 "继续"轮）
+
+承接 §四 移除的两项：
+
+### Medium —— backtest/optimize 并发任务无准入（已修复）
+- 现象：`asyncio.to_thread` 默认执行器 `min(32, cpu+4)`，一批合法并发 backtest/optimize 可耗尽线程池、饿死事件循环（HTTP 回调/WS 心跳）。
+- **修复**：`apps/dashboard/backend/jobs/concurrency.py` 共享 `asyncio.Semaphore(4)`（`MAX_PARALLEL_JOBS`），`run_backtest_job`/`run_optimize_job` 在 `to_thread` 外包 `acquire/release`（`finally` 保证异常也释放）；排队任务不丢弃；acquire 前与执行后各一次 `check_cancelled`，排队期间被取消的任务不占 CPU 槽。
+- 回归测试：并发 6 任务峰值 ≤ 2（收紧到 2 验证）、optimize 峰值 1、失败任务释放槽位。
+
+### Medium —— put 裸空现金核算跨 strike 抵消（漏判方向，已修复）
+- 现象（实锤）：`$0` 现金 + 仅持有 long put@90，卖出 naked short put@100 被授权。`put_long` 按 `(underlying, expiry)` 聚合，任意同到期 long put 都抵消 short put 的 qty——但被行权时需付 `strike×mult` 全款现金，低 strike 的 long put 只回补行权价差，**不能**对冲现金义务。同时 short put 合并取 `max(strike)` 是上界（保守），掩盖了 long 侧的真实漏判。
+- **修复**：`_validate_plan_options` 的 put 核算改为 strike 精确（键含 `(underlying, expiry, strike)`）：同 strike 同到期的 long put 才对冲；不同 strike 的 short put 各自按自身 `strike×mult` 累加现金需求。顺带消除了 max-strike 上界（$39_000 场景不再误拒）。
+- 回归测试：跨 strike long put 不覆盖（拒绝）、同 strike 覆盖（放行）、多 strike 短 put 精确求和（38_999 拒 / 39_000 放行）。

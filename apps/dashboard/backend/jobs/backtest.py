@@ -7,6 +7,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 from apps.dashboard.backend.http_errors import sanitize_exception
+from apps.dashboard.backend.jobs import concurrency
 from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
@@ -53,7 +54,14 @@ async def run_backtest_job(job_id: str, req: BacktestRequest) -> None:
     update_job(job_id, status="running")
 
     try:
-        result = await asyncio.to_thread(_run_python_backtest, req, job_id)
+        # Re-check before acquiring a slot: a cancel requested while the job
+        # is still queued must not occupy a CPU slot first.
+        check_cancelled(job_id)
+        await concurrency.acquire()
+        try:
+            result = await asyncio.to_thread(_run_python_backtest, req, job_id)
+        finally:
+            concurrency.release()
         check_cancelled(job_id)
         update_job(job_id, result=result, status="completed")
 

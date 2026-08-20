@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from apps.dashboard.backend.http_errors import sanitize_exception
+from apps.dashboard.backend.jobs import concurrency
 from apps.dashboard.backend.jobs.data import (
     _DEFAULT_SYMBOLS,
     _fetch_ohlcv,
@@ -310,21 +311,32 @@ def _run_three_stage(req: OptimizeRequest, job_id: str | None = None) -> ThreeSt
 async def run_optimize_job(job_id: str, req: OptimizeRequest) -> None:
     update_job(job_id, status="running", mode=req.mode)
     try:
-        if req.mode == "grid":
-            update_job(
-                job_id,
-                grid_result=await asyncio.to_thread(_run_python_optimize, req, job_id),
-            )
-        elif req.mode == "wfo":
-            update_job(
-                job_id,
-                wfo_result=await asyncio.to_thread(_run_wfo, req, job_id),
-            )
-        else:
-            update_job(
-                job_id,
-                full_result=await asyncio.to_thread(_run_three_stage, req, job_id),
-            )
+        # Re-check before acquiring a slot: a cancel requested while the job
+        # is still queued must not occupy a CPU slot first.
+        check_cancelled(job_id)
+        await concurrency.acquire()
+        try:
+            if req.mode == "grid":
+                update_job(
+                    job_id,
+                    grid_result=await asyncio.to_thread(
+                        _run_python_optimize, req, job_id
+                    ),
+                )
+            elif req.mode == "wfo":
+                update_job(
+                    job_id,
+                    wfo_result=await asyncio.to_thread(_run_wfo, req, job_id),
+                )
+            else:
+                update_job(
+                    job_id,
+                    full_result=await asyncio.to_thread(
+                        _run_three_stage, req, job_id
+                    ),
+                )
+        finally:
+            concurrency.release()
         check_cancelled(job_id)
         update_job(job_id, status="completed")
     except JobCancelled:

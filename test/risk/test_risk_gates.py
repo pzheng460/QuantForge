@@ -424,3 +424,56 @@ def test_orphan_buy_reduce_cannot_mask_different_strike_naked_short():
     )
     with pytest.raises(RiskRejected, match="naked call"):
         _engine().authorize(orphan_close, ledger)
+
+
+def test_long_put_at_different_strike_does_not_cover_short_put():
+    """A long put only offsets a short put at the SAME strike: assignment
+    still demands the full strike×multiplier in cash, a lower-strike long put
+    merely recoups the spread. Before this fix the expiry-only aggregation
+    let a $0-cash account sell a naked put @100 while merely holding a long
+    put @90."""
+    ledger = PortfolioLedger(cash={"USD": 0})
+    long_90 = _options(OrderSide.BUY, OptionRight.PUT)  # strike 200 (helper)
+    # Build a strike-90 long put at the same expiry as the short @200.
+    import dataclasses
+
+    long_90 = EquityOption.__new__(EquityOption)
+    for field in dataclasses.fields(EquityOption):
+        object.__setattr__(long_90, field.name, getattr(_options(OrderSide.BUY, OptionRight.PUT), field.name))
+    object.__setattr__(long_90, "strike", 90.0)
+    ledger.positions[long_90.id] = Position(long_90, quantity=1, average_price=2.0)
+
+    short_200 = _intent(
+        instrument=_options(OrderSide.SELL, OptionRight.PUT),
+        side=OrderSide.SELL,
+    )
+    with pytest.raises(RiskRejected, match="uncovered short put"):
+        _engine().authorize(short_200, ledger)
+
+    # Same-strike long put DOES cover it: $0 cash is then fine.
+    ledger2 = PortfolioLedger(cash={"USD": 0})
+    same = _options(OrderSide.BUY, OptionRight.PUT)  # strike 200
+    ledger2.positions[same.id] = Position(same, quantity=1, average_price=2.0)
+    _engine().authorize(short_200, ledger2)
+
+
+def test_multi_strike_short_puts_use_their_own_strikes():
+    """Cash requirement is the SUM over each strike's own strike×multiplier
+    (200×100 + 190×100 = 39_000), not max(strike)×total (40_000): the exact
+    sum must authorize at 39_000 while the old max-strike upper bound would
+    have falsely rejected."""
+    high = _options(OrderSide.SELL, OptionRight.PUT)  # strike 200
+    low = EquityOption(
+        id=InstrumentId("NVDA  260821P00190000", AssetClass.EQUITY_OPTION, "schwab"),
+        underlying=_NVDA,
+        expiration=date(2026, 8, 21),
+        strike=190.0,
+        right=OptionRight.PUT,
+    )
+    ledger = PortfolioLedger(cash={"USD": 38_999})
+    ledger.positions[high.id] = Position(high, quantity=-1, average_price=5.0)
+    intent = _intent(instrument=low, side=OrderSide.SELL)
+    with pytest.raises(RiskRejected, match="uncovered short put"):
+        _engine().authorize(intent, ledger)
+    ledger.cash["USD"] = 39_000
+    _engine().authorize(intent, ledger)

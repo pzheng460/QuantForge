@@ -317,13 +317,25 @@ class RiskEngine:
         """Aggregate nakedness across all legs and existing holdings."""
         call_long: dict[tuple[InstrumentId, date], float] = {}
         call_short: dict[tuple[InstrumentId, date], float] = {}
-        put_long: dict[tuple[InstrumentId, date], float] = {}
-        put_short: dict[tuple[InstrumentId, date], tuple[float, float, float]] = {}
+        # PUT exposure is strike-exact: a long put only offsets a short put at
+        # the SAME strike/expiry (assignment still demands the full strike×
+        # multiplier in cash — a long put at a lower strike merely recoups the
+        # spread). Keying by (underlying, expiry, strike) keeps different
+        # strikes from cancelling each other's cash requirement.
+        put_long: dict[tuple[InstrumentId, date, float], float] = {}
+        put_short: dict[tuple[InstrumentId, date, float], tuple[float, float]] = {}
 
         def option_key(inst: EquityOption) -> tuple[InstrumentId, date] | None:
             if inst.underlying is None or inst.expiration is None:
                 return None
             return inst.underlying, inst.expiration
+
+        # Strike-exact key (underlying, expiry, strike) shared by put
+        # bucketing and BUY-reduce closing netting.
+        def put_key(inst: EquityOption) -> tuple[InstrumentId, date, float] | None:
+            if inst.underlying is None or inst.expiration is None:
+                return None
+            return inst.underlying, inst.expiration, inst.strike
 
         for leg in legs:
             inst = leg.instrument
@@ -336,19 +348,19 @@ class RiskEngine:
                 if inst.right is OptionRight.CALL:
                     call_short[key] = call_short.get(key, 0.0) + leg.quantity
                 else:
-                    qty, strike, mult = put_short.get(
-                        key, (0.0, 0.0, inst.multiplier)
-                    )
-                    put_short[key] = (
-                        qty + leg.quantity,
-                        max(strike, inst.strike),
-                        mult,
-                    )
+                    put_key_ = put_key(inst)
+                    if put_key_ is None:
+                        continue
+                    qty, mult = put_short.get(put_key_, (0.0, inst.multiplier))
+                    put_short[put_key_] = (qty + leg.quantity, mult)
             elif leg.side is OrderSide.BUY:
                 if inst.right is OptionRight.CALL:
                     call_long[key] = call_long.get(key, 0.0) + leg.quantity
                 else:
-                    put_long[key] = put_long.get(key, 0.0) + leg.quantity
+                    put_key_ = put_key(inst)
+                    if put_key_ is None:
+                        continue
+                    put_long[put_key_] = put_long.get(put_key_, 0.0) + leg.quantity
 
         for position in ledger.positions.values():
             inst = position.instrument
@@ -360,7 +372,10 @@ class RiskEngine:
             if inst.right is OptionRight.CALL:
                 call_long[key] = call_long.get(key, 0.0) + position.quantity
             else:
-                put_long[key] = put_long.get(key, 0.0) + position.quantity
+                put_key_ = put_key(inst)
+                if put_key_ is None:
+                    continue
+                put_long[put_key_] = put_long.get(put_key_, 0.0) + position.quantity
 
         # Existing SHORT options in the ledger also contribute to nakedness —
         # skipping them (as before) understated the short-call/short-put
@@ -371,11 +386,6 @@ class RiskEngine:
         # MUST include the strike: an expiry-only key would let an orphan
         # BUY-reduce leg (e.g. @90) mask a naked short at a DIFFERENT strike
         # (@100) of the same expiry that it does not actually close.
-        def closing_key(inst: EquityOption) -> tuple[InstrumentId, date, float] | None:
-            if inst.underlying is None or inst.expiration is None:
-                return None
-            return inst.underlying, inst.expiration, inst.strike
-
         closing: dict[tuple[InstrumentId, date, float], float] = {}
         for leg in legs:
             inst = leg.instrument
@@ -385,14 +395,14 @@ class RiskEngine:
                 or leg.side is not OrderSide.BUY
             ):
                 continue
-            key = closing_key(inst)
+            key = put_key(inst)
             if key is not None:
                 closing[key] = closing.get(key, 0.0) + leg.quantity
         for position in ledger.positions.values():
             inst = position.instrument
             if not isinstance(inst, EquityOption) or position.quantity >= 0:
                 continue
-            close_key = closing_key(inst)
+            close_key = put_key(inst)
             if close_key is None:
                 continue
             short_qty = max(0.0, -position.quantity - closing.get(close_key, 0.0))
@@ -403,14 +413,8 @@ class RiskEngine:
             if inst.right is OptionRight.CALL:
                 call_short[key] = call_short.get(key, 0.0) + short_qty
             else:
-                qty, strike, mult = put_short.get(
-                    key, (0.0, 0.0, inst.multiplier)
-                )
-                put_short[key] = (
-                    qty + short_qty,
-                    max(strike, inst.strike),
-                    mult,
-                )
+                qty, mult = put_short.get(close_key, (0.0, inst.multiplier))
+                put_short[close_key] = (qty + short_qty, mult)
 
         for key, short_qty in call_short.items():
             underlying, _expiry = key
@@ -420,10 +424,11 @@ class RiskEngine:
                 raise RiskRejected("naked call is prohibited")
 
         required_cash: dict[str, float] = {}
-        for key, (qty, strike, mult) in put_short.items():
+        for key, (qty, mult) in put_short.items():
             uncovered = max(0.0, qty - put_long.get(key, 0.0))
             if uncovered <= 0:
                 continue
+            _underlying, _expiry, strike = key
             # Fail closed on invalid strike/multiplier. NOTE: max(0.0, NaN)
             # collapses to 0.0 in Python (NaN compares False), so a NaN-strike
             # put arrives here as 0.0 — either way the cash requirement must
