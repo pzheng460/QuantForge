@@ -43,6 +43,9 @@ class OptionsDailyReport:
     contract_symbol: str | None = None
     contracts: int = 0
     limit_price: float | None = None
+    # ROLL_COVERED_CALL only: the replacement contract to open atomically.
+    roll_to_symbol: str | None = None
+    roll_to_price: float | None = None
 
 
 class OptionReportStore:
@@ -96,4 +99,6 @@ class OptionsEventEngine:
             contract_symbol=decision.contract_symbol,
             contracts=decision.contracts,
             limit_price=decision.limit_price,
+            roll_to_symbol=decision.roll_to_symbol,
+            roll_to_price=decision.roll_to_price,
         )

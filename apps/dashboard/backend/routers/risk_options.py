@@ -26,7 +26,7 @@ from quantforge.strategies.tsla_nvda_options import (
 )
 from quantforge.adapters.schwab import SchwabExecutionAdapter
 from quantforge.execution import ExecutionService, PaperExecutionAdapter
-from quantforge.options.actions import EXECUTABLE_ACTIONS
+from quantforge.options.actions import EXECUTABLE_ACTIONS, ROLL_COVERED_CALL
 from quantforge.options.manager import OptionDecision
 from quantforge.risk import RiskEngine, RiskLimits
 
@@ -285,7 +285,35 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
         contract_symbol=report.contract_symbol,
         contracts=report.contracts,
         limit_price=report.limit_price,
+        roll_to_symbol=report.roll_to_symbol,
+        roll_to_price=report.roll_to_price,
     )
+    roll_candidate = None
+    if report.action == ROLL_COVERED_CALL:
+        # A roll needs BOTH legs in the chain: the contract being closed and
+        # the replacement being opened. Missing either means the chain
+        # refreshed between analysis and submission.
+        if report.roll_to_symbol is None:
+            raise HTTPException(
+                status_code=409,
+                detail="roll decision is missing its replacement contract",
+            )
+        roll_candidate = next(
+            (
+                item
+                for item in candidates
+                if item.symbol == report.roll_to_symbol
+            ),
+            None,
+        )
+        if roll_candidate is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "option chain no longer contains the roll target "
+                    f"{report.roll_to_symbol}; refresh and re-analyze"
+                ),
+            )
     intent = intent_from_option_decision(
         decision,
         candidate=candidate,
@@ -294,6 +322,7 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
         # Quote age is measured against the real chain fetch time. A stale
         # chain therefore trips require_fresh_quote instead of passing.
         quote_time=chain_fetched_at,
+        roll_to_candidate=roll_candidate,
     )
     # The risk wrapper shares the persistent, process-wide daily new-position
     # counter with the live engines: run-once orders draw from the same

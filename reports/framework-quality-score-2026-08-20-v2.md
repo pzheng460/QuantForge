@@ -67,7 +67,7 @@
 - **Low（已知设计）**：`live/engine` 在 close 提交后乐观置 flat（`_target=0`），open 被拒时留 flat 待下 bar 重估——注释明确、broker 快照对账兜底，属 submission-then-reconcile 设计而非缺陷；改为 fill 确认式是更大的设计变更。
 - **Low**：L6 告警（live 引擎未开 `require_fresh_quote`）——复核确认产品路径仅两个构造点且均传 `require_fresh_quote=True`，告警只会在"真钱引擎漏配"时触发，正是需要每次提醒的场景，故维持不降频。
 - **Low**：`killpg` 为 POSIX 专有（Windows 不可用）；目标部署平台为 Linux，可接受。
-- **L12（backlog）**：MultiLeg 反转/滚动构造器是功能缺口非缺陷，移入 backlog。
+- **L12（已实现，见 §七）**：MultiLeg 反转/滚动构造器此前为 backlog，本轮已落地为实盘 `ROLL_COVERED_CALL` 动作（原子平旧开新复合订单）。
 - **无法沙箱验证**：真实 Schwab 符号/余额字段名、OAuth 刷新、实盘并发准入仍需实网确认。
 
 ## 五、验证基线
@@ -90,3 +90,22 @@
 - 现象（实锤）：`$0` 现金 + 仅持有 long put@90，卖出 naked short put@100 被授权。`put_long` 按 `(underlying, expiry)` 聚合，任意同到期 long put 都抵消 short put 的 qty——但被行权时需付 `strike×mult` 全款现金，低 strike 的 long put 只回补行权价差，**不能**对冲现金义务。同时 short put 合并取 `max(strike)` 是上界（保守），掩盖了 long 侧的真实漏判。
 - **修复**：`_validate_plan_options` 的 put 核算改为 strike 精确（键含 `(underlying, expiry, strike)`）：同 strike 同到期的 long put 才对冲；不同 strike 的 short put 各自按自身 `strike×mult` 累加现金需求。顺带消除了 max-strike 上界（$39_000 场景不再误拒）。
 - 回归测试：跨 strike long put 不覆盖（拒绝）、同 strike 覆盖（放行）、多 strike 短 put 精确求和（38_999 拒 / 39_000 放行）。
+
+## 七、L12 实现记录（2026-08-20 "继续"轮）
+
+L12（MultiLeg 反转/滚动构造器）从 backlog 落地为实盘功能。此前框架已具备全部支撑（risk 的 close+reopen netting、Schwab `place_option_strategy` 复合订单、`MultiLegOrderIntent`/ExecutionService 支持）但**没有任何生产路径生成多腿意图**——实盘 covered call 到期/超 delta 时只能"先平后等下一周期再开"，两笔独立订单之间存在无对冲窗口。
+
+### 实现（实盘 `ROLL_COVERED_CALL` 动作）
+- `actions.py`：新增 `ROLL_COVERED_CALL = "滚动 Covered Call"`，加入 `EXECUTABLE_ACTIONS`。
+- `manager.py`：delta 动态触发分支改为——存在合格滚动候选（同 open 路径的财报/DTE/delta/流动性筛选，`_viable_candidates` 共享）→ 返回 ROLL 决策（携带旧合约 + `roll_to_symbol/roll_to_price` 新合约）；无候选 → 回落 `CLOSE_AND_HOLD`。回测模型（`run_managed_covered_call_approximation`）本有 roll 逻辑，实盘 manager 补齐后两侧行为对齐。
+- `execution.py`：`intent_from_option_decision` 对 ROLL 生成 `MultiLegOrderIntent`（close 腿 BUY-reduce @旧 ask + open 腿 SELL @新 bid，`net_limit_price = 新 bid − 旧 ask`），一次过 risk、一次提交 Schwab 复合订单——**消除平旧开新之间的无对冲窗口**。
+- `risk_options.py` run-once：ROLL 决策按 `roll_to_symbol` 校验链上存在替换合约（缺失 → 409），双候选透传。
+- `engine.py`：`OptionsDailyReport` 透传 roll 字段（前端按字符串展示 action，无需改动）。
+
+### 安全边界
+- ROLL 单仍走完整 risk 门禁：nakedness 按计划整体核算（close 腿 netting 后测新短 call 覆盖率，L4/L6 修复保证不误判也不漏判）、quote 新鲜度、notional、每日限额。
+- run-once 409 保护（链刷新导致旧/新合约缺失均显式失败，不落孤儿报告）。
+
+### 测试（246 → 250）
+- manager：delta 触发且有合格候选 → ROLL（含 roll_to 选择）；无候选 → CLOSE_AND_HOLD。
+- execution：ROLL → 双腿 MultiLeg（方向/价格/net 正确）；经 ExecutionService 以持有股数覆盖放行；缺 `roll_to_candidate` 显式报错。

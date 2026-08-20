@@ -11,10 +11,14 @@ OPEN_COVERED_CALL = "开 Covered Call"
 CLOSE_SHORT_CALL = "平仓短 Call"
 #: Buy back the short call and do not immediately reopen.
 CLOSE_AND_HOLD = "买回后暂不重开"
+#: Buy back the short call AND open a replacement at a shallower OTM / later
+#: expiry in ONE atomic multi-leg order — no unhedged window between the two
+#: legs (the delta trigger path when a viable replacement exists).
+ROLL_COVERED_CALL = "滚动 Covered Call"
 #: Take no action this cycle.
 NO_ACTION = "不操作"
 
 #: Actions the manager considers directly executable by the execution layer.
 EXECUTABLE_ACTIONS = frozenset(
-    {OPEN_COVERED_CALL, CLOSE_SHORT_CALL, CLOSE_AND_HOLD}
+    {OPEN_COVERED_CALL, CLOSE_SHORT_CALL, CLOSE_AND_HOLD, ROLL_COVERED_CALL}
 )
