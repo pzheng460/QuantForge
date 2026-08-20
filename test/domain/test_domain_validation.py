@@ -135,3 +135,32 @@ def test_crypto_future_symbol_validates_suffix_and_settlement():
     )
     assert ok.settlement_currency == "USDT"
     assert ok.expiration == date(2026, 9, 27)
+
+
+# ─── L5: NaN must fail eager intent validation ──────────────────────────────
+
+def test_intent_rejects_nan_quantity():
+    with pytest.raises(ValueError, match="finite"):
+        _intent(quantity=float("nan"))
+
+
+def test_intent_rejects_nan_leverage():
+    with pytest.raises(ValueError, match="finite"):
+        _intent(leverage=float("nan"))
+
+
+def test_intent_rejects_nan_limit_price():
+    with pytest.raises(ValueError, match="finite"):
+        _intent(limit_price=float("nan"))
+
+
+def test_intent_rejects_nan_quote():
+    with pytest.raises(ValueError, match="finite"):
+        _intent(quote_bid=float("nan"))
+    with pytest.raises(ValueError, match="finite"):
+        _intent(quote_ask=float("nan"))
+
+
+def test_intent_rejects_nan_net_limit_price():
+    with pytest.raises(ValueError, match="finite"):
+        MultiLegOrderIntent(strategy_id="alpha", net_limit_price=float("nan"), legs=(_intent(),))

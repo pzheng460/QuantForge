@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 
@@ -12,8 +13,14 @@ from quantforge.domain.instruments import (
 )
 from quantforge.portfolio.ledger import PortfolioLedger, Position
 
+logger = logging.getLogger(__name__)
+
+# OCC option symbols arrive from Schwab WITHOUT whitespace (e.g.
+# "SPY260116C00550000"); the space historically required between root and
+# expiration made the regex never match and left every option on the explicit
+# expiration/strike fields. Both forms are accepted.
 _OCC_RE = re.compile(
-    r"^(?P<root>[A-Z.]+)\s+(?P<date>\d{6})(?P<right>[CP])(?P<strike>\d{8})$"
+    r"^(?P<root>[A-Z.]+)\s*(?P<date>\d{6})(?P<right>[CP])(?P<strike>\d{8})$"
 )
 
 
@@ -84,6 +91,15 @@ def reconcile_schwab_account(snapshot: dict) -> PortfolioLedger:
         elif asset_type == "OPTION":
             instrument = _option(details)
         else:
+            # The ledger only models equity + equity-option positions; crypto,
+            # fixed income, forex, etc. would silently understate exposure if
+            # skipped without a trace (L3).
+            logger.warning(
+                "Reconciliation skipped unmodeled Schwab position: assetType=%s "
+                "symbol=%s (ledger only models EQUITY/OPTION)",
+                asset_type,
+                details.get("symbol") or "?",
+            )
             continue
         quantity = float(row.get("longQuantity") or 0) - float(
             row.get("shortQuantity") or 0

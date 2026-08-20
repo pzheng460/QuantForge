@@ -69,7 +69,15 @@ def run_backtest(
     config: BacktestConfig | None = None,
     warmup_bars: int = 0,
 ) -> BacktestResult:
-    """Run reviewed Python strategy code with next-bar-open order semantics."""
+    """Run reviewed Python strategy code with next-bar-open order semantics.
+
+    Decisions are made on bar ``i``'s close/high/low and fills happen at bar
+    ``i+1``'s open (market-on-open). This is a DOCUMENTED semantic, shared
+    with the live engine (which decides on the current bar's close and submits
+    for the following bar) — it is deliberately NOT same-bar-close fills, which
+    would claim a fill that was never guaranteed. Per-trade P&L therefore maps
+    to live behavior exactly, not to a faster-but-unrealistic fill model.
+    """
     cfg = config or BacktestConfig()
     if cfg.initial_capital <= 0 or not 0 < cfg.allocation_pct <= 1:
         raise ValueError("invalid backtest capital or allocation")

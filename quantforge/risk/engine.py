@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 from dataclasses import dataclass
@@ -27,6 +28,12 @@ class RiskRejected(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class RiskLimits:
+    #: Note: ``require_fresh_quote`` defaults to False because paper/demo
+    #: engines legitimately trade off bar-close estimates with no market
+    #: timestamp. Every REAL-MONEY path must set it True explicitly — the risk
+    #: engine warns loudly at construction when a live-enabled engine runs
+    #: without quote freshness so a new integration path cannot silently
+    #: disable it (see ``RiskEngine.__init__``).
     live_enabled: bool = False
     halted: bool = False
     max_order_notional: float = 10_000
@@ -141,6 +148,18 @@ class RiskEngine:
         # Ordered set of in-flight intent ids (dict preserves insertion order):
         # membership for duplicate protection, insertion order for pruning.
         self._authorized: dict[str, None] = {}
+        if limits.live_enabled and not limits.require_fresh_quote:
+            # L6: quote freshness must never be silently off on a live-enabled
+            # engine. Demo engines legitimately run on bar-close estimates, so
+            # this is a loud warning rather than a hard error — but any
+            # REAL-MONEY integration path that forgets require_fresh_quote=True
+            # now gets an explicit signal instead of silently trading on stale
+            # quotes.
+            logger.warning(
+                "RiskEngine(live_enabled=True) constructed WITHOUT "
+                "require_fresh_quote — quote-age and freshness gates are OFF. "
+                "Real-money engines must pass require_fresh_quote=True."
+            )
 
     def authorize(
         self, intent: OrderIntent | MultiLegOrderIntent, ledger: PortfolioLedger
@@ -239,9 +258,16 @@ class RiskEngine:
             )
 
     def _validate_order(self, order) -> None:
-        if order.quantity <= 0:
-            raise RiskRejected("quantity must be positive")
-        if order.leverage <= 0 or order.leverage > self.limits.max_leverage:
+        # NaNs pass every <=/> comparison, so each numeric guard pairs the
+        # range check with an isfinite check — a NaN quantity/price/quote
+        # must fail closed instead of sailing through every gate.
+        if not math.isfinite(order.quantity) or order.quantity <= 0:
+            raise RiskRejected("quantity must be a positive finite number")
+        if (
+            not math.isfinite(order.leverage)
+            or order.leverage <= 0
+            or order.leverage > self.limits.max_leverage
+        ):
             raise RiskRejected("maximum leverage exceeded")
         if self.limits.require_fresh_quote:
             if order.quote_timestamp is None:
@@ -260,11 +286,17 @@ class RiskEngine:
             price = order.quote_ask
         if price is not None:
             notional = price * order.quantity * order.instrument.multiplier
-            if notional > self.limits.max_order_notional:
+            if not math.isfinite(notional) or notional > self.limits.max_order_notional:
                 raise RiskRejected("maximum order notional exceeded")
         if order.quote_bid is not None and order.quote_ask is not None:
             mid = (order.quote_bid + order.quote_ask) / 2
-            if mid <= 0 or order.quote_ask < order.quote_bid:
+            if (
+                not math.isfinite(mid)
+                or not math.isfinite(order.quote_bid)
+                or not math.isfinite(order.quote_ask)
+                or mid <= 0
+                or order.quote_ask < order.quote_bid
+            ):
                 raise RiskRejected("invalid quote")
             if (order.quote_ask - order.quote_bid) / mid > self.limits.max_spread_pct:
                 raise RiskRejected("spread limit exceeded")
@@ -274,7 +306,7 @@ class RiskEngine:
             AssetClass.CRYPTO_FUTURE,
         }:
             max_lev = getattr(inst, "max_leverage", 1)
-            if max_lev <= 0:
+            if not math.isfinite(max_lev) or max_lev <= 0:
                 raise RiskRejected("invalid leverage limit")
             if order.leverage > max_lev:
                 raise RiskRejected("instrument leverage limit exceeded")
@@ -329,6 +361,46 @@ class RiskEngine:
                 call_long[key] = call_long.get(key, 0.0) + position.quantity
             else:
                 put_long[key] = put_long.get(key, 0.0) + position.quantity
+
+        # Existing SHORT options in the ledger also contribute to nakedness —
+        # skipping them (as before) understated the short-call/short-put
+        # surface whenever the book already held open obligations. BUY-reduce
+        # closing legs are netted out so a legitimate close-and-reopen plan is
+        # not double-counted: the close removes the old short, then the new
+        # short is measured against the remaining coverage.
+        closing: dict[tuple[InstrumentId, date], float] = {}
+        for leg in legs:
+            inst = leg.instrument
+            if (
+                not isinstance(inst, EquityOption)
+                or not leg.reduce_only
+                or leg.side is not OrderSide.BUY
+            ):
+                continue
+            key = option_key(inst)
+            if key is not None:
+                closing[key] = closing.get(key, 0.0) + leg.quantity
+        for position in ledger.positions.values():
+            inst = position.instrument
+            if not isinstance(inst, EquityOption) or position.quantity >= 0:
+                continue
+            key = option_key(inst)
+            if key is None:
+                continue
+            short_qty = max(0.0, -position.quantity - closing.get(key, 0.0))
+            if short_qty <= 0:
+                continue
+            if inst.right is OptionRight.CALL:
+                call_short[key] = call_short.get(key, 0.0) + short_qty
+            else:
+                qty, strike, mult = put_short.get(
+                    key, (0.0, 0.0, inst.multiplier)
+                )
+                put_short[key] = (
+                    qty + short_qty,
+                    max(strike, inst.strike),
+                    mult,
+                )
 
         for key, short_qty in call_short.items():
             underlying, _expiry = key

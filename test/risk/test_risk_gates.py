@@ -267,3 +267,112 @@ def test_released_definitive_rejection_frees_daily_count():
     assert engine._local_entries.get(day, 0) == 0
     replacement = _intent(side=OrderSide.BUY)
     engine.authorize(replacement, _ledger())
+
+
+# ─── L4: ledger shorts must count toward nakedness ──────────────────────────
+
+def test_ledger_short_call_plus_plan_short_is_rejected_as_naked():
+    """A naked short call already in the ledger used to be skipped, so a plan
+    selling another call slipped through as 'covered'."""
+    ledger = _ledger((_options(OrderSide.SELL, OptionRight.CALL), -1, 4.0))
+    intent = _intent(
+        instrument=_options(OrderSide.SELL, OptionRight.CALL),
+        side=OrderSide.SELL,
+    )
+    with pytest.raises(RiskRejected, match="naked call"):
+        _engine().authorize(intent, ledger)
+
+
+def test_ledger_short_call_covered_by_shares_still_authorized():
+    """Two short calls against 200 held shares are fully covered."""
+    ledger = _ledger(
+        (_nvda_equity(), 200, 200),
+        (_options(OrderSide.SELL, OptionRight.CALL), -1, 4.0),
+    )
+    intent = _intent(
+        instrument=_options(OrderSide.SELL, OptionRight.CALL),
+        side=OrderSide.SELL,
+    )
+    _engine().authorize(intent, ledger)
+
+
+def test_ledger_short_call_closed_in_same_plan_is_not_double_counted():
+    """A BUY-reduce closing leg nets against the ledger short before
+    measuring the new short, so a close-and-reopen on the same instrument
+    does not false-positive."""
+    ledger = _ledger((_options(OrderSide.SELL, OptionRight.CALL), -1, 4.0))
+    close = _intent(
+        instrument=_options(OrderSide.SELL, OptionRight.CALL),
+        side=OrderSide.BUY,
+        reduce_only=True,
+    )  # closes the 1 existing short
+    reopen = _intent(
+        instrument=_options(OrderSide.SELL, OptionRight.CALL),
+        side=OrderSide.SELL,
+    )  # opens 1 new short — still naked without shares
+    plan = MultiLegOrderIntent(
+        strategy_id="test", net_limit_price=-2.5, legs=(close, reopen)
+    )
+    with pytest.raises(RiskRejected, match="naked call"):
+        _engine().authorize(plan, ledger)
+
+
+def test_ledger_short_put_counts_toward_cash_requirement():
+    """A short put in the ledger adds to the uncovered cash requirement that
+    used to only aggregate plan legs."""
+    put = _options(OrderSide.SELL, OptionRight.PUT)  # strike 200 × 100
+    ledger = _ledger((put, -1, 5.0))
+    ledger.cash["USD"] = 30_000  # enough for ONE uncovered put, not two
+    intent = _intent(instrument=put, side=OrderSide.SELL)
+    with pytest.raises(RiskRejected, match="uncovered short put"):
+        _engine().authorize(intent, ledger)
+    # 40_000 covers both shorts → authorized
+    ledger.cash["USD"] = 50_000
+    _engine().authorize(intent, ledger)
+
+
+# ─── L5: NaN must fail closed in risk gates ─────────────────────────────────
+
+def _unvalidated_intent(**overrides) -> OrderIntent:
+    """Build an OrderIntent that BYPASSES __post_init__ validation — exactly
+    what a broken producer (pickle round-trip, hand-rolled constructor) would
+    deliver to risk, and why the risk engine re-checks finiteness itself."""
+    import dataclasses
+
+    base = _intent(side=OrderSide.BUY)
+    obj = OrderIntent.__new__(OrderIntent)
+    for field in dataclasses.fields(OrderIntent):
+        object.__setattr__(
+            obj, field.name, overrides.get(field.name, getattr(base, field.name))
+        )
+    return obj
+
+
+def test_nan_quantity_fails_closed():
+    intent = _unvalidated_intent(quantity=float("nan"))
+    with pytest.raises(RiskRejected, match="quantity"):
+        _engine().authorize(intent, _ledger())
+
+
+def test_nan_quote_fails_closed():
+    # A finite limit price gets past the notional gate so the NaN bid/ask
+    # falls through to the quote sanity check itself.
+    intent = _unvalidated_intent(
+        limit_price=100.0, quote_bid=float("nan"), quote_ask=float("nan")
+    )
+    with pytest.raises(RiskRejected, match="invalid quote"):
+        _engine().authorize(intent, _ledger())
+
+
+# ─── L6: quote freshness must not be silently disabled ──────────────────────
+
+def test_live_engine_without_fresh_quote_logs_loud_warning(caplog):
+    with caplog.at_level("WARNING", logger="quantforge.risk.engine"):
+        RiskEngine(RiskLimits(live_enabled=True))
+    assert "require_fresh_quote" in caplog.text
+
+
+def test_live_engine_with_fresh_quote_is_silent(caplog):
+    with caplog.at_level("WARNING", logger="quantforge.risk.engine"):
+        RiskEngine(RiskLimits(live_enabled=True, require_fresh_quote=True))
+    assert "require_fresh_quote" not in caplog.text

@@ -103,3 +103,69 @@ def test_connection_error_raises_server_unreachable(monkeypatch):
     monkeypatch.setattr(http.requests, "request", fake_request)
     with pytest.raises(http.ServerUnreachable):
         http.get("/live/engines")
+
+
+# ─── L8: friendlier failure modes for down/TLS/validation responses ─────────
+
+class _ErrorResponse:
+    def __init__(self, status_code=422, reason="Unprocessable", payload=None):
+        self.status_code = status_code
+        self.reason = reason
+        self._payload = payload
+
+    def raise_for_status(self):
+        import requests
+
+        resp = requests.models.Response()
+        resp.status_code = self.status_code
+        raise requests.exceptions.HTTPError(f"{self.status_code} Server Error", response=resp)
+
+    def json(self):
+        return self._payload
+
+
+def test_timeout_becomes_server_unreachable(monkeypatch):
+    import requests
+
+    def boom(method, url, timeout, headers, **kwargs):
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr(http.requests, "request", boom)
+    with pytest.raises(http.ServerUnreachable, match="Cannot reach"):
+        http.get("/live/engines")
+
+
+def test_ssl_error_becomes_server_unreachable(monkeypatch):
+    import requests
+
+    def boom(method, url, timeout, headers, **kwargs):
+        raise requests.exceptions.SSLError("tls handshake failed")
+
+    monkeypatch.setattr(http.requests, "request", boom)
+    with pytest.raises(http.ServerUnreachable, match="Cannot reach"):
+        http.get("/live/engines")
+
+
+def test_http_error_surfaces_server_detail(monkeypatch):
+    def send(method, url, timeout, headers, **kwargs):
+        return _ErrorResponse(
+            status_code=422,
+            payload={
+                "detail": [
+                    {"loc": ["body", "strategy"], "msg": "Field required"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr(http.requests, "request", send)
+    with pytest.raises(http.ServerError, match=r"strategy: Field required"):
+        http.post("/backtest/run")
+
+
+def test_http_error_without_detail_is_generic(monkeypatch):
+    def send(method, url, timeout, headers, **kwargs):
+        return _ErrorResponse(status_code=503, payload={})
+
+    monkeypatch.setattr(http.requests, "request", send)
+    with pytest.raises(http.ServerError, match="503"):
+        http.post("/backtest/run")

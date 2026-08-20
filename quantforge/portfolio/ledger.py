@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from quantforge.domain.instruments import Instrument, InstrumentId
 from quantforge.domain.intents import OrderSide
+
+
+class InsufficientCash(RuntimeError):
+    """Raised when a BUY fill cannot be afforded from the cash pool.
+
+    Applies to cash (non-margin) instruments. Margin instruments
+    (``max_leverage > 1``) are allowed to draw the cash pool down, matching
+    the framework's margin model.
+    """
 
 
 @dataclass(slots=True)
@@ -28,8 +38,16 @@ class PortfolioLedger:
     def apply_fill(
         self, instrument: Instrument, side: OrderSide, quantity: float, price: float
     ) -> None:
-        if quantity <= 0 or price < 0:
-            raise ValueError("fill quantity must be positive and price non-negative")
+        if (
+            quantity <= 0
+            or price < 0
+            or not math.isfinite(quantity)
+            or not math.isfinite(price)
+        ):
+            raise ValueError(
+                "fill quantity must be a positive finite number and "
+                "price a non-negative finite number"
+            )
         signed = quantity if side is OrderSide.BUY else -quantity
         current = self.positions.get(instrument.id)
         old_qty = current.quantity if current else 0
@@ -44,8 +62,29 @@ class PortfolioLedger:
         elif new_qty != 0 and (old_qty > 0) != (new_qty > 0):
             current.average_price = price
         current.quantity = new_qty
-        self.cash[instrument.currency] = self.cash.get(instrument.currency, 0) - (
-            signed * price * instrument.multiplier
+        # Contract multiplier: crypto derivatives carry ``contract_size``
+        # (from ccxt ``contractSize``); reuse the SAME field the settlement
+        # path uses so the fill notional and settlement P&L can never
+        # disagree (the old code debited ``multiplier`` but settled on
+        # ``contract_size`` for contract_size != multiplier instruments).
+        multiplier = getattr(instrument, "contract_size", None) or instrument.multiplier
+        debit = signed * price * multiplier
+        # Cash pool key: crypto derivatives settle in their settlement
+        # currency (e.g. USDT) — key the debit exactly like
+        # ``settle_crypto_future`` does, or fills and settlements silently
+        # touch different cash buckets (the old code used the default USD
+        # currency for exchange-traded crypto).
+        currency = (
+            getattr(instrument, "settlement_currency", None) or instrument.currency
         )
+        balance = self.cash.get(currency, 0)
+        leverage = getattr(instrument, "max_leverage", 1) or 1
+        if side is OrderSide.BUY and leverage <= 1 and debit > balance:
+            raise InsufficientCash(
+                f"fill of {quantity:g} {instrument.id} at {price:g} needs "
+                f"{debit:.2f} {currency}; ledger has "
+                f"{balance:.2f} available"
+            )
+        self.cash[currency] = balance - debit
         if new_qty == 0:
             self.remove_position(instrument.id)

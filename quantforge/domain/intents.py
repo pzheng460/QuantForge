@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -44,22 +45,33 @@ class OrderIntent:
             raise ValueError("intent requires an instrument")
         if self.side not in (OrderSide.BUY, OrderSide.SELL):
             raise ValueError("intent side must be BUY or SELL")
-        if self.quantity is None or self.quantity <= 0:
-            raise ValueError("quantity must be positive")
-        if self.leverage is None or self.leverage <= 0:
-            raise ValueError("leverage must be positive")
-        if self.limit_price is not None and self.limit_price <= 0:
-            raise ValueError("limit_price must be positive")
-        if self.stop_price is not None and self.stop_price <= 0:
-            raise ValueError("stop_price must be positive")
-        if self.quote_bid is not None and self.quote_bid <= 0:
-            raise ValueError("quote_bid must be positive")
-        if self.quote_ask is not None and self.quote_ask <= 0:
-            raise ValueError("quote_ask must be positive")
+        # NaNs pass every <=/> comparison, so every numeric guard pairs the
+        # range check with an isfinite check (NaN quantities/leverage/prices
+        # would otherwise sail through into risk and execution).
+        if self.quantity is None or not math.isfinite(self.quantity) or self.quantity <= 0:
+            raise ValueError("quantity must be a positive finite number")
+        if self.leverage is None or not math.isfinite(self.leverage) or self.leverage <= 0:
+            raise ValueError("leverage must be a positive finite number")
+        if self.limit_price is not None and (
+            not math.isfinite(self.limit_price) or self.limit_price <= 0
+        ):
+            raise ValueError("limit_price must be a positive finite number")
+        if self.stop_price is not None and (
+            not math.isfinite(self.stop_price) or self.stop_price <= 0
+        ):
+            raise ValueError("stop_price must be a positive finite number")
+        if self.quote_bid is not None and (
+            not math.isfinite(self.quote_bid) or self.quote_bid <= 0
+        ):
+            raise ValueError("quote_bid must be a positive finite number")
+        if self.quote_ask is not None and (
+            not math.isfinite(self.quote_ask) or self.quote_ask <= 0
+        ):
+            raise ValueError("quote_ask must be a positive finite number")
         if (
             self.quote_bid is not None
             and self.quote_ask is not None
-            and self.quote_ask < self.quote_bid
+            and (self.quote_ask < self.quote_bid)
         ):
             raise ValueError("quote_ask must be >= quote_bid")
         if self.quote_timestamp is not None and self.quote_timestamp.tzinfo is None:
@@ -84,5 +96,7 @@ class MultiLegOrderIntent:
             raise ValueError("all legs must share the multi-leg strategy_id")
         if not self.intent_id:
             raise ValueError("intent_id must not be empty")
-        if self.net_limit_price is not None and self.net_limit_price == 0:
-            raise ValueError("net_limit_price must be non-zero or None")
+        if self.net_limit_price is not None and (
+            not math.isfinite(self.net_limit_price) or self.net_limit_price == 0
+        ):
+            raise ValueError("net_limit_price must be non-zero finite or None")

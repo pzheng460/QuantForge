@@ -8,6 +8,7 @@ become a hard dependency for trivial actions like `strategies list`.
 
 from __future__ import annotations
 
+import json
 import os
 
 import requests
@@ -30,19 +31,77 @@ def _auth_headers() -> dict:
     return {"X-API-Key": key} if key else {}
 
 
+class ServerUnreachable(RuntimeError):
+    """Raised when the QuantForge web server isn't responding."""
+
+
+class ServerError(RuntimeError):
+    """Raised when the server answers with a non-2xx status.
+
+    Carries a stable, sanitized hint derived from the response body (FastAPI
+    validation errors / detail strings) instead of a raw requests traceback.
+    """
+
+
 def _request(method, url: str, timeout: float, **kwargs):
     headers = dict(kwargs.pop("headers", {}) or {})
     headers.update(_auth_headers())
     try:
         r = requests.request(method, url, timeout=timeout, headers=headers, **kwargs)
-    except requests.ConnectionError as e:
-        raise ServerUnreachable(f"Cannot reach {url} — is the web server running?") from e
-    r.raise_for_status()
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+        requests.exceptions.SSLError,
+        requests.exceptions.TooManyRedirects,
+        requests.exceptions.InvalidURL,
+    ) as e:
+        # A down server, stalled connection, TLS failure, or malformed URL
+        # must all degrade to the same friendly "unreachable" message instead
+        # of a raw requests traceback.
+        raise ServerUnreachable(
+            f"Cannot reach {url} — is the web server running?"
+        ) from e
+    try:
+        r.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        detail = _extract_detail(r)
+        if detail:
+            raise ServerError(
+                f"Server rejected the request ({r.status_code} {r.reason}): {detail}"
+            ) from e
+        raise ServerError(
+            f"Server rejected the request ({r.status_code} {r.reason})"
+        ) from e
     return r.json()
 
 
-class ServerUnreachable(RuntimeError):
-    """Raised when the QuantForge web server isn't responding."""
+def _extract_detail(response) -> str:
+    """Best-effort, sanitized error text from a FastAPI error response.
+
+    Never echo raw exception text (which can embed paths or secrets) — only
+    the stable ``detail`` FastAPI returns, truncated.
+    """
+    try:
+        payload = response.json()
+    except (ValueError, json.JSONDecodeError):
+        return ""
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, str):
+            return detail[:200]
+        if isinstance(detail, list):  # pydantic validation errors
+            parts = []
+            for item in detail:
+                if isinstance(item, dict):
+                    loc = ".".join(
+                        str(part) for part in item.get("loc", []) if part != "body"
+                    )
+                    msg = item.get("msg", "")
+                    if loc and msg:
+                        parts.append(f"{loc}: {msg}")
+            if parts:
+                return "; ".join(parts[:5])[:200]
+    return ""
 
 
 def get(path: str, **kwargs):

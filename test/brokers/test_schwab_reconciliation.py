@@ -5,6 +5,50 @@ import pytest
 from quantforge.brokers.reconciliation import reconcile_schwab_account
 
 
+def test_contiguous_occ_symbol_without_space_is_parsed():
+    """Schwab returns OCC symbols WITHOUT whitespace (e.g.
+    NVDA260821C00250000); the regex used to require a space between root and
+    expiration and silently fell back to the explicit fields."""
+    ledger = reconcile_schwab_account(
+        {
+            "positions": [
+                {
+                    "longQuantity": 1,
+                    "shortQuantity": 0,
+                    "instrument": {
+                        "assetType": "OPTION",
+                        "symbol": "NVDA260821C00250000",
+                    },
+                }
+            ],
+        }
+    )
+    (key, position), = ledger.positions.items()
+    assert position.quantity == 1
+    assert position.instrument.underlying.symbol == "NVDA"
+    assert position.instrument.strike == 250.0
+    assert position.instrument.right.value == "call"
+    assert position.instrument.expiration.isoformat() == "2026-08-21"
+
+
+def test_reconciliation_warns_on_unmodeled_asset_types(caplog):
+    """Skipping crypto/fixed-income/forex positions must not be silent: the
+    ledger understates exposure, so a warning is mandatory."""
+    with caplog.at_level("WARNING", logger="quantforge.brokers.reconciliation"):
+        ledger = reconcile_schwab_account(
+            {
+                "positions": [
+                    _row("CASH_EQUIVALENT", "USD"),
+                    _row("FOREX", "EUR/USD"),
+                ],
+            }
+        )
+    assert ledger.positions == {}
+    assert "Reconciliation skipped unmodeled Schwab position" in caplog.text
+    assert "CASH_EQUIVALENT" in caplog.text
+    assert "FOREX" in caplog.text
+
+
 def test_schwab_reconciliation_loads_cash_stock_and_option_positions():
     snapshot = {
         "currentBalances": {"cashBalance": 12_345.67},
@@ -159,3 +203,27 @@ def test_reconciliation_non_occ_option_falls_back_to_explicit_fields():
     (key, position), = ledger.positions.items()
     assert position.instrument.strike == 210.5
     assert position.instrument.expiration.isoformat() == "2026-06-19"
+
+
+# ─── L11: token directory permissions are tightened, not just created ───────
+
+def test_token_store_tightens_existing_loose_directory(tmp_path):
+    from quantforge.brokers.schwab import SchwabTokenStore
+
+    loose = tmp_path / "loose-tokens"
+    loose.mkdir(mode=0o711)
+    store = SchwabTokenStore(loose / "tokens.json")
+    store.save({"access_token": "opaque", "refresh_token": "opaque"})
+    assert (loose.stat().st_mode & 0o777) == 0o700
+    # The token file itself stays 0600.
+    assert (store.path.stat().st_mode & 0o777) == 0o600
+
+
+def test_token_store_keeps_already_strict_directory(tmp_path):
+    from quantforge.brokers.schwab import SchwabTokenStore
+
+    strict = tmp_path / "strict-tokens"
+    strict.mkdir(mode=0o700)
+    store = SchwabTokenStore(strict / "tokens.json")
+    store.save({"access_token": "opaque"})
+    assert (strict.stat().st_mode & 0o777) == 0o700

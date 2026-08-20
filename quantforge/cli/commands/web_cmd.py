@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -42,8 +43,31 @@ def _stop(pid_file: Path) -> bool:
         pid_file.unlink(missing_ok=True)
         return False
     assert pid is not None
-    os.kill(pid, signal.SIGTERM)
+    # The services are launched with start_new_session=True, so pid is their
+    # process-group id. Kill the WHOLE group: uvicorn --reload runs a
+    # reloader + worker, and signalling only the parent used to leave the
+    # worker orphaned with the port still bound. Never signal our own group.
+    def _signal_group(sig: int) -> None:
+        try:
+            if os.getpgid(pid) != os.getpgid(0):
+                os.killpg(os.getpgid(pid), sig)
+                return
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            os.kill(pid, sig)
+        except (OSError, ProcessLookupError):
+            pass
+
+    _signal_group(signal.SIGTERM)
     pid_file.unlink(missing_ok=True)
+    # Short grace period, then escalate: a reloader that ignores SIGTERM must
+    # not keep the port bound.
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and _is_running(pid):
+        time.sleep(0.1)
+    if _is_running(pid):
+        _signal_group(signal.SIGKILL)
     return True
 
 

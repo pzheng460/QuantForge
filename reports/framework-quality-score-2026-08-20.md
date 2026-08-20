@@ -99,3 +99,32 @@
 - `uv run pytest -q` → **206 passed** ✅
 - 前端 `npx tsc --noEmit` + `npm run build` ✅（本批次改动涉及前端后又重建）
 - 未改动的既定决策：M1 fill 时点差异维持"文档化"语义（不改变行为）；M5 ledger 结算口径仍为 P2；全部 Low 项维持原判。
+
+## 七、P2/P3/Low 修复记录（第二批 · 未再重新评分）
+
+承接第六节，继续按报告优先级清空 P2/P3/Low 项。**全部 235 测试通过**（194 → 206 → 235）。
+
+### Medium
+- **M5 ledger 结算/现金口径**（portfolio/ledger.py + 测试）
+  - `apply_fill` 的现金 debet 与结算 P&L 统一：crypto 衍生品用 `contract_size`（此前 fill 用默认 `multiplier`=1 而结算用 `contract_size`，contract_size≠1 时二者严重背离）；现金池 key 统一为 `settlement_currency`（此前 crypto fill 记进默认 USD 桶，结算记进 USDT 桶——两处分歧一起封死）。
+  - 新增现金充裕守卫 `InsufficientCash`：现金（非杠杆）标的买入超出可用现金即失败关闭；杠杆标的（max_leverage>1）允许动用现金池（保证金模型），与框架"按 allocation≤1 全现金"的回测口径一致。
+  - NaN 数量/价格在 `apply_fill` 亦被拒绝。
+- **M1 成交时点文档化**：`run_backtest` docstring 明确"决策于 bar i、成交于 bar i+1 开盘（next-bar-open），与实盘一致，刻意不采用 same-bar 成交"。实盘侧原有文档保持不变。行为未改。
+
+### Low
+- **L1 直连下单死面**：删除 `SchwabConnector.submit_market_order`（无任何调用者，绕过 Risk/Execution 的下单兼容入口），留注释说明真实下单只能走 `SchwabExecutionAdapter`。
+- **L2 OCC 符号连续格式**：`_OCC_RE` 由 `\s+` 改为 `\s*` —— Schwab 实际返回不带空格的 OCC 符号（如 `NVDA260821C00250000`），此前永不匹配、静默落入显式字段分支。加测试锁定两种格式。
+- **L3 未建模持仓静默跳过**：reconciliation 对非 EQUITY/OPTION 持仓由 `continue` 改为 `logger.warning`（含 assetType/symbol），账本低估敞口不再无声。
+- **L4 裸空期权聚合缺口**：`_validate_plan_options` 现在把账本中已存在的空头期权计入 nakedness（call_short/put_short），并用计划中的 BUY-reduce 平仓腿冲抵，避免"平旧开新"一单多腿被误判双计。新增 4 个测试覆盖"账本已有裸空 + 计划再卖 → 拒绝""有股票覆盖 → 放行""同单平旧开新 → 仍按净敞口判断""账本空头 put 计入现金要求"。
+- **L5 NaN 穿透数值守卫**：domain/intents.py 所有数值字段（quantity/leverage/limit/stop/bid/ask/net_limit）+ risk/engine.py（quantity/leverage/notional/mid/max_lev）+ ledger.apply_fill 全部补 `math.isfinite`。注明 dataclass `__post_init__` 可被 `replace`/绕构造绕过，risk 层的 isfinite 是纵深防御——测试用 `__new__` 模拟坏生产者直达 risk。
+- **L6 新鲜度守卫"静默关闭"缺口**：`RiskEngine` 构造时若 `live_enabled=True` 且 `require_fresh_quote=False` 打印 WARNING，新接入实盘路径无法再无声关掉 quote-age 检查（demo/paper 仍可用 bar-close 估计，故不翻转默认值）。
+- **L7 run-once StopIteration→500**：`next(...)` 改为 `next(..., None)` + 409 显式错误（"chain no longer contains the analyzed contract"）。
+- **L8 CLI 裸 traceback**：`_http.py` 捕获范围扩到 Connection/Timeout/SSL/TooManyRedirects/InvalidURL → `ServerUnreachable`；非 2xx 包装为 `ServerError` 并抽取 FastAPI `detail`（422 校验错误显示 loc: msg，截断 200 字符，不回显原始异常）。
+- **L9 `web stop` 残留 reloader 子进程**：`_stop` 改为 SIGTERM 整个进程组（服务以 `start_new_session=True` 启动，pgid==pid），2s 宽限后 SIGKILL 兜底；绝不误杀自身进程组。集成测试验证"reloader 父 + worker 子"同死。
+- **L10 `_pending_states` 无驱逐**：`auth_start` 每次先 `_purge_pending_states`（过期清理 + >10k 硬顶清空）。
+- **L11 既有目录权限不收紧**：`SchwabTokenStore.save` 对已存在目录检出 group/world 位并 `chmod 0o700`（只收紧不放松）。
+- **L13 现金链兜底**：reconciliation 的现金链 `cashAvailableForTrading or cashBalance or 0` 已在代码中（reconciliation.py），此处确认记录在案，无需再改。
+
+### 保持不变 / 明确不修
+- **L12 MultiLeg 反转/滚动构造器**：报告已注明是"未来需求缺口，非当前 bug"。当前单腿 intent 构造 + 逐单平旧开新可以覆盖 covered-call/roll 语义（L4 的 netting 测试已证明不会误判），构造器属于功能开发而非缺陷修复，移动至 backlog。
+- 风险敞口（真实 Schwab 符号/余额字段名、OAuth 刷新日志、并发准入）在沙箱内仍无法实网验证，维持披露。

@@ -88,10 +88,22 @@ def status():
     }
 
 
+def _purge_pending_states(now: float) -> None:
+    """Drop expired OAuth handshakes so repeated /auth/start calls cannot grow
+    the table without limit (L10). Clears outright if it still exceeds a hard
+    cap, which only happens under abnormal traffic."""
+    for state, (expires_at, _product) in list(_pending_states.items()):
+        if expires_at < now:
+            del _pending_states[state]
+    if len(_pending_states) > 10_000:
+        _pending_states.clear()
+
+
 @router.get("/auth/start")
 def auth_start(product: str = Query("trading")):
     if product not in _TOKEN_PATHS:
         raise HTTPException(status_code=400, detail="Unknown Schwab product")
+    _purge_pending_states(time.time())
     try:
         oauth = SchwabOAuthClient(
             credentials_for(product),

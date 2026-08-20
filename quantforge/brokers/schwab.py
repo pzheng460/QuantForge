@@ -110,6 +110,14 @@ class SchwabTokenStore:
 
     def save(self, token: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # An existing directory created before the permissions policy keeps
+        # its loose mode: mkdir(exist_ok=True) never narrows it (L11).
+        try:
+            mode = self.path.parent.stat().st_mode & 0o777
+            if mode & 0o077:  # any group or world bits set
+                self.path.parent.chmod(0o700)
+        except OSError:
+            pass
         payload = dict(token)
         payload["obtained_at"] = int(time.time())
         tmp = self.path.with_suffix(".tmp")
@@ -811,28 +819,13 @@ class SchwabConnector:
         )
         return BrokerOrder(order_id=order_id, status="accepted")
 
-    def submit_market_order(
-        self, side: str, qty: float, reduce_only: bool = False
-    ) -> dict:
-        """Compatibility entry point for canonical order execution."""
-        if not self.symbol:
-            raise ValueError("Schwab connector requires a symbol for live orders")
-        instruction = {
-            ("buy", False): "BUY",
-            ("sell", False): "SELL_SHORT",
-            ("buy", True): "BUY_TO_COVER",
-            ("sell", True): "SELL",
-        }.get((side.lower(), reduce_only))
-        if instruction is None:
-            raise ValueError(f"Unsupported side: {side}")
-        order = self.place_order(
-            symbol=self.symbol,
-            instruction=instruction,
-            quantity=math.floor(qty),
-        )
-        return {"id": order.order_id, "status": order.status}
-
+    # NOTE: a bare ``submit_market_order`` used to live here as a "compatibility
+    # entry point". It was removed: it short-circuited the canonical
+    # Strategy → RiskEngine → ExecutionService → Adapter path and was never
+    # called by any production code. Real Schwab orders must go through
+    # ``SchwabExecutionAdapter``.
     def get_order(self, order_id: str) -> BrokerOrder:
+
         account = self._require_account()
         response = self._request(
             "GET", f"{TRADER_BASE}/accounts/{account}/orders/{order_id}"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from quantforge.options import (
@@ -238,8 +238,24 @@ def run_schwab_options_once(request: SchwabOptionRunRequest):
             "receipt": None,
         }
     candidate = next(
-        item for item in candidates if item.symbol == report.contract_symbol
+        (
+            item
+            for item in candidates
+            if item.symbol == report.contract_symbol
+        ),
+        None,
     )
+    if candidate is None:
+        # The report and the chain diverged (chain refreshed between
+        # analysis and submission). A raw StopIteration would surface as a
+        # 500; fail explicitly instead.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "option chain no longer contains the analyzed contract "
+                f"{report.contract_symbol}; refresh and re-analyze"
+            ),
+        )
     decision = OptionDecision(
         action=report.action,
         reasons=report.reasons,
