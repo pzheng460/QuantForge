@@ -164,3 +164,27 @@ def test_intent_rejects_nan_quote():
 def test_intent_rejects_nan_net_limit_price():
     with pytest.raises(ValueError, match="finite"):
         MultiLegOrderIntent(strategy_id="alpha", net_limit_price=float("nan"), legs=(_intent(),))
+
+
+def test_intent_duration_validates_and_couples_to_order_type():
+    # The order-type coupling uses the enum identity, so build LIMIT intents
+    # explicitly (probe the same shape the live pipeline uses).
+    with pytest.raises(ValueError, match="duration"):
+        _intent(duration="FORTRAN")
+    with pytest.raises(ValueError, match="duration"):
+        _intent(duration="")
+    # GTC + MARKET is physically impossible (exchange rule), so it must fail
+    # eager validation rather than surface deep in the adapter.
+    from quantforge.domain.intents import OrderType
+
+    with pytest.raises(ValueError, match="GTC"):
+        _intent(duration="GTC", order_type=OrderType.MARKET)
+
+    ok = _intent(duration="GTC", order_type=OrderType.LIMIT, limit_price=10.0)
+    assert ok.duration == "GTC"
+    assert _intent().duration == "DAY"
+
+
+def test_intent_operator_override_defaults_false():
+    assert _intent().operator_override is False
+    assert _intent(operator_override=True).operator_override is True

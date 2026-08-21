@@ -60,7 +60,7 @@ def test_analyze_endpoint_does_not_leak_absolute_report_path(monkeypatch, tmp_pa
     # report that will be persisted, plus throwaway candidates/ledger/connector.
     def fake_analysis(request):
         report = _fake_report()
-        return report, [], None, None, None
+        return report, [], None, None, None, {}
 
     monkeypatch.setattr(router, "_schwab_analysis", fake_analysis)
 
@@ -96,7 +96,7 @@ def test_run_once_no_op_path_does_not_leak_report_path(monkeypatch, tmp_path):
 
     def fake_analysis(request):
         report = _fake_report()  # action="HOLD" -> not executable
-        return report, [], None, None, None
+        return report, [], None, None, None, {}
 
     monkeypatch.setattr(router, "_schwab_analysis", fake_analysis)
 

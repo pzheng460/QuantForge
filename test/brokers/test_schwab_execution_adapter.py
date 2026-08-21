@@ -98,7 +98,7 @@ def _option(which: str):
     )
 
 
-def _intent(side: OrderSide, *, reduce_only=False, option=None):
+def _intent(side: OrderSide, *, reduce_only=False, option=None, duration="DAY"):
     return OrderIntent(
         strategy_id="test",
         instrument=option or _equity(),
@@ -107,6 +107,7 @@ def _intent(side: OrderSide, *, reduce_only=False, option=None):
         order_type=OrderType.LIMIT,
         limit_price=190.25,
         reduce_only=reduce_only,
+        duration=duration,
     )
 
 
@@ -139,6 +140,17 @@ def test_equity_sell_reduce_only_maps_to_SELL_close_long(tmp_path):
 
     leg = session.calls[0][2]["json"]["orderLegCollection"][0]
     assert leg["instruction"] == "SELL"
+
+
+def test_equity_gtc_duration_passes_through_to_wire(tmp_path):
+    """The intent's GTC lifetime must reach place_order and serialize as
+    GOOD_TILL_CANCEL, so a standing close order stays live across sessions."""
+    session = _Session()
+    adapter = SchwabExecutionAdapter(_connector(tmp_path, session))
+    adapter.submit(_intent(OrderSide.SELL, reduce_only=True, duration="GTC"))
+
+    payload = session.calls[0][2]["json"]
+    assert payload["duration"] == "GOOD_TILL_CANCEL"
 
 
 def test_equity_sell_open_maps_to_SELL_SHORT(tmp_path):

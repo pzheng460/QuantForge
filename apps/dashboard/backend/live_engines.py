@@ -104,6 +104,7 @@ def _save_state() -> None:
         "config_override",
         "risk_limits",
         "created_at",
+        "trades",
         "status",
         "stopped_at",
         "error",
@@ -115,10 +116,12 @@ def _save_state() -> None:
     # from inside _registry_lock (callers release it first), so a plain Lock
     # cannot self-deadlock here.
     with _registry_lock:
-        payload = [
-            {field: entry.get(field) for field in fields}
-            for entry in _engines.values()
-        ]
+        payload = []
+        for entry in _engines.values():
+            # Fold any orders the engine submitted since the last save into the
+            # persisted trade list before writing.
+            _sync_trades(entry)
+            payload.append({field: entry.get(field) for field in fields})
     _PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = _PERSIST_FILE.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -141,6 +144,159 @@ def _load_state() -> list[dict]:
         return []
 
 
+def _sync_trades(entry: dict[str, Any]) -> None:
+    """Fold orders the engine submitted since the last sync into ``entry["trades"]``.
+
+    The engine appends to its own in-memory ``order_log``; this merges those
+    records into the registry entry (deduped by broker order id) so they are
+    both visible via ``list_engines`` and persisted by ``_save_state``.
+    """
+    engine = entry.get("engine")
+    new_records = list(getattr(engine, "order_log", ())) if engine is not None else []
+    if not new_records:
+        return
+    trades = entry.setdefault("trades", [])
+    seen = {t.get("order_id") for t in trades}
+    for rec in new_records:
+        if not rec.get("order_id") or rec["order_id"] in seen:
+            continue
+        merged = dict(rec)
+        merged.setdefault("engine_id", entry["engine_id"])
+        trades.append(merged)
+        seen.add(rec["order_id"])
+    trades.sort(key=lambda t: t.get("time", ""), reverse=True)
+
+
+def _live_position_snapshot(
+    entry: dict[str, Any],
+) -> tuple[dict | None, float | None]:
+    """Best-effort live position + last price for a running engine.
+
+    Reads straight from the broker adapter (Bitget UTA position endpoint for
+    crypto) so the dashboard shows REAL holdings, not a reconstructed guess.
+    Never raises: any adapter/broker failure degrades to ``(None, None)`` and
+    the engine status/error fields carry the authoritative health signal.
+    """
+    engine = entry.get("engine")
+    adapter = getattr(getattr(engine, "execution", None), "adapter", None)
+    # get_position/fetch_quote live on the underlying connector
+    # (CcxtConnector for crypto; the adapter wrapper only exposes submit).
+    connector = getattr(adapter, "connector", None) or adapter
+    if connector is None:
+        return None, None
+    position: dict | None = None
+    last_price: float | None = None
+    try:
+        raw = connector.get_position()
+        if raw:
+            danger = float(raw.get("contracts") or 0)
+            if danger > 0:
+                position = {
+                    "side": raw.get("side"),
+                    "quantity": danger,
+                    # Bitget UTA reports the real entry in ``avgPrice``.
+                    "entry_price": (
+                        float(raw["entryPrice"]) if raw.get("entryPrice") else None
+                    ),
+                    "unrealized_pnl": raw.get("unrealizedPnl"),
+                    "mark_price": raw.get("markPrice"),
+                    "profit_rate": raw.get("profitRate"),
+                }
+    except Exception as exc:  # noqa: BLE001 — snapshot must never fail the list
+        logger.warning("Position snapshot failed for %s: %s", entry["engine_id"], exc)
+    try:
+        quote = connector.fetch_quote()
+        if quote:
+            bid, ask = (quote or {}).get("bid"), (quote or {}).get("ask")
+            if bid and ask:
+                last_price = (float(bid) + float(ask)) / 2
+            elif bid:
+                last_price = float(bid)
+            elif ask:
+                last_price = float(ask)
+    except Exception as exc:  # noqa: BLE001 — price is best-effort
+        logger.warning("Last-price snapshot failed for %s: %s", entry["engine_id"], exc)
+    return position, last_price
+
+
+def _account_positions(connector: Any) -> list[dict]:
+    """Account-scoped open positions (shared by every engine on the account).
+
+    Returns the same snapshot shape as ``_live_position_snapshot`` but as a
+    list, so the UI renders holdings once at account level instead of
+    implying each engine owns them.
+    """
+    try:
+        raw = connector.get_position()
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        logger.warning("Account positions snapshot failed: %s", exc)
+        return []
+    if not raw:
+        return []
+    return [
+        {
+            "symbol": getattr(connector, "symbol", None),
+            "side": raw.get("side"),
+            "quantity": raw.get("contracts"),
+            "entry_price": (
+                float(raw["entryPrice"]) if raw.get("entryPrice") else None
+            ),
+            "unrealized_pnl": raw.get("unrealizedPnl"),
+            "mark_price": raw.get("markPrice"),
+            "profit_rate": raw.get("profitRate"),
+        }
+    ]
+
+
+def _account_snapshot() -> dict | None:
+    """Best-effort account-level summary from the first live crypto connector.
+
+    Uses the Bitget UTA account-assets endpoint so equity/unrealised PnL are
+    real broker numbers, not a sum of reconstructed trades. Returns None when
+    no active engine/adapter can provide it (e.g. Schwab-only session).
+    """
+    for entry in _engines.values():
+        if entry.get("status") not in {"warmup", "running", "restarting"}:
+            continue
+        engine = entry.get("engine")
+        adapter = getattr(getattr(engine, "execution", None), "adapter", None)
+        connector = getattr(adapter, "connector", None) or adapter
+        if connector is None:
+            continue
+        # Only crypto connectors expose the UTA account-assets endpoint.
+        exchange_id = getattr(connector, "exchange_id", None)
+        if exchange_id != "bitget":
+            continue
+        try:
+            resp = connector._exchange.privateUtaGetV3AccountAssets(
+                {"category": "USDT-FUTURES"}
+            )
+            data = (resp or {}).get("data") or {}
+            usdt_asset = next(
+                (a for a in (data.get("assets") or []) if a.get("coin") == "USDT"),
+                {},
+            )
+            def _f(key: str) -> float | None:
+                v = data.get(key) or usdt_asset.get(key)
+                try:
+                    return float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    return None
+
+            return {
+                "equity": _f("usdtEquity"),
+                "available": _f("available"),
+                "unrealized_pnl": _f("usdtUnrealisedPnl")
+                or _f("unrealisedPnl"),
+                "position_value": _f("positionValue"),
+                "positions": _account_positions(connector),
+            }
+        except Exception as exc:  # noqa: BLE001 — summary must never crash the list
+            logger.warning("Account snapshot failed for %s: %s", entry["engine_id"], exc)
+            return None
+    return None
+
+
 def _schwab_connector(symbol: str) -> SchwabConnector:
     config_path = Path.home() / ".quantforge/schwab/config.json"
     try:
@@ -155,6 +311,42 @@ def _schwab_connector(symbol: str) -> SchwabConnector:
     )
 
 
+def _net_position_from_trades(trades: list[dict] | None) -> tuple[float, float] | None:
+    """Net position this engine OWNS, from its OWN recorded submissions.
+
+    Every BUY adds and every SELL subtracts. Returns ``(net_quantity,
+    avg_price)`` where ``avg_price`` is the volume-weighted average of the
+    side that nets positive (so it is always a meaningful entry reference).
+    Returns ``None`` when the engine's own history nets to zero.
+
+    This is the ownership basis for multi-engine shared-account isolation: an
+    engine must never claim holdings that another engine or a manual operator
+    placed on the shared venue account.
+    """
+    buy_qty = buy_cost = sell_qty = sell_notional = 0.0
+    for tr in trades or []:
+        try:
+            side = str(tr.get("side", "")).lower()
+            q = float(tr.get("quantity") or 0)
+            p = float(tr.get("price") or 0)
+        except (TypeError, ValueError):
+            continue
+        if side == "buy":
+            buy_qty += q
+            buy_cost += q * p
+        elif side == "sell":
+            sell_qty += q
+            sell_notional += q * p
+    net = buy_qty - sell_qty
+    if abs(net) < 1e-12:
+        return None
+    if net > 0:
+        avg = buy_cost / buy_qty if buy_qty else 0.0
+    else:
+        avg = sell_notional / sell_qty if sell_qty else 0.0
+    return net, avg
+
+
 def _build_runtime(
     *,
     strategy_name: str,
@@ -167,6 +359,7 @@ def _build_runtime(
     leverage: float,
     warmup_bars: int,
     risk_limits: dict | None,
+    trades: list[dict] | None = None,
 ) -> PythonLiveEngine:
     import quantforge.strategies  # noqa: F401
 
@@ -252,23 +445,17 @@ def _build_runtime(
     if not demo and venue == "schwab":
         ledger = reconcile_schwab_account(connector.get_account_snapshot())
     elif not demo:
-        try:
-            broker_position = connector.get_position()
-        except Exception as exc:
-            # A position query failure must not be treated as "flat" — that
-            # could stack a duplicate position on top of an existing one.
-            raise RuntimeError(
-                f"cannot start live engine on {symbol}: "
-                f"failed to read current position ({exc})"
-            ) from exc
-        if broker_position:
-            quantity = float(broker_position["contracts"])
-            if str(broker_position.get("side", "")).lower() == "short":
-                quantity = -quantity
+        # Multi-engine shared-account isolation: an engine owns ONLY the
+        # position implied by its OWN recorded submissions (trades). It must
+        # not claim holdings that other engines or manual operators placed on
+        # the shared venue account — otherwise one strategy could reduce-only
+        # close another engine's position on a hedge/U account.
+        net_position = _net_position_from_trades(trades)
+        if net_position is not None:
             ledger.positions[instrument.id] = Position(
                 instrument=instrument,
-                quantity=quantity,
-                average_price=float(broker_position.get("entryPrice") or 0),
+                quantity=net_position[0],
+                average_price=net_position[1],
             )
     limits = RiskLimits(
         live_enabled=True,
@@ -331,6 +518,8 @@ async def restore_engines() -> int:
                 config_override=cfg.get("config_override"),
                 risk_limits=cfg.get("risk_limits"),
                 _engine_id=cfg.get("engine_id"),
+                created_at=cfg.get("created_at"),
+                trades=cfg.get("trades"),
             )
             count += 1
         except Exception:
@@ -359,6 +548,8 @@ async def start_engine(
     config_override: dict | None = None,
     risk_limits: dict | None = None,
     _engine_id: str | None = None,
+    created_at: str | None = None,
+    trades: list[dict] | None = None,
 ) -> str:
     if not _single_instance:
         raise RuntimeError(
@@ -377,6 +568,7 @@ async def start_engine(
         leverage=leverage,
         warmup_bars=warmup_bars,
         risk_limits=risk_limits,
+        trades=trades,
     )
     engine_id = _engine_id or str(uuid.uuid4())[:8]
     entry = {
@@ -394,7 +586,13 @@ async def start_engine(
         "warmup_bars": warmup_bars,
         "config_override": config_override,
         "risk_limits": risk_limits or {},
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        # Keep the engine's original creation time when restoring (so "started"
+        # reflects the original launch, not each backend restart); otherwise
+        # stamp now.
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+        # Persisted order history (restored on restart); live submissions are
+        # folded in via _sync_trades so trades survive backend restarts.
+        "trades": list(trades or []),
         "error": None,
         "restart_count": 0,
         "pending_restart": None,
@@ -495,6 +693,9 @@ async def _restart_engine(engine_id: str) -> None:
     if entry.get("status") != "restarting":
         return
     try:
+        # Fold this lifecycle's new submissions into the persisted trade list
+        # so the rebuilt engine owns exactly what it has actually traded.
+        _sync_trades(entry)
         engine = _build_runtime(
             strategy_name=entry["strategy"],
             config_override=entry.get("config_override"),
@@ -506,6 +707,7 @@ async def _restart_engine(engine_id: str) -> None:
             leverage=entry["leverage"],
             warmup_bars=entry["warmup_bars"],
             risk_limits=entry.get("risk_limits"),
+            trades=entry.get("trades"),
         )
     except Exception as exc:
         entry["status"] = "failed"
@@ -513,8 +715,8 @@ async def _restart_engine(engine_id: str) -> None:
         logger.exception("Watchdog restart of %s failed during rebuild", engine_id)
         _save_state()
         return
-    # Rebuild re-reads the live broker position, so restarting preserves order
-    # safety: the ledger starts from what the venue actually holds.
+    # Rebuild reconstructs the engine's OWN position from its trade history,
+    # so restarting preserves per-engine ownership (never another engine's).
     entry["engine"] = engine
     entry["task"] = None
     entry["status"] = "warmup"
@@ -562,6 +764,29 @@ def delete_engine(engine_id: str) -> None:
     _save_state()
 
 
+def _owned_position(entry: dict[str, Any]) -> dict | None:
+    """The position THIS engine believes it owns (from its own ledger).
+
+    Distinct from ``position`` (account-scoped, shared across engines): this
+    is the per-engine ownership view, reconstructed from the engine's own
+    trade history, so the UI can show e.g. that a second engine on the same
+    account is flat even though the account holds another engine's position.
+    """
+    engine = entry.get("engine")
+    ledger = getattr(getattr(engine, "execution", None), "ledger", None)
+    instrument = getattr(engine, "instrument", None)
+    if ledger is None or instrument is None:
+        return None
+    try:
+        qty = float(ledger.quantity(instrument.id) or 0)
+    except Exception as exc:  # noqa: BLE001 — best-effort monitor field
+        logger.warning("Owned-position read failed for %s: %s", entry["engine_id"], exc)
+        return None
+    if abs(qty) < 1e-12:
+        return {"side": None, "quantity": 0.0}
+    return {"side": "long" if qty > 0 else "short", "quantity": abs(qty)}
+
+
 def list_engines() -> list[dict[str, Any]]:
     result = []
     # Iterate under the registry lock: start_engine/delete_engine mutate
@@ -572,21 +797,30 @@ def list_engines() -> list[dict[str, Any]]:
     with _registry_lock:
         items = list(_engines.items())
     for eid, entry in items:
-        result.append(
-            {
-                "engine_id": eid,
-                "status": entry["status"],
-                "strategy": entry["strategy"],
-                "exchange": entry["exchange"],
-                "symbol": entry["symbol"],
-                "timeframe": entry["timeframe"],
-                "demo": entry["demo"],
-                "leverage": entry["leverage"],
-                "created_at": entry["created_at"],
-                "stopped_at": entry.get("stopped_at"),
-                "error": entry.get("error"),
-            }
-        )
+        _sync_trades(entry)
+        item = {
+            "engine_id": eid,
+            "status": entry["status"],
+            "strategy": entry["strategy"],
+            "exchange": entry["exchange"],
+            "symbol": entry["symbol"],
+            "timeframe": entry["timeframe"],
+            "demo": entry["demo"],
+            "leverage": entry["leverage"],
+            "created_at": entry["created_at"],
+            "stopped_at": entry.get("stopped_at"),
+            "error": entry.get("error"),
+            "trades": list(entry.get("trades", []) or [])[:50],
+            "owned_position": _owned_position(entry),
+        }
+        if entry["status"] in {"warmup", "running", "restarting"}:
+            position, last_price = _live_position_snapshot(entry)
+            item["position"] = position
+            item["last_price"] = last_price
+        else:
+            item["position"] = None
+            item["last_price"] = None
+        result.append(item)
     return result
 
 

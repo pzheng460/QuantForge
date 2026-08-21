@@ -241,3 +241,57 @@ def test_order_post_4xx_is_definitive_rejection(tmp_path):
             order_type="LIMIT",
             price=190.25,
         )
+
+
+@pytest.mark.critical
+def test_equity_order_gtc_maps_to_good_till_cancel(tmp_path):
+    """A GTC duration must serialize to Schwab's GOOD_TILL_CANCEL on the
+    wire so a standing sell can rest across sessions for illiquid names."""
+    session = _Session()
+    connector = _connector(tmp_path, session)
+    connector.place_order(
+        symbol="LZMH",
+        instruction="SELL",
+        quantity=19,
+        order_type="LIMIT",
+        price=1.12,
+        duration="GTC",
+    )
+
+    payload = session.calls[0][2]["json"]
+    assert payload["duration"] == "GOOD_TILL_CANCEL"
+    assert payload["orderType"] == "LIMIT"
+    assert payload["price"] == "1.12"
+    assert payload["session"] == "NORMAL"
+
+
+@pytest.mark.parametrize("duration", ["FORTRAN", ""])
+def test_place_order_rejects_unknown_duration(tmp_path, duration):
+    session = _Session()
+    connector = _connector(tmp_path, session)
+    with pytest.raises(ValueError, match="duration"):
+        connector.place_order(
+            symbol="LZMH",
+            instruction="SELL",
+            quantity=19,
+            order_type="LIMIT",
+            price=1.12,
+            duration=duration,
+        )
+    assert session.calls == []
+
+
+def test_place_order_rejects_gtc_market(tmp_path):
+    """GTC MARKET is physically impossible (market orders are DAY-only); it
+    must be refused locally before anything reaches the wire."""
+    session = _Session()
+    connector = _connector(tmp_path, session)
+    with pytest.raises(ValueError, match="MARKET"):
+        connector.place_order(
+            symbol="LZMH",
+            instruction="SELL",
+            quantity=19,
+            order_type="MARKET",
+            duration="GTC",
+        )
+    assert session.calls == []

@@ -173,7 +173,7 @@ def analyze_options(request: OptionAnalysisRequest):
 
 def _schwab_analysis(request: SchwabOptionAnalysisRequest):
     from apps.dashboard.backend.routers.brokers import _connector
-    from quantforge.brokers.oauth import SchwabAuthError
+    from quantforge.brokers.schwab import SchwabAuthError
 
     try:
         connector = _connector()
@@ -183,9 +183,10 @@ def _schwab_analysis(request: SchwabOptionAnalysisRequest):
         # checks is measured against this timestamp, never against a synthesized
         # "now" that would make require_fresh_quote vacuous.
         fetched_at = datetime.now(UTC)
-        chain = connector.get_option_chain(
+        full_chain = connector.get_option_chain(
             ticker, contract_type="CALL", strike_count=100
         )
+        spot = connector.get_quote_price(ticker)
     except SchwabAuthError as exc:
         raise HTTPException(
             status_code=503,
@@ -202,7 +203,7 @@ def _schwab_analysis(request: SchwabOptionAnalysisRequest):
                 exc, prefix="Schwab account/chain snapshot failed"
             ),
         ) from exc
-    candidates = candidates_from_schwab_chain(chain)
+    candidates = candidates_from_schwab_chain(full_chain)
     by_symbol = {candidate.symbol: candidate for candidate in candidates}
     short_calls = []
     for position in ledger.positions.values():
@@ -238,7 +239,7 @@ def _schwab_analysis(request: SchwabOptionAnalysisRequest):
         ),
         minimum_core_shares=request.minimum_core_shares,
         maximum_covered_ratio=request.maximum_covered_ratio,
-        stock_price=connector.get_quote_price(ticker),
+        stock_price=spot,
         trend_state=request.trend_state,
         earnings_date=request.earnings_date,
         earnings_confirmed=request.earnings_confirmed,
@@ -249,20 +250,25 @@ def _schwab_analysis(request: SchwabOptionAnalysisRequest):
         TslaNvdaOptionsConfig(**request.config)
     )
     report = OptionsEventEngine(strategy, ledger).analyze(event)
-    return report, candidates, ledger, connector, fetched_at
+    # Analysis lives in the research layer; execution stays here in dashboard/risk.
+    from apps.research.options_research import chain_metrics_from_raw
+
+    research = chain_metrics_from_raw(ticker, full_chain, spot)
+    research["snapshot_at"] = fetched_at.isoformat()
+    return report, candidates, ledger, connector, fetched_at, research
 
 
 @router.post("/options/schwab/analyze")
 def analyze_schwab_options(request: SchwabOptionAnalysisRequest):
-    report, _candidates, _ledger, _connector, _fetched_at = _schwab_analysis(request)
+    report, _candidates, _ledger, _connector, _fetched_at, research = _schwab_analysis(request)
     report_path = OptionReportStore().save(report)
-    return {"report": report, "report_path": _report_name(report_path)}
+    return {"report": report, "report_path": _report_name(report_path), "research": research}
 
 
 @router.post("/options/schwab/run-once")
 def run_schwab_options_once(request: SchwabOptionRunRequest):
     """Analyze once and automatically submit an eligible action through risk."""
-    report, candidates, ledger, connector, chain_fetched_at = _schwab_analysis(request)
+    report, candidates, ledger, connector, chain_fetched_at, _research = _schwab_analysis(request)
     if report.action not in EXECUTABLE_ACTIONS:
         report_path = OptionReportStore().save(report)
         return {

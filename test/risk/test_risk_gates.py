@@ -179,6 +179,76 @@ def test_wide_spread_is_rejected():
         engine.authorize(intent, _ledger())
 
 
+# ─── Operator override (manual orders may submit on the best available quote) ─
+
+def _operator_intent(**overrides) -> OrderIntent:
+    values = dict(
+        strategy_id="manual",
+        instrument=_equity(),
+        side=OrderSide.SELL,
+        quantity=19,
+        limit_price=1.11,
+        quote_bid=1.11,
+        quote_ask=1.13,
+        quote_timestamp=_now() - timedelta(hours=1),  # deliberately stale
+        operator_override=True,
+    )
+    values.update(overrides)
+    return OrderIntent(**values)
+
+
+def test_operator_override_skips_stale_quote_gate():
+    """A human-directed resting close may submit on the best available quote
+    even when the market has not refreshed it (illiquid microcaps)."""
+    intent = _operator_intent()
+    engine = _engine(RiskLimits(live_enabled=True, require_fresh_quote=True))
+    decision = engine.authorize(intent, _ledger((_equity(), 19, 1.11)))
+    assert decision.allowed
+
+
+def test_operator_override_still_enforces_notional():
+    intent = _operator_intent(quantity=99_999, limit_price=100.0)
+    engine = _engine(
+        RiskLimits(
+            live_enabled=True,
+            require_fresh_quote=True,
+            max_order_notional=10_000,
+        )
+    )
+    with pytest.raises(RiskRejected, match="notional"):
+        engine.authorize(intent, _ledger())
+
+
+def test_operator_override_still_enforces_spread():
+    intent = _operator_intent(quote_bid=50, quote_ask=51)
+    engine = _engine(
+        RiskLimits(live_enabled=True, require_fresh_quote=True, max_spread_pct=0.01)
+    )
+    with pytest.raises(RiskRejected, match="spread limit"):
+        engine.authorize(intent, _ledger())
+
+
+def test_operator_override_still_fails_closed_without_price_reference():
+    """Waiving freshness never waives the notional reference: a MARKET intent
+    with no price and no quote must still fail closed."""
+    intent = _operator_intent(limit_price=None, quote_bid=None, quote_ask=None)
+    engine = _engine(RiskLimits(live_enabled=True, require_fresh_quote=True))
+    with pytest.raises(RiskRejected, match="no price reference"):
+        engine.authorize(intent, _ledger())
+
+
+def test_operator_override_logs_loud_warning(caplog):
+    import logging
+
+    intent = _operator_intent()
+    engine = _engine(RiskLimits(live_enabled=True, require_fresh_quote=True))
+    with caplog.at_level(logging.WARNING, logger="quantforge.risk.engine"):
+        engine.authorize(intent, _ledger((_equity(), 19, 1.11)))
+    assert any(
+        "operator_override" in record.message for record in caplog.records
+    )
+
+
 # ─── Leverage caps ───────────────────────────────────────────────────────────
 
 def test_global_leverage_cap_is_enforced():

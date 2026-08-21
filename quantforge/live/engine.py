@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Protocol
 
 from quantforge.domain.instruments import AssetClass, Instrument
@@ -77,6 +77,16 @@ class PythonLiveEngine:
         self._trail_anchor: float | None = None
         self._running = False
         self._warmup_complete = False
+        # Confirmed order submissions (broker accepted), newest last. Surfaced
+        # to the dashboard so live trades are visible without fabricating P&L
+        # from unconfirmed orders — every entry is backed by a broker order id
+        # from the execution receipt.
+        self._order_log: list[dict] = []
+
+    @property
+    def order_log(self) -> list[dict]:
+        """Order submissions accepted by the broker this engine lifecycle."""
+        return list(self._order_log)
 
     def _resolve_quote(self, bar: Bar) -> LiveQuote:
         """Prefer a real market quote when a provider is wired in; fall back to
@@ -139,6 +149,12 @@ class PythonLiveEngine:
             side = OrderSide.SELL if self._target > 0 else OrderSide.BUY
         else:
             side = OrderSide.BUY if target > 0 else OrderSide.SELL
+        # Hedge-mode venues (Bitget UTA hedge accounts) require a position
+        # side so the adapter can set ``posSide``: the side being closed/opened
+        # is the CURRENT tracked position when flattening, else the requested
+        # target side. Ignored by one-way venues and non-crypto intents.
+        pos_side = self._target > 0 if close else target > 0
+        position_side = "long" if pos_side else "short"
         if self.instrument.id.asset_class in {
             AssetClass.EQUITY,
             AssetClass.EQUITY_OPTION,
@@ -155,8 +171,27 @@ class PythonLiveEngine:
             quote_ask=quote.ask,
             quote_timestamp=quote.timestamp,
             leverage=self.leverage,
+            position_side=position_side,
         )
-        return self.execution.execute(intent, fill_price=price)
+        receipt = self.execution.execute(intent, fill_price=price)
+        # Record the confirmed submission so the dashboard can show live
+        # trades. Market orders fill at the next bar's open; ``price`` is the
+        # reference price the order was built from (bar-close estimate) unless
+        # a real quote provider upgraded it. The broker order id ties every
+        # entry to a real order.
+        self._order_log.append(
+            {
+                "time": datetime.now(timezone.utc).isoformat(),
+                "side": side.name.lower(),
+                "quantity": quantity,
+                "price": price,
+                "order_id": receipt.broker_order_id,
+                "close": bool(close),
+                "position_side": position_side,
+                "intent_id": intent.intent_id,
+            }
+        )
+        return receipt
 
     def _evaluate_stops(self, bar: Bar) -> ExecutionReceipt | None:
         """Evaluate the active stop/trailing against the current bar's range.

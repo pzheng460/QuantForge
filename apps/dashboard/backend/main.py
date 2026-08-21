@@ -44,6 +44,7 @@ from apps.dashboard.backend.routers import (  # noqa: E402
     live,
     brokers,
     risk_options,
+    research_reports,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ app.include_router(optimize.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(risk_options.router, prefix="/api")
+app.include_router(research_reports.router, prefix="/api")
 
 # ─── Optional API-key authentication ────────────────────────────────────────
 # The dashboard binds to 127.0.0.1 by default (see apps/dashboard/start.sh).

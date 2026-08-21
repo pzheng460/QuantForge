@@ -300,7 +300,7 @@ class RiskEngine:
             or order.leverage > self.limits.max_leverage
         ):
             raise RiskRejected("maximum leverage exceeded")
-        if self.limits.require_fresh_quote:
+        if self.limits.require_fresh_quote and not order.operator_override:
             if order.quote_timestamp is None:
                 raise RiskRejected("fresh quote is required")
             quote_ts = order.quote_timestamp
@@ -312,6 +312,17 @@ class RiskEngine:
             age = (datetime.now(timezone.utc) - quote_ts).total_seconds()
             if age < 0 or age > self.limits.max_quote_age_seconds:
                 raise RiskRejected("quote is stale")
+        elif order.operator_override:
+            # Operator-directed orders may submit on the best available quote
+            # (e.g. resting GTC closes on an illiquid name whose quotes refresh
+            # only every few minutes). This is a deliberate, auditable waiver:
+            # every other gate below still runs. Any autonomous engine that
+            # sets the flag would be traceable through this log line.
+            logger.warning(
+                "RiskEngine: operator_override order %s skips the quote-age "
+                "gate on a live-enabled path (other risk checks still apply)",
+                order.intent_id,
+            )
         price = order.limit_price
         if price is None and order.quote_ask is not None:
             price = order.quote_ask

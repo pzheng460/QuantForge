@@ -691,6 +691,7 @@ class SchwabConnector:
         order_type: str = "MARKET",
         price: float | None = None,
         stop_price: float | None = None,
+        duration: str = "DAY",
     ) -> BrokerOrder:
         account = self._require_account()
         symbol = self.normalize_symbol(symbol)
@@ -702,10 +703,16 @@ class SchwabConnector:
         order_type = order_type.upper()
         if order_type not in {"MARKET", "LIMIT", "STOP"}:
             raise ValueError(f"Unsupported Schwab order type: {order_type}")
+        duration = duration.upper()
+        if duration not in {"DAY", "GTC"}:
+            raise ValueError(f"Unsupported Schwab order duration: {duration}")
+        if duration != "DAY" and order_type == "MARKET":
+            raise ValueError("Schwab MARKET orders must be DAY (GTC needs a limit/stop price)")
+        duration_value = "GOOD_TILL_CANCEL" if duration == "GTC" else "DAY"
         payload: dict[str, Any] = {
             "orderType": order_type,
             "session": "NORMAL",
-            "duration": "DAY",
+            "duration": duration_value,
         }
         if order_type == "LIMIT":
             if price is None or price <= 0:

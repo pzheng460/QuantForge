@@ -494,6 +494,7 @@ class CcxtConnector:
         price: float | None = None,
         reduce_only: bool = False,
         client_order_id: str | None = None,
+        position_side: str | None = None,
     ) -> dict:
         """Submit via Bitget's UTA v3 place-order endpoint.
 
@@ -515,7 +516,15 @@ class CcxtConnector:
             if price is None:
                 raise ValueError("limit order requires price")
             params["price"] = str(price)
-        if reduce_only and category != "SPOT":
+        # BITGET UTA (v3 trade place-order) requires ``posSide`` on futures:
+        # hedge/one-way UTA accounts reject an order without it (25156
+        # "In one-way position mode, the order type must also be the one-way
+        # position type"). The position side also conveys CLOSE semantics, so
+        # ``reduceOnly`` must NOT be sent together with it (25238): a SELL +
+        # posSide=long closes a long, BUY + posSide=long opens one, etc.
+        if category != "SPOT" and position_side in {"long", "short"}:
+            params["posSide"] = position_side
+        elif reduce_only and category != "SPOT":
             params["reduceOnly"] = "YES"
         # UTA has no standalone setMarginMode endpoint: the margin mode is
         # carried per order on place-order (futures only, 'crossed'/'isolated').
@@ -563,8 +572,20 @@ class CcxtConnector:
         """
         if self._leverage_set == leverage:
             return
+        # Bitget UTA has no Classic-account set-leverage endpoint: the classic
+        # ``POST /api/v2/mix/account/set-leverage`` rejects UTA accounts with
+        # 40085 ("Classic Account API is not supported at this time"). ccxt
+        # routes to the UTA endpoint ``POST /api/v3/account/set-leverage``
+        # when ``params.uta`` is true — mirror ``ensure_margin_mode``'s UTA
+        # branch, which already special-cases ``is_bitget_uta``. Only UTA
+        # passes params; every other path keeps the plain two-arg call.
         try:
-            self._exchange.set_leverage(leverage, self.symbol)
+            if self.is_bitget_uta:
+                self._exchange.set_leverage(
+                    leverage, self.symbol, params={"uta": True}
+                )
+            else:
+                self._exchange.set_leverage(leverage, self.symbol)
         except Exception as exc:  # noqa: BLE001 — exchange capability variance
             if self._is_derivative_symbol and not self.demo:
                 logger.error(
@@ -643,6 +664,7 @@ class CcxtConnector:
         reduce_only: bool = False,
         leverage: float = 1,
         client_order_id: str | None = None,
+        position_side: str | None = None,
     ) -> dict:
         """Submit a market order.
 
@@ -659,15 +681,18 @@ class CcxtConnector:
         client_order_id : str | None
             Stable idempotency key (the intent id) so a timeout retry of the
             same intent cannot double-fill at the venue.
+        position_side : str | None
+            ``"long"`` / ``"short"`` for hedge-mode UTA venues (else None).
         """
         self.ensure_leverage(leverage)
         self.ensure_margin_mode()
         logger.info(
-            "Submitting MARKET %s %.6f %s (reduce_only=%s)",
+            "Submitting MARKET %s %.6f %s (reduce_only=%s pos_side=%s)",
             side.upper(),
             qty,
             self.symbol,
             reduce_only,
+            position_side,
         )
         # Bitget UTA: ccxt's generic create_order routes through the Classic
         # spot endpoint which rejects UTA accounts with 40085. Route directly
@@ -680,6 +705,7 @@ class CcxtConnector:
                     order_type="market",
                     reduce_only=reduce_only,
                     client_order_id=client_order_id,
+                    position_side=position_side,
                 )
             )
         else:
@@ -725,6 +751,7 @@ class CcxtConnector:
         reduce_only: bool = False,
         leverage: float = 1,
         client_order_id: str | None = None,
+        position_side: str | None = None,
     ) -> dict:
         """Submit a limit order through UTA or the generic CCXT adapter."""
         if price <= 0:
@@ -740,6 +767,7 @@ class CcxtConnector:
                     price=price,
                     reduce_only=reduce_only,
                     client_order_id=client_order_id,
+                    position_side=position_side,
                 )
             )
         params: dict = {"reduceOnly": True} if reduce_only else {}
@@ -801,17 +829,31 @@ class CcxtConnector:
                         p.get("total") or p.get("size") or p.get("contracts") or 0
                     )
                     if qty > 0:
-                        # holdSide: long/short on Bitget; entryPrice / openPriceAvg
-                        side = p.get("holdSide") or p.get("side")
-                        entry = float(p.get("openPriceAvg") or p.get("entryPrice") or 0)
-                        upnl = float(
-                            p.get("unrealisedPL") or p.get("unrealizedPnl") or 0
+                        # Position side: UTA returns ``posSide``; fall back to
+                        # holdSide/side for other shapes. entryPrice: Bitget
+                        # UTA uses ``avgPrice`` (sometimes openPriceAvg).
+                        side = p.get("posSide") or p.get("holdSide") or p.get("side")
+                        entry = float(
+                            p.get("avgPrice")
+                            or p.get("openPriceAvg")
+                            or p.get("entryPrice")
+                            or 0
                         )
+                        upnl = float(
+                            p.get("unrealisedPnl")
+                            or p.get("unrealisedPL")
+                            or p.get("unrealizedPnl")
+                            or 0
+                        )
+                        mark = float(p.get("markPrice") or 0) or None
+                        rate = float(p.get("profitRate") or 0) or None
                         return {
                             "side": side,
                             "contracts": qty,
                             "entryPrice": entry,
                             "unrealizedPnl": upnl,
+                            "markPrice": mark,
+                            "profitRate": rate,
                         }
                 return None
             except Exception as exc:  # noqa: BLE001
@@ -864,6 +906,7 @@ class CcxtExecutionAdapter:
         ):
             raise ValueError("intent leverage exceeds instrument max leverage")
         side = "buy" if intent.side is OrderSide.BUY else "sell"
+        position_side = getattr(intent, "position_side", None)
         if intent.order_type.value == "market":
             result = self.connector.submit_market_order(
                 side,
@@ -871,6 +914,7 @@ class CcxtExecutionAdapter:
                 reduce_only=intent.reduce_only,
                 leverage=intent.leverage,
                 client_order_id=intent.intent_id,
+                position_side=position_side,
             )
         elif intent.order_type.value == "limit" and intent.limit_price is not None:
             result = self.connector.submit_limit_order(
@@ -880,6 +924,7 @@ class CcxtExecutionAdapter:
                 reduce_only=intent.reduce_only,
                 leverage=intent.leverage,
                 client_order_id=intent.intent_id,
+                position_side=position_side,
             )
         else:
             raise ValueError("CCXT adapter accepts market and priced limit intents")

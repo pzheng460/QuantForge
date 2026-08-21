@@ -1,14 +1,19 @@
 """Position-query fail-closed semantics for real-money engine startup.
 
-Querying the current position is the ONLY source of truth for what the
-engine already holds. A query failure must never be treated as "flat" —
-doing so lets the engine stack a duplicate position on top of an existing
-one. This suite pins that invariant at two levels:
+Two layers, two different answers:
 
-* the connector (``CcxtConnector.get_position`` raises ``CcxtPositionError``
-  on transient failure instead of returning ``None``);
-* the live engine build path (``_build_runtime`` refuses to start rather
-  than assume flat, and seeds the ledger from the venue when it can).
+* the CONNECTOR (``CcxtConnector.get_position``) is still fail-closed: a
+  transient query failure raises ``CcxtPositionError`` instead of returning
+  ``None``, so callers can never silently treat an unknown position as flat;
+
+* the ENGINE build path (``_build_runtime``) seeds the ledger from the
+  engine's OWN recorded trade history — NOT from the venue account. On a
+  shared-account deployment (several engines on one venue account) an engine
+  must never claim a holding another engine or a manual operator placed,
+  otherwise it could reduce-only close someone else's position. A flat engine
+  therefore starts flat even when the account holds a position, and a broker
+  position-query failure no longer blocks startup (the engine's position does
+  not come from that query).
 """
 
 from __future__ import annotations
@@ -152,30 +157,35 @@ def test_uta_position_query_empty_data_is_flat(stub, monkeypatch):
     assert conn.get_position() is None
 
 
-# ─── Build-time reconciliation: fail closed, never assume flat ───────────────
+# ─── Build-time reconciliation: own trades only, never claim the account ────
 
-def test_build_runtime_refuses_to_start_when_position_query_fails(
-    stub, monkeypatch
-):
-    stub.fetch_positions_result = ccxt.NetworkError("venue unreachable")
+def test_build_runtime_is_flat_without_own_trades(stub, monkeypatch):
+    """With no trade history the engine owns nothing."""
     monkeypatch.setattr(CcxtConnector, "_create_exchange", lambda self: stub)
 
-    with pytest.raises(RuntimeError, match="failed to read current position"):
-        _build_runtime(
-            strategy_name="ema_crossover",
-            config_override={},
-            exchange="okx",
-            symbol=_SYMBOL,
-            timeframe="1h",
-            demo=False,
-            position_size=500,
-            leverage=2,
-            warmup_bars=100,
-            risk_limits={"max_order_notional": 1000},
-        )
+    engine = _build_runtime(
+        strategy_name="ema_crossover",
+        config_override={},
+        exchange="okx",
+        symbol=_SYMBOL,
+        timeframe="1h",
+        demo=False,
+        position_size=500,
+        leverage=2,
+        warmup_bars=100,
+        risk_limits={"max_order_notional": 1000},
+        trades=[],
+    )
+
+    assert engine.execution.ledger.positions == {}
 
 
-def test_build_runtime_seeds_ledger_from_long_position(stub, monkeypatch):
+def test_build_runtime_ignores_account_position_without_own_trades(
+    stub, monkeypatch
+):
+    """The broker holding a position (e.g. another engine's on a shared
+    account) must NOT seed this engine's ledger — that would let it
+    reduce-only close someone else's position."""
     stub.fetch_positions_result = [
         {"contracts": 0.5, "side": "long", "entryPrice": 60_000, "unrealizedPnl": 0}
     ]
@@ -192,18 +202,53 @@ def test_build_runtime_seeds_ledger_from_long_position(stub, monkeypatch):
         leverage=2,
         warmup_bars=100,
         risk_limits={"max_order_notional": 1000},
+        trades=[],
     )
 
-    positions = engine.execution.ledger.positions
-    assert len(positions) == 1
-    pos = next(iter(positions.values()))
-    assert pos.quantity == 0.5
-    assert pos.average_price == 60_000
+    assert engine.execution.ledger.positions == {}
 
 
-def test_build_runtime_seeds_ledger_from_short_position(stub, monkeypatch):
-    stub.fetch_positions_result = [
-        {"contracts": 0.3, "side": "short", "entryPrice": 61_000, "unrealizedPnl": 0}
+def test_build_runtime_position_query_failure_still_starts(stub, monkeypatch):
+    """Broker position-query failures no longer block startup: the engine's
+    position comes from its OWN trade history, not the venue query."""
+    stub.fetch_positions_result = ccxt.NetworkError("venue unreachable")
+    monkeypatch.setattr(CcxtConnector, "_create_exchange", lambda self: stub)
+
+    engine = _build_runtime(
+        strategy_name="ema_crossover",
+        config_override={},
+        exchange="okx",
+        symbol=_SYMBOL,
+        timeframe="1h",
+        demo=False,
+        position_size=500,
+        leverage=2,
+        warmup_bars=100,
+        risk_limits={"max_order_notional": 1000},
+        trades=[],
+    )
+
+    assert engine.execution.ledger.positions == {}
+
+
+def test_build_runtime_seeds_ledger_from_long_trades(stub, monkeypatch):
+    trades = [
+        {
+            "time": "2026-01-01T00:00:00+00:00",
+            "side": "buy",
+            "quantity": 0.3,
+            "price": 60_000,
+            "order_id": "a",
+            "close": False,
+        },
+        {
+            "time": "2026-01-01T01:00:00+00:00",
+            "side": "buy",
+            "quantity": 0.2,
+            "price": 61_000,
+            "order_id": "b",
+            "close": False,
+        },
     ]
     monkeypatch.setattr(CcxtConnector, "_create_exchange", lambda self: stub)
 
@@ -218,7 +263,80 @@ def test_build_runtime_seeds_ledger_from_short_position(stub, monkeypatch):
         leverage=2,
         warmup_bars=100,
         risk_limits={"max_order_notional": 1000},
+        trades=trades,
+    )
+
+    pos = next(iter(engine.execution.ledger.positions.values()))
+    assert pos.quantity == 0.5
+    assert pos.average_price == pytest.approx(60_400)
+
+
+def test_build_runtime_seeds_ledger_from_short_trades(stub, monkeypatch):
+    trades = [
+        {
+            "time": "2026-01-01T00:00:00+00:00",
+            "side": "sell",
+            "quantity": 0.3,
+            "price": 61_000,
+            "order_id": "a",
+            "close": False,
+        }
+    ]
+    monkeypatch.setattr(CcxtConnector, "_create_exchange", lambda self: stub)
+
+    engine = _build_runtime(
+        strategy_name="ema_crossover",
+        config_override={},
+        exchange="okx",
+        symbol=_SYMBOL,
+        timeframe="1h",
+        demo=False,
+        position_size=500,
+        leverage=2,
+        warmup_bars=100,
+        risk_limits={"max_order_notional": 1000},
+        trades=trades,
     )
 
     pos = next(iter(engine.execution.ledger.positions.values()))
     assert pos.quantity == -0.3
+
+
+def test_build_runtime_net_position_handles_open_and_close(stub, monkeypatch):
+    """A partial close nets down the owned position (buy 0.4, close 0.1 → 0.3)."""
+    trades = [
+        {
+            "time": "2026-01-01T00:00:00+00:00",
+            "side": "buy",
+            "quantity": 0.4,
+            "price": 60_000,
+            "order_id": "a",
+            "close": False,
+        },
+        {
+            "time": "2026-01-01T02:00:00+00:00",
+            "side": "sell",
+            "quantity": 0.1,
+            "price": 62_000,
+            "order_id": "b",
+            "close": True,
+        },
+    ]
+    monkeypatch.setattr(CcxtConnector, "_create_exchange", lambda self: stub)
+
+    engine = _build_runtime(
+        strategy_name="ema_crossover",
+        config_override={},
+        exchange="okx",
+        symbol=_SYMBOL,
+        timeframe="1h",
+        demo=False,
+        position_size=500,
+        leverage=2,
+        warmup_bars=100,
+        risk_limits={"max_order_notional": 1000},
+        trades=trades,
+    )
+
+    pos = next(iter(engine.execution.ledger.positions.values()))
+    assert pos.quantity == pytest.approx(0.3)

@@ -428,3 +428,59 @@ class LiveEngineOut(BaseModel):
     # Populated when engine transitions to stopped (history entry).
     stopped_at: Optional[str] = None
     error: Optional[str] = None
+    # Live monitoring: real broker position + recent order submissions. These
+    # are populated only for active engines by list_engines; archived entries
+    # carry position=None and the persisted trade history.
+    position: Optional["LivePositionOut"] = None
+    last_price: Optional[float] = None
+    trades: List["LiveTradeOut"] = Field(default_factory=list)
+    # Per-engine ownership view (reconstructed from the engine's own ledger /
+    # trade history) — distinct from the account-scoped ``position`` above.
+    owned_position: Optional["LiveOwnedPositionOut"] = None
+
+
+class LiveOwnedPositionOut(BaseModel):
+    """Position this engine itself owns (ledger view, not account view)."""
+
+    side: Optional[str] = None  # long | short | None when flat
+    quantity: float = 0.0
+
+
+class LivePositionOut(BaseModel):
+    """Realtime position snapshot read from the broker (not reconstructed)."""
+
+    symbol: Optional[str] = None  # ccxt-style symbol, e.g. BTC/USDT:USDT
+    side: Optional[str] = None  # long | short
+    quantity: Optional[float] = None  # contracts / base units held
+    entry_price: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    mark_price: Optional[float] = None
+    profit_rate: Optional[float] = None
+
+
+class LiveTradeOut(BaseModel):
+    """One order submission the broker accepted, tied to a real order id."""
+
+    time: str  # UTC ISO-8601 submission time
+    side: str  # buy | sell
+    quantity: float
+    price: float  # reference price the market order was built from
+    order_id: str
+    close: bool = False  # reduce-only order (flattening tracked position)
+    position_side: Optional[str] = None  # long | short for hedge venues
+    engine_id: Optional[str] = None
+    intent_id: Optional[str] = None
+
+
+class LiveAccountOut(BaseModel):
+    """Account-level P&L summary straight from the venue (Bitget UTA assets)."""
+
+    equity: Optional[float] = None
+    available: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    position_value: Optional[float] = None
+    active_engines: int = 0
+    trade_count: int = 0
+    # Account-scoped open positions (NOT per-engine): multiple engines may
+    # share one venue account, and every one of them sees the same holdings.
+    positions: List[LivePositionOut] = Field(default_factory=list)

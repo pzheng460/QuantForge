@@ -55,6 +55,7 @@ class SchwabExecutionAdapter:
                 order_type=intent.order_type.value,
                 price=intent.limit_price,
                 stop_price=intent.stop_price,
+                duration=intent.duration,
             )
             return order.order_id
         except SchwabAmbiguousOrderError as exc:

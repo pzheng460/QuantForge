@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException
 
 from apps.dashboard.backend.http_errors import safe_exception_detail
 from apps.dashboard.backend.models import (
+    LiveAccountOut,
     LiveEngineOut,
     LiveStartRequest,
 )
@@ -127,6 +128,31 @@ async def stop_live(engine_id: str) -> LiveEngineOut:
         leverage=entry["leverage"],
         created_at=entry["created_at"],
         error=entry["error"],
+    )
+
+
+@router.get("/live/account", response_model=LiveAccountOut)
+def live_account_summary() -> LiveAccountOut:
+    """Account-level P&L summary (equity / available / unrealised / position).
+
+    Pulls real broker numbers via the Bitget UTA account-assets endpoint; when
+    no crypto connector is live the account block is null and only the
+    engine/trade counts are returned.
+    """
+    from apps.dashboard.backend.live_engines import _account_snapshot, list_engines
+
+    account = _account_snapshot()
+    engines = list_engines()
+    active = [e for e in engines if e["status"] in ("warmup", "running", "restarting")]
+    trade_count = sum(len(e.get("trades", []) or []) for e in engines)
+    return LiveAccountOut(
+        equity=account.get("equity") if account else None,
+        available=account.get("available") if account else None,
+        unrealized_pnl=account.get("unrealized_pnl") if account else None,
+        position_value=account.get("position_value") if account else None,
+        active_engines=len(active),
+        trade_count=trade_count,
+        positions=account.get("positions") if account else [],
     )
 
 
