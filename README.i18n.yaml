@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: git blob hash of each side at the
+# last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   python scripts/verify-docs-i18n.py --write README.md
+README.md: 72773c8a9ad5630233f3cb647e20636895f304f9
+README.zh.md: a2c7f3f484c9026f21fdf7f326ee97bf356bf2d4

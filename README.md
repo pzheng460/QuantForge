@@ -1,17 +1,26 @@
 # QuantForge
 
-QuantForge 是一个 Python-first 多资产量化研究与交易平台，统一支持：
+English | [中文](README.zh.md)
 
-- 美股与 Charles Schwab 实盘接入
-- 美股期权链、单腿及 2–4 腿组合订单、到期与 Assignment
-- 加密货币现货及永续/期货（CCXT）
-- Python 策略回测、参数优化、Paper 与 Live 执行
-- 不可绕过的全局订单风控
+<p align="center">
+  <img src="assets/quantforge-logo.png" width="300" alt="QuantForge pixel-art logo" />
+</p>
 
-策略源码由代码库审核和版本管理。网页只提供策略选择、参数、风险配置、
-回测和运行控制，不提供在线代码编辑。
 
-## 快速开始
+QuantForge is a Python-first, multi-asset quantitative research and trading
+platform that uniformly supports:
+
+- US equities with live Charles Schwab connectivity
+- US equity option chains, single-leg and 2–4 leg combo orders, expiries and assignment
+- Crypto spot and perpetual/futures (CCXT)
+- Python strategy backtesting, parameter optimization, paper and live execution
+- Non-bypassable global order risk control
+
+Strategy source code is code-reviewed and version-managed. The web UI only
+offers strategy selection, parameters, risk configuration, backtesting, and
+run control — never online code editing.
+
+## Quick start
 
 ```bash
 uv sync
@@ -20,7 +29,7 @@ uv run quantforge-cli strategies list
 uv run quantforge-cli web start
 ```
 
-前端：
+Frontend:
 
 ```bash
 cd apps/dashboard/frontend
@@ -28,73 +37,91 @@ npm install
 npm run build
 ```
 
-## 核心结构
+## Core layout
 
 ```text
 quantforge/
-  strategy/       Python 策略 API、注册表、Bar 与指标
-  strategies/     内置技术策略和 TSLA/NVDA 期权管理策略
-  backtest/       共享回测引擎
-  domain/         股票、期权、加密资产及订单意图
-  portfolio/      统一账本
-  risk/           强制风险边界
-  execution/      唯一订单执行服务
-  adapters/       Schwab、CCXT 与行情适配器
-  options/        定价、生命周期和期权管理规则
-  brokers/        Broker 客户端
+  strategy/       Python strategy API, registry, bars and indicators
+  strategies/     built-in technical strategies and TSLA/NVDA option management strategies
+  backtest/       shared backtesting engine
+  domain/         stocks, options, crypto assets and order intents
+  portfolio/      unified ledger
+  risk/           enforced risk boundaries
+  execution/      the only order execution service
+  adapters/       Schwab, CCXT and market-data adapters
+  options/        pricing, lifecycle and option-management rules
+  brokers/        broker clients
 ```
 
-执行路径固定为：
+The canonical execution path is:
 
 ```text
 Python Strategy → Canonical Order Intent → RiskEngine
                 → ExecutionService → Schwab / CCXT / Paper
 ```
 
-## 数据与回测标记
+## Data and backtest marks
 
-股票和加密回测使用对应市场的历史 OHLCV。Schwab 当前期权链用于实时分析；
-历史期权研究使用标的价格与波动率模型近似，并明确标记
-`approximate_unvalidated`，不能当作历史 NBBO。
+Equity and crypto backtests use historical OHLCV for the respective market.
+The live Schwab option chain is used for real-time analysis; historical option
+research approximates prices with underlying price and volatility models and
+is explicitly marked `approximate_unvalidated` — never treated as historical NBBO.
 
-## 实盘引擎
+## Live engines
 
-- Bar 实盘引擎在收盘 Bar 上决策并以 MARKET 单立即提交；优先使用真实行情
-  报价（Schwab bid/ask、CCXT ticker）驱动价差与报价时效风控，行情不可得时
-  才回退到 Bar 收盘价的近似估值。
-- 引擎退出采用"看门狗"策略：循环静默退出（如行情源挂起）会自动按退避
-  重启（上限 3 次，健康运行后计数清零），超过预算或构建失败则标记
-  `failed` 并等待人工介入；确定性异常（如风控拒绝）不会自动重启。
-- 单实例文件锁防止两个 Dashboard 进程同时下单；所有引擎共享每日新增仓位
-  计数（`~/.quantforge/risk/daily-entries.json`），重启不丢。
+- Bar live engines decide on the last closed bar and submit immediately with
+  MARKET orders; they prefer real market quotes (Schwab bid/ask, CCXT ticker)
+  to drive spread and quote-age risk checks, falling back to a bar-close
+  approximation only when quotes are unavailable.
+- Engines use a "watchdog" exit strategy: silent loops (e.g. a hung feed)
+  auto-restart with backoff (max 3, counter resets after healthy runs); beyond
+  budget or on build failure they are marked `failed` and wait for human
+  intervention; deterministic exceptions (e.g. risk rejection) never auto-restart.
+- A single-instance file lock prevents two Dashboard processes from placing
+  orders at once; all engines share the daily new-position counter
+  (`~/.quantforge/risk/daily-entries.json`), which survives restarts.
 
-## 任务持久化
+## Job persistence
 
-回测/优化任务注册表默认落盘 `~/.quantforge/jobs/registry.json`。设置
-`QUANTFORGE_REDIS_HOST`（或 `QUANTFORGE_REDIS_URL`）并安装 `redis` 包后，
-注册表改存 Redis；Redis 不可用时自动回退文件后端。起一个本地 Redis 有两
-种方式：
+The backtest/optimize job registry persists to `~/.quantforge/jobs/registry.json`
+by default. With `QUANTFORGE_REDIS_HOST` (or `QUANTFORGE_REDIS_URL`) set and
+the `redis` package installed, the registry switches to Redis, falling back to
+the file backend automatically when Redis is unavailable. Two ways to run a
+local Redis:
 
-- 有 Docker：`docker compose up redis`。
-- 无 root（本机已装好，直接 `scripts/dev-redis.sh start`）：项目提供了从
-  官方源码编译到 `~/.quantforge/redis` 的无 root 安装（编译于本机执行过），
-  启停脚本用法：
+- With Docker: `docker compose up redis`.
+- Without root (already installed on this machine; use `scripts/dev-redis.sh start`):
+  the project provides a no-root Redis build from official sources into
+  `~/.quantforge/redis` (compiled on this machine). Start/stop:
   ```bash
-  scripts/dev-redis.sh start     # 启动 127.0.0.1:6379（daemon，pidfile 管理）
+  scripts/dev-redis.sh start     # start 127.0.0.1:6379 (daemon, pidfile managed)
   scripts/dev-redis.sh status
   scripts/dev-redis.sh stop
   ```
 
-`docker-compose.yml` 中的 PostgreSQL 目前没有应用消费者（尚未有代码读取
-或写入它）。
+The PostgreSQL service in `docker-compose.yml` has no application consumer yet
+(no code reads or writes it).
 
-## 安全
+## Security
 
-密钥只存放在 `.keys/.secrets.toml` 或用户目录的受限 token store，不提交到
-Git。Live 订单无需逐单人工确认，但必须通过额度、杠杆、价差、报价时效、
-裸期权与每日新增仓位等硬性检查。
+Secrets live only in `.keys/.secrets.toml` or the restricted user token store;
+never commit them to Git. Live orders do not need per-order human confirmation
+but must pass hard checks for notional, leverage, spread, quote age, naked
+options, and daily new-position limits.
 
-Dashboard 后端默认只绑定 `127.0.0.1`（见 `apps/dashboard/start.sh`）。
-如需对外提供服务，必须显式 `--host 0.0.0.0` 并设置 `QUANTFORGE_API_KEY`
-环境变量——此时所有 `/api*` 请求都需要 `X-API-Key` 请求头（WebSocket 用
-`?api_key=` 查询参数），未设置 key 时脚本会拒绝以非 loopback 地址启动。
+The Dashboard backend binds to `127.0.0.1` by default (see `apps/dashboard/start.sh`).
+To expose it to the network you must explicitly pass `--host 0.0.0.0` and set
+the `QUANTFORGE_API_KEY` environment variable — every `/api*` request then needs
+the `X-API-Key` header (WebSockets use the `?api_key=` query parameter). The
+script refuses to start on a non-loopback address without the key.
+
+## Multi-asset research layer
+
+`apps/research/` is the data layer: a DuckDB warehouse (`data/market.duckdb`),
+equity event/proxy research, and daily multi-asset reports for crypto, option
+chains, and price/technical screens. It ships with a unified CLI
+(`python -m apps.research <command>`), a daily systemd timer
+(`research-daily.timer`), and optional email delivery of the daily reports.
+See the operations manual at `.agents/skills/quantforge-research/SKILL.md` and
+the evidence base at `apps/research/KNOWLEDGE.md`.
+
