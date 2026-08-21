@@ -1,0 +1,26 @@
+# Reverse SSH tunnel: laptop QuantForge dashboard backend (127.0.0.1:8000)
+# -> VPS loopback 9445, where Caddy (public :8445, basic auth, TLS) terminates
+# remote traffic. Mirrors dsh-tunnel.service / comfy-tunnel.service.
+#
+# Install:
+#   cp deploy/vps/quantforge-tunnel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now quantforge-tunnel.service
+#
+# Requires the VPS authorized_keys entry for this key to permit listen 9445:
+#   restrict,port-forwarding,permitlisten="127.0.0.1:9443",...,permitlisten="127.0.0.1:9445" ssh-ed25519 ...
+[Unit]
+Description=Reverse SSH tunnel: QuantForge dashboard 8000 to kiwi-vps:8445
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -T \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new \
+  -R 127.0.0.1:9445:127.0.0.1:8000 kiwi-vps
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

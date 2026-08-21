@@ -59,6 +59,11 @@ strategy/results/
 .quantforge/
 quantforge_ops/
 
+# Downloaded market/event data (large, regenerable) — keep it out of git;
+# preserved via versioned snapshots from scripts/manage_data.py
+data/
+data-snapshots/
+
 # Run artifacts
 eval/optimizer_ab/results/
 # Coverage run artifact

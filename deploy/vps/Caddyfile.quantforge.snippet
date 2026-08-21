@@ -1,0 +1,66 @@
+# QuantForge — external VPS deployment (Caddy reverse proxy through an SSH tunnel)
+#
+# Mirrors the DeepSeek Harness (dsh) remote-gateway pattern already in use on
+# this box (see ~/dsh-custom/dsh-web.sh and the kiwi VPS Caddyfile):
+#
+#   phone / outside ──HTTPS─► Caddy (kiwi VPS :8445, basic-auth login)
+#                                  │ reverse_proxy 127.0.0.1:9445
+#                                  ▼
+#                          SSH reverse tunnel (-R 9445:8000)
+#                                  │
+#                                  ▼
+#                     local QuantForge FastAPI backend (:8000, HTTPS self-signed)
+#                     ─ serves both /api and the built React SPA (frontend/dist)
+#
+# Caddy on the VPS terminates TLS (Let's Encrypt cert for
+# 74-211-104-188.nip.io) and is the real authentication layer: a password
+# login guards the whole site. Only the read-only optimize-progress WebSocket
+# (/api/ws/*) is exempt, because browsers do not attach cached HTTP-auth
+# credentials to WebSocket handshakes — same reason dsh exempts /api/events.*.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLIC URL
+#   https://74-211-104-188.nip.io:8445
+#   login:  user dsh, password = <QUANTFORGE_LOGIN_PASSWORD> (see deploy.sh)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# -----------------------------------------------------------------------------
+# SITE BLOCK — append this to the kiwi VPS /etc/caddy/Caddyfile
+# (the basic_auth entry uses a PLACEHOLDER for the bcrypt hash. Generate the
+#  real hash ON THE VPS with `caddy hash-password --plaintext '<password>'`
+#  and substitute it in place of the placeholder. Never commit a real hash.)
+# -----------------------------------------------------------------------------
+# quantforge remote gateway.
+# Caddy terminates TLS on :8445, then proxies to the SSH reverse tunnel
+# listener at 127.0.0.1:9445 (which carries traffic to the laptop's QuantForge
+# dashboard backend on :8000). The backend is HTTPS with a self-signed
+# localhost cert, so the reverse proxy skips TLS verification (Caddy is the
+# public TLS terminator).
+#
+# /api/* (data + live-trading controls, and the /api/ws/* optimize progress
+# WebSocket) is exempt from the Caddy basic_auth: browsers do NOT attach cached
+# HTTP-auth credentials to fetch()/WebSocket requests, so protecting /api would
+# 401 every API call and break the SPA (areason dsh exempts its /api/events.*
+# streams, and comfyui exempts /api/* the same way). The page + static assets
+# still sit behind the password login — the password gates *entering the app*.
+# https://74-211-104-188.nip.io:8445 {
+# 	@needs_auth not path /api/*
+# 	basic_auth @needs_auth {
+# 		dsh $2a$14$<bcrypt-hash-of-QUANTFORGE_LOGIN_PASSWORD>   # TODO(deploy): substitute via `caddy hash-password`
+# 	}
+# 	reverse_proxy 127.0.0.1:9445 {
+# 		transport http {
+# 			tls_insecure_skip_verify
+# 		}
+# 	}
+# }
+
+# -----------------------------------------------------------------------------
+# NOTES
+# - The backend must already be running locally (prod mode serves the SPA from
+#   apps/dashboard/frontend/dist). See apps/dashboard/start.sh --prod.
+# - If the backend later binds 127.0.0.1 only, the tunnel line stays identical
+#   (`-R 127.0.0.1:9445:127.0.0.1:8000`); only drop tls_insecure_skip_verify if
+#   the backend serves plain HTTP, and reverse_proxy to http://127.0.0.1:9445.
+# - Caddy's automatic HTTPS obtains/reuses a Let's Encrypt cert for
+#   74-211-104-188.nip.io, so the public URL needs no self-signed CA on phones.
