@@ -1,0 +1,23 @@
+// App shell / top-bar copy (App.tsx)
+export default {
+  'app.searchTz': 'Search timezone...',
+  'app.local': 'Local',
+  'app.noTz': 'No matching timezone',
+  'app.workspace': 'workspace',
+  'app.navLive': 'Live',
+  'app.navBacktest': 'Backtest',
+  'app.navOptimizer': 'Optimizer',
+  'app.navResearch': 'Research',
+  'app.connected': 'connected',
+  'app.offline': 'offline',
+  'app.connecting': 'connecting…',
+  'app.loading': 'Loading…',
+  'app.errTitle': 'Something went wrong',
+  'app.errMsg': 'An unexpected error occurred.',
+  'app.errTryAgain': 'Try again',
+  'app.resizeTitle': 'Drag to resize · double-click to reset',
+  'app.chartStrategy': 'Strategy',
+  'app.chartBuyHold': 'Buy & Hold',
+  'app.chartBuy': 'Buy',
+  'app.chartSell': 'Sell',
+} as Record<string, string>

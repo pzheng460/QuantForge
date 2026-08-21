@@ -32,6 +32,14 @@ export function useLiveEngines() {
   })
 }
 
+export function useLiveAccount() {
+  return useQuery({
+    queryKey: ['live-account'],
+    queryFn: () => api.liveAccount(),
+    refetchInterval: 5000,
+  })
+}
+
 export function useStartLive() {
   const qc = useQueryClient()
   return useMutation({

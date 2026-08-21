@@ -1,0 +1,38 @@
+// 中文文案字典 — Research 页面
+export default {
+  'research.kindCrypto': '加密货币',
+  'research.kindOptions': '期权链',
+  'research.kindTechnical': '常规交易技术面',
+
+  'research.ticker': 'Ticker',
+  'research.trendState': '趋势状态',
+  'research.maxCoveredRatio': '最大备兑比例',
+  'research.minCoreShares': '最小核心持股',
+  'research.confirmedEarningsDate': '已确认盈利日期（可选）',
+  'research.analyzing': '正在分析实时期权链…',
+  'research.analyze': '分析实时期权链',
+  'research.emptyAnalyzer': '分析结果在此显示。此工具读取 Schwab 实时期权链并运行备兑管理器——只分析，绝不下单。',
+  'research.reportLabel': 'report',
+  'research.analysisOnly': '仅分析——自动提交走专门的 run-once 流程，下单前强制同样的硬风控门槛。',
+  'research.trendStrongUp': '强势上涨',
+  'research.trendMildUp': '温和上涨',
+  'research.trendFlat': '横盘',
+  'research.trendMildDown': '温和下跌',
+  'research.trendStrongDown': '强势下跌',
+
+  'research.dailyTitle': '多资产研究日报',
+  'research.refreshing': '刷新中…',
+  'research.updatedAt': '更新于',
+  'research.notRefreshed': '尚未刷新',
+  'research.refresh': '刷新数据',
+  'research.refreshFailed': '上次刷新失败',
+  'research.noReports': '暂无报告 —— 点击「刷新数据」生成,或等每日定时任务自动生成。',
+
+  'research.sidebarTitle': 'Multi-Asset Research',
+  'research.sidebarLabel': '说明',
+  'research.sidebarDesc1': '研究日报：加密 / 期权链 / 技术面三份每日报告，可一键刷新或等每日定时任务自动生成。',
+  'research.sidebarDesc2': '期权备兑分析：读取 Schwab 实时期权链运行备兑管理器（只分析不下单）。',
+  'research.sidebarDesc3': '完整报告归档在 reports/，证据库见 apps/research/KNOWLEDGE.md。',
+  'research.tabReports': '研究日报',
+  'research.tabAnalyzer': '期权备兑分析',
+} as Record<string, string>

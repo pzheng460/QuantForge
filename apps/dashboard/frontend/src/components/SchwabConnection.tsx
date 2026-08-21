@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '@/api/client'
+import { useLang } from '../i18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -12,6 +13,7 @@ interface Account {
 }
 
 export function SchwabConnection() {
+  const { t } = useLang()
   const [status, setStatus] = useState<{ configured: boolean; authenticated: boolean; trading_authenticated?: boolean; market_data_authenticated?: boolean; account_selected?: boolean; detail?: string }>()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [selected, setSelected] = useState('')
@@ -65,23 +67,23 @@ export function SchwabConnection() {
   return (
     <div className="space-y-2 rounded border border-border bg-muted/30 p-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium">Schwab connection</span>
+        <span className="text-[11px] font-medium">{t('schwab.title')}</span>
         <Badge variant={status?.authenticated ? 'success' : 'secondary'} className="text-[9px]">
-          {status?.authenticated ? 'CONNECTED' : 'NOT CONNECTED'}
+          {status?.authenticated ? t('schwab.connected') : t('schwab.notConnected')}
         </Badge>
       </div>
       {!status?.configured && <p className="text-[10px] text-destructive">{status?.detail}</p>}
       <div className="grid grid-cols-2 gap-1">
         <Button type="button" size="sm" className="h-7" variant={status?.market_data_authenticated ? 'outline' : 'default'} disabled={!status?.configured} onClick={() => connect('market_data')}>
-          {status?.market_data_authenticated ? 'Market ✓' : 'Authorize Market'}
+          {status?.market_data_authenticated ? t('schwab.marketAuthorized') : t('schwab.marketAuthorize')}
         </Button>
         <Button type="button" size="sm" className="h-7" variant={status?.trading_authenticated ? 'outline' : 'default'} disabled={!status?.configured} onClick={() => connect('trading')}>
-          {status?.trading_authenticated ? 'Trading ✓' : 'Authorize Trading'}
+          {status?.trading_authenticated ? t('schwab.tradingAuthorized') : t('schwab.tradingAuthorize')}
         </Button>
       </div>
       {status?.trading_authenticated && (
         <Select value={selected} onValueChange={choose}>
-          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={status.account_selected ? 'Account selected' : 'Select account'} /></SelectTrigger>
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={status.account_selected ? t('schwab.accountSelected') : t('schwab.selectAccount')} /></SelectTrigger>
           <SelectContent>
             {accounts.map((account) => (
               <SelectItem key={account.account_ref} value={account.account_ref}>
@@ -92,7 +94,7 @@ export function SchwabConnection() {
         </Select>
       )}
       {error && <p className="text-[10px] text-destructive">{error}</p>}
-      <p className="text-[9px] text-muted-foreground">Demo uses local paper trading. Real orders require LIVE confirmation.</p>
+      <p className="text-[9px] text-muted-foreground">{t('schwab.demoNote')}</p>
     </div>
   )
 }

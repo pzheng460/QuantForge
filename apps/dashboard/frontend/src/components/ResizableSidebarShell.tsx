@@ -3,8 +3,6 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { ResizeHandle } from '@/components/ResizeHandle'
 
 interface Props {
-  /** Unique key for localStorage persistence (e.g. 'dashboard', 'backtest', 'optimizer'). */
-  storageKey: string
   /** Initial sidebar width in pixels. */
   defaultWidth?: number
   /** Minimum draggable width. */
@@ -14,9 +12,19 @@ interface Props {
   children: ReactNode
 }
 
+/** One shared storage key so the sidebar width is synchronized across all tabs. */
+const STORAGE_KEY = 'sidebar-width:app'
+
+function readStoredWidth(defaultWidth: number, minWidth: number, maxWidth: number): number {
+  if (typeof window === 'undefined') return defaultWidth
+  const stored = Number(window.localStorage.getItem(STORAGE_KEY))
+  return Number.isFinite(stored) && stored >= minWidth && stored <= maxWidth ? stored : defaultWidth
+}
+
 /**
  * Wraps shadcn's SidebarProvider with a draggable right-edge handle so users
- * can resize the sidebar. Width is persisted per-page in localStorage.
+ * can resize the sidebar. The width is shared app-wide (single localStorage
+ * key + storage-event listener), so every tab keeps the same sidebar width.
  *
  * The handle is rendered absolutely positioned at `left: var(--sidebar-width)`,
  * spanning the full height. A 6px hit-area gives a comfortable click target
@@ -24,18 +32,12 @@ interface Props {
  * stripe on hover/active.
  */
 export function ResizableSidebarShell({
-  storageKey,
   defaultWidth = 288,
   minWidth = 240,
   maxWidth = 560,
   children,
 }: Props) {
-  const key = `sidebar-width:${storageKey}`
-  const [width, setWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') return defaultWidth
-    const stored = Number(window.localStorage.getItem(key))
-    return Number.isFinite(stored) && stored >= minWidth && stored <= maxWidth ? stored : defaultWidth
-  })
+  const [width, setWidth] = useState<number>(() => readStoredWidth(defaultWidth, minWidth, maxWidth))
   const draggingRef = useRef(false)
 
   useEffect(() => {
@@ -63,11 +65,23 @@ export function ResizableSidebarShell({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(key, String(width))
+      window.localStorage.setItem(STORAGE_KEY, String(width))
     } catch {
       /* localStorage may be unavailable */
     }
-  }, [key, width])
+  }, [width])
+
+  // Keep in sync across browser tabs: another tab's resize changes the shared
+  // key, and any mounted shell (or a freshly mounted one) adopts the value.
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== STORAGE_KEY) return
+      const next = readStoredWidth(defaultWidth, minWidth, maxWidth)
+      if (next !== width) setWidth(next)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [defaultWidth, minWidth, maxWidth, width])
 
   function startDrag(e: React.PointerEvent) {
     e.preventDefault()

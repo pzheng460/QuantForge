@@ -244,6 +244,48 @@ export interface LiveStartRequest {
   max_daily_new_positions?: number
 }
 
+export interface LivePositionOut {
+  /** realtime broker snapshot, not reconstructed */
+  symbol?: string
+  side?: 'long' | 'short' | string
+  quantity?: number
+  entry_price?: number
+  unrealized_pnl?: number
+  mark_price?: number
+  profit_rate?: number
+}
+
+export interface LiveAccountOut {
+  /** account-level P&L summary straight from the venue (Bitget UTA assets) */
+  equity?: number | null
+  available?: number | null
+  unrealized_pnl?: number | null
+  position_value?: number | null
+  active_engines: number
+  trade_count: number
+  /** account-scoped open positions (shared by all engines on the account) */
+  positions?: LivePositionOut[]
+}
+
+export interface LiveTradeOut {
+  /** UTC ISO-8601 submission time */
+  time: string
+  side: 'buy' | 'sell' | string
+  quantity: number
+  price: number
+  order_id: string
+  close: boolean
+  position_side?: string
+  engine_id?: string
+  intent_id?: string
+}
+
+export interface LiveOwnedPositionOut {
+  /** per-engine ledger view (this engine's own position, not the account's) */
+  side?: 'long' | 'short' | null | string
+  quantity?: number
+}
+
 export interface LiveEngineOut {
   engine_id: string
   status: 'warmup' | 'running' | 'restarting' | 'stopped' | 'failed'
@@ -256,6 +298,14 @@ export interface LiveEngineOut {
   created_at: string
   stopped_at?: string
   error?: string
+  /** Only populated for active engines: realtime broker position + last price. */
+  position?: LivePositionOut | null
+  last_price?: number
+  /** Order submissions accepted by the broker (persisted across restarts). */
+  trades?: LiveTradeOut[]
+  /** This engine's OWN position (ledger view) — flat for engines that never
+   *  traded even when the shared account holds another engine's position. */
+  owned_position?: LiveOwnedPositionOut | null
 }
 
 export interface GlobalRiskState {

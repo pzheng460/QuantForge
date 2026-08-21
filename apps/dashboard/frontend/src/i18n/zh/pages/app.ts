@@ -1,0 +1,23 @@
+// 顶部导航 / 壳层（App.tsx）
+export default {
+  'app.searchTz': '搜索时区...',
+  'app.local': '本地',
+  'app.noTz': '没有匹配的时区',
+  'app.workspace': '工作区',
+  'app.navLive': '实盘',
+  'app.navBacktest': '回测',
+  'app.navOptimizer': '优化',
+  'app.navResearch': '研究',
+  'app.connected': '已连接',
+  'app.offline': '离线',
+  'app.connecting': '连接中…',
+  'app.loading': '加载中…',
+  'app.errTitle': '出错了',
+  'app.errMsg': '发生了一个意外错误。',
+  'app.errTryAgain': '重试',
+  'app.resizeTitle': '拖动调整大小 · 双击重置',
+  'app.chartStrategy': '策略',
+  'app.chartBuyHold': '买入持有',
+  'app.chartBuy': '买入',
+  'app.chartSell': '卖出',
+} as Record<string, string>

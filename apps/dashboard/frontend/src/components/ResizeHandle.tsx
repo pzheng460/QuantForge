@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { useLang } from '../i18n'
 
 type HandleProps = {
   onPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void
@@ -35,6 +36,7 @@ export function ResizeHandle({
   className,
   style,
 }: Props) {
+  const { t } = useLang()
   const isCol = orientation === 'horizontal'
 
   return (
@@ -50,7 +52,7 @@ export function ResizeHandle({
         isCol ? 'w-2 cursor-col-resize' : 'h-2.5 cursor-row-resize',
         className,
       )}
-      title="Drag to resize · double-click to reset"
+      title={t("app.resizeTitle")}
     >
       <div
         className={cn(

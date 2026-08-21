@@ -8,6 +8,7 @@ import { DataTable } from '@/components/ui/data-table'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { BacktestResult, TradeRecord } from '../types'
 import { useTimezone, fmtDateTz } from '../hooks/useTimezone'
+import { useLang } from '../i18n'
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────
 
@@ -178,13 +179,14 @@ function Row({ label, all, long, short, showLongShort = true }: {
 }
 
 function TableHeader({ showLongShort = true }: { showLongShort?: boolean }) {
+  const { t } = useLang()
   return (
     <thead>
       <tr className="border-b border-border/30">
-        <th className="py-1.5 px-3 text-left text-[11px] text-muted-foreground font-medium">Metric</th>
-        <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">All</th>
-        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">Long</th>}
-        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">Short</th>}
+        <th className="py-1.5 px-3 text-left text-[11px] text-muted-foreground font-medium">{t('strategytester.metric')}</th>
+        <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">{t('strategytester.all')}</th>
+        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">{t('strategytester.long')}</th>}
+        {showLongShort && <th className="py-1.5 px-3 text-right text-[11px] text-muted-foreground font-medium">{t('strategytester.short')}</th>}
       </tr>
     </thead>
   )
@@ -211,6 +213,7 @@ function V({ main, sub, color }: { main: string; sub?: string; color?: string })
 // ─── Tab: Strategy Report (merged Overview + Performance, matches TV) ──────
 
 function StrategyReportTab({ r }: { r: BacktestResult }) {
+  const { t } = useLang()
   const ic = r.initial_capital
   const trades = r.trades
   const longTrades = trades.filter(t => t.side === 'buy')
@@ -253,31 +256,31 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
       {/* ── Top KPI summary bar ── */}
       <div className="grid grid-cols-5 gap-4 py-3 px-1 border-b border-border/30">
         <div>
-          <div className="text-[10px] text-muted-foreground uppercase">Total P&L</div>
+          <div className="text-[10px] text-muted-foreground uppercase">{t('strategytester.totalPnl')}</div>
           <div className={cn('text-sm font-semibold tabular-nums', cc(all.netPnl))}>
             {fmtSignUsdt(all.netPnl)}
           </div>
           <div className={cn('text-[10px] tabular-nums', cc(all.netPnl))}>{fmtSignPct(all.netPnlPct)}</div>
         </div>
         <div>
-          <div className="text-[10px] text-muted-foreground uppercase">Max equity drawdown</div>
+          <div className="text-[10px] text-muted-foreground uppercase">{t('strategytester.maxEquityDrawdown')}</div>
           <div className="text-sm font-semibold tabular-nums text-foreground">
             {fmtUsdt(maxDdUsdt)}
           </div>
           <div className="text-[10px] tabular-nums text-muted-foreground">{fmtPct(maxDdPctCalc)}</div>
         </div>
         <div>
-          <div className="text-[10px] text-muted-foreground uppercase">Total trades</div>
+          <div className="text-[10px] text-muted-foreground uppercase">{t('strategytester.totalTrades')}</div>
           <div className="text-sm font-semibold tabular-nums text-foreground">{all.totalTrades}</div>
         </div>
         <div>
-          <div className="text-[10px] text-muted-foreground uppercase">Profitable trades</div>
+          <div className="text-[10px] text-muted-foreground uppercase">{t('strategytester.profitableTrades')}</div>
           <div className="text-sm font-semibold tabular-nums text-foreground">
             {fmtPct(all.percentProfitable)} {all.winningTrades}/{all.totalTrades}
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-muted-foreground uppercase">Profit factor</div>
+          <div className="text-[10px] text-muted-foreground uppercase">{t('strategytester.profitFactor')}</div>
           <div className="text-sm font-semibold tabular-nums text-foreground">{all.profitFactor.toFixed(3)}</div>
         </div>
       </div>
@@ -285,12 +288,12 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
       <Accordion type="multiple" defaultValue={["performance", "returns", "benchmark", "risk-adjusted", "trades-analysis"]}>
       {/* ── Performance (Profit structure + Benchmarking) ── */}
       <AccordionItem value="performance">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Performance</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.performance')}</AccordionTrigger>
         <AccordionContent>
         <div className="grid grid-cols-2 gap-6 px-3">
           {/* Profit structure bar chart */}
           <div>
-            <div className="text-[11px] font-medium text-muted-foreground mb-2">Profit structure</div>
+            <div className="text-[11px] font-medium text-muted-foreground mb-2">{t('strategytester.profitStructure')}</div>
             <ProfitStructureChart
               grossProfit={all.grossProfit}
               grossLoss={all.grossLoss}
@@ -301,7 +304,7 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
           </div>
           {/* Benchmarking */}
           <div>
-            <div className="text-[11px] font-medium text-muted-foreground mb-2">Benchmarking</div>
+            <div className="text-[11px] font-medium text-muted-foreground mb-2">{t('strategytester.benchmarking')}</div>
             <BenchmarkChart
               bhReturn={bhReturnUsdt}
               stratReturn={all.netPnl}
@@ -316,39 +319,39 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
 
       {/* ── Returns ── */}
       <AccordionItem value="returns">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Returns</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.returns')}</AccordionTrigger>
         <AccordionContent>
         <table className="w-full">
           <TableHeader />
           <tbody>
-            <Row label="Initial capital" all={fmtUsdt(ic)} long="" short="" />
-            <Row label="Open P&L" all={<V main={fmtSignUsdt(0)} sub={fmtSignPct(0)} color={cc(0)} />} long="" short="" />
-            <Row label="Net P&L"
+            <Row label={t('strategytester.initialCapital')} all={fmtUsdt(ic)} long="" short="" />
+            <Row label={t('strategytester.openPnl')} all={<V main={fmtSignUsdt(0)} sub={fmtSignPct(0)} color={cc(0)} />} long="" short="" />
+            <Row label={t('strategytester.netPnl')}
               all={<V main={fmtSignUsdt(all.netPnl)} sub={fmtSignPct(all.netPnlPct)} color={cc(all.netPnl)} />}
               long={<V main={fmtSignUsdt(lng.netPnl)} sub={fmtSignPct(lng.netPnlPct)} color={cc(lng.netPnl)} />}
               short={<V main={fmtSignUsdt(sht.netPnl)} sub={fmtSignPct(sht.netPnlPct)} color={cc(sht.netPnl)} />}
             />
-            <Row label="Gross profit"
+            <Row label={t('strategytester.grossProfit')}
               all={<V main={fmtUsdt(all.grossProfit)} sub={fmtPct(all.grossProfitPct)} />}
               long={<V main={fmtUsdt(lng.grossProfit)} sub={fmtPct(lng.grossProfitPct)} />}
               short={<V main={fmtUsdt(sht.grossProfit)} sub={fmtPct(sht.grossProfitPct)} />}
             />
-            <Row label="Gross loss"
+            <Row label={t('strategytester.grossLoss')}
               all={<V main={fmtUsdt(all.grossLoss)} sub={fmtPct(all.grossLossPct)} />}
               long={<V main={fmtUsdt(lng.grossLoss)} sub={fmtPct(lng.grossLossPct)} />}
               short={<V main={fmtUsdt(sht.grossLoss)} sub={fmtPct(sht.grossLossPct)} />}
             />
-            <Row label="Profit factor"
+            <Row label={t('strategytester.profitFactor')}
               all={all.profitFactor.toFixed(3)}
               long={lng.profitFactor.toFixed(3)}
               short={sht.profitFactor.toFixed(3)}
             />
-            <Row label="Commission paid"
+            <Row label={t('strategytester.commissionPaid')}
               all={<span>{fmtInt(all.commissionPaid)} USDT</span>}
               long={<span>{fmtInt(lng.commissionPaid)} USDT</span>}
               short={<span>{fmtInt(sht.commissionPaid)} USDT</span>}
             />
-            <Row label="Expected payoff"
+            <Row label={t('strategytester.expectedPayoff')}
               all={<span>{fmtUsdt(all.expectedPayoff)}</span>}
               long={<span>{fmtUsdt(lng.expectedPayoff)}</span>}
               short={<span>{fmtUsdt(sht.expectedPayoff)}</span>}
@@ -360,18 +363,18 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
 
       {/* ── Benchmark comparison ── */}
       <AccordionItem value="benchmark">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Benchmark comparison</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.benchmarkComparison')}</AccordionTrigger>
         <AccordionContent>
         <table className="w-full">
           <TableHeader showLongShort={false} />
           <tbody>
-            <Row showLongShort={false} label="Buy & hold return"
+            <Row showLongShort={false} label={t('strategytester.buyAndHoldReturn')}
               all={<V main={fmtSignUsdt(bhReturnUsdt)} sub={fmtSignPct(bhReturn)} color={cc(bhReturnUsdt)} />}
             />
-            <Row showLongShort={false} label="Buy & hold % gain"
+            <Row showLongShort={false} label={t('strategytester.buyAndHoldPctGain')}
               all={<span className={cc(bhReturn)}>{fmtSignPct(bhReturn)}</span>}
             />
-            <Row showLongShort={false} label="Strategy outperformance"
+            <Row showLongShort={false} label={t('strategytester.strategyOutperformance')}
               all={<span className={cc(strategyOutperformance)}>{fmtSignUsdt(strategyOutperformance)}</span>}
             />
           </tbody>
@@ -381,13 +384,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
 
       {/* ── Risk-adjusted performance ── */}
       <AccordionItem value="risk-adjusted">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Risk-adjusted performance</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.riskAdjustedPerformance')}</AccordionTrigger>
         <AccordionContent>
         <table className="w-full">
           <TableHeader showLongShort={false} />
           <tbody>
-            <Row showLongShort={false} label="Sharpe ratio" all={r.sharpe_ratio.toFixed(3)} />
-            <Row showLongShort={false} label="Sortino ratio" all={r.sortino_ratio.toFixed(3)} />
+            <Row showLongShort={false} label={t('strategytester.sharpeRatio')} all={r.sharpe_ratio.toFixed(3)} />
+            <Row showLongShort={false} label={t('strategytester.sortinoRatio')} all={r.sortino_ratio.toFixed(3)} />
           </tbody>
         </table>
         </AccordionContent>
@@ -395,7 +398,7 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
 
       {/* ── Trades analysis ── */}
       <AccordionItem value="trades-analysis">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Trades analysis</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.tradesAnalysis')}</AccordionTrigger>
         <AccordionContent>
         {/* P&L Distribution + Win/loss ratio */}
         <div className="grid grid-cols-2 gap-6 px-3 mb-4">
@@ -410,80 +413,80 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
         {/* Details table */}
         <table className="w-full">
           <thead>
-            <tr><td colSpan={4} className="py-2 px-3 text-[12px] font-semibold text-foreground bg-secondary/10">Details</td></tr>
+            <tr><td colSpan={4} className="py-2 px-3 text-[12px] font-semibold text-foreground bg-secondary/10">{t('strategytester.details')}</td></tr>
           </thead>
           <TableHeader />
           <tbody>
-            <Row label="Total trades" all={fmtInt(all.totalTrades)} long={fmtInt(lng.totalTrades)} short={fmtInt(sht.totalTrades)} />
-            <Row label="Total open trades" all={fmtInt(0)} long={fmtInt(0)} short={fmtInt(0)} />
-            <Row label="Winning trades" all={fmtInt(all.winningTrades)} long={fmtInt(lng.winningTrades)} short={fmtInt(sht.winningTrades)} />
-            <Row label="Losing trades" all={fmtInt(all.losingTrades)} long={fmtInt(lng.losingTrades)} short={fmtInt(sht.losingTrades)} />
-            <Row label="Percent profitable"
+            <Row label={t('strategytester.totalTrades')} all={fmtInt(all.totalTrades)} long={fmtInt(lng.totalTrades)} short={fmtInt(sht.totalTrades)} />
+            <Row label={t('strategytester.totalOpenTrades')} all={fmtInt(0)} long={fmtInt(0)} short={fmtInt(0)} />
+            <Row label={t('strategytester.winningTrades')} all={fmtInt(all.winningTrades)} long={fmtInt(lng.winningTrades)} short={fmtInt(sht.winningTrades)} />
+            <Row label={t('strategytester.losingTrades')} all={fmtInt(all.losingTrades)} long={fmtInt(lng.losingTrades)} short={fmtInt(sht.losingTrades)} />
+            <Row label={t('strategytester.percentProfitable')}
               all={fmtPct(all.percentProfitable)}
               long={fmtPct(lng.percentProfitable)}
               short={fmtPct(sht.percentProfitable)}
             />
-            <Row label="Avg P&L"
+            <Row label={t('strategytester.avgPnl')}
               all={<V main={fmtUsdt(all.avgPnl)} sub={fmtPct(all.avgPnlPct)} />}
               long={<V main={fmtUsdt(lng.avgPnl)} sub={fmtPct(lng.avgPnlPct)} />}
               short={<V main={fmtUsdt(sht.avgPnl)} sub={fmtPct(sht.avgPnlPct)} />}
             />
-            <Row label="Avg winning trade"
+            <Row label={t('strategytester.avgWinningTrade')}
               all={<V main={fmtUsdt(all.avgWinTrade)} sub={fmtPct(all.avgWinPct)} />}
               long={<V main={fmtUsdt(lng.avgWinTrade)} sub={fmtPct(lng.avgWinPct)} />}
               short={<V main={fmtUsdt(sht.avgWinTrade)} sub={fmtPct(sht.avgWinPct)} />}
             />
-            <Row label="Avg losing trade"
+            <Row label={t('strategytester.avgLosingTrade')}
               all={<V main={fmtUsdt(all.avgLossTrade)} sub={fmtPct(all.avgLossPct)} />}
               long={<V main={fmtUsdt(lng.avgLossTrade)} sub={fmtPct(lng.avgLossPct)} />}
               short={<V main={fmtUsdt(sht.avgLossTrade)} sub={fmtPct(sht.avgLossPct)} />}
             />
-            <Row label="Ratio avg win / avg loss"
+            <Row label={t('strategytester.ratioAvgWinLoss')}
               all={all.ratioAvgWinLoss.toFixed(3)}
               long={lng.ratioAvgWinLoss.toFixed(3)}
               short={sht.ratioAvgWinLoss.toFixed(3)}
             />
-            <Row label="Largest winning trade"
+            <Row label={t('strategytester.largestWinningTrade')}
               all={<span>{fmtUsdt(all.largestWin)}</span>}
               long={<span>{fmtUsdt(lng.largestWin)}</span>}
               short={<span>{fmtUsdt(sht.largestWin)}</span>}
             />
-            <Row label="Largest winning trade percent"
+            <Row label={t('strategytester.largestWinningTradePct')}
               all={fmtPct(all.largestWinPct)}
               long={fmtPct(lng.largestWinPct)}
               short={fmtPct(sht.largestWinPct)}
             />
-            <Row label="Largest winner as % of gross profit"
+            <Row label={t('strategytester.largestWinnerAsGrossProfit')}
               all={fmtPct(all.largestWinAsGrossProfit)}
               long={fmtPct(lng.largestWinAsGrossProfit)}
               short={fmtPct(sht.largestWinAsGrossProfit)}
             />
-            <Row label="Largest losing trade"
+            <Row label={t('strategytester.largestLosingTrade')}
               all={<span>{fmtUsdt(all.largestLoss)}</span>}
               long={<span>{fmtUsdt(lng.largestLoss)}</span>}
               short={<span>{fmtUsdt(sht.largestLoss)}</span>}
             />
-            <Row label="Largest losing trade percent"
+            <Row label={t('strategytester.largestLosingTradePct')}
               all={fmtPct(all.largestLossPct)}
               long={fmtPct(lng.largestLossPct)}
               short={fmtPct(sht.largestLossPct)}
             />
-            <Row label="Largest loser as % of gross loss"
+            <Row label={t('strategytester.largestLoserAsGrossLoss')}
               all={fmtPct(all.largestLossAsGrossLoss)}
               long={fmtPct(lng.largestLossAsGrossLoss)}
               short={fmtPct(sht.largestLossAsGrossLoss)}
             />
-            <Row label="Avg # bars in trades"
+            <Row label={t('strategytester.avgBarsInTrades')}
               all={fmtInt(all.avgBarsInTrades)}
               long={fmtInt(lng.avgBarsInTrades)}
               short={fmtInt(sht.avgBarsInTrades)}
             />
-            <Row label="Avg # bars in winning trades"
+            <Row label={t('strategytester.avgBarsInWinningTrades')}
               all={fmtInt(all.avgBarsInWinning)}
               long={fmtInt(lng.avgBarsInWinning)}
               short={fmtInt(sht.avgBarsInWinning)}
             />
-            <Row label="Avg # bars in losing trades"
+            <Row label={t('strategytester.avgBarsInLosingTrades')}
               all={fmtInt(all.avgBarsInLosing)}
               long={fmtInt(lng.avgBarsInLosing)}
               short={fmtInt(sht.avgBarsInLosing)}
@@ -495,29 +498,29 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
 
       {/* ── Capital efficiency ── */}
       <AccordionItem value="capital-efficiency">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Capital efficiency</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.capitalEfficiency')}</AccordionTrigger>
         <AccordionContent>
         <table className="w-full">
-          <thead><SectionHeader title="Capital usage" /></thead>
+          <thead><SectionHeader title={t('strategytester.capitalUsage')} /></thead>
           <TableHeader />
           <tbody>
-            <Row label="Annualized return (CAGR)"
+            <Row label={t('strategytester.annualizedReturnCagr')}
               all={fmtPct(all.cagr)}
               long={fmtPct(lng.cagr)}
               short={fmtPct(sht.cagr)}
             />
-            <Row label="Return on initial capital"
+            <Row label={t('strategytester.returnOnInitialCapital')}
               all={fmtPct(all.returnOnInitialCapital)}
               long={fmtPct(lng.returnOnInitialCapital)}
               short={fmtPct(sht.returnOnInitialCapital)}
             />
-            <Row label="Account size required" all={fmtUsdt(maxDdUsdt)} long="" short="" />
-            <Row label="Return on account size required"
+            <Row label={t('strategytester.accountSizeRequired')} all={fmtUsdt(maxDdUsdt)} long="" short="" />
+            <Row label={t('strategytester.returnOnAccountSizeRequired')}
               all={fmtPct(all.returnOnAccountSize)}
               long={fmtPct(lng.returnOnAccountSize)}
               short={fmtPct(sht.returnOnAccountSize)}
             />
-            <Row label="Net profit as % of largest loss"
+            <Row label={t('strategytester.netProfitAsPctOfLargestLoss')}
               all={fmtPct(all.netProfitAsLargestLoss)}
               long={fmtPct(lng.netProfitAsLargestLoss)}
               short={fmtPct(sht.netProfitAsLargestLoss)}
@@ -525,13 +528,13 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
           </tbody>
         </table>
         <table className="w-full mt-2">
-          <thead><SectionHeader title="Margin usage" /></thead>
+          <thead><SectionHeader title={t('strategytester.marginUsage')} /></thead>
           <TableHeader showLongShort={false} />
           <tbody>
-            <Row showLongShort={false} label="Avg margin used" all="0 USDT" />
-            <Row showLongShort={false} label="Max margin used" all="0 USDT" />
-            <Row showLongShort={false} label="Margin efficiency" all="0 USDT" />
-            <Row showLongShort={false} label="Margin calls" all="0" />
+            <Row showLongShort={false} label={t('strategytester.avgMarginUsed')} all="0 USDT" />
+            <Row showLongShort={false} label={t('strategytester.maxMarginUsed')} all="0 USDT" />
+            <Row showLongShort={false} label={t('strategytester.marginEfficiency')} all="0 USDT" />
+            <Row showLongShort={false} label={t('strategytester.marginCalls')} all="0" />
           </tbody>
         </table>
         </AccordionContent>
@@ -539,49 +542,49 @@ function StrategyReportTab({ r }: { r: BacktestResult }) {
 
       {/* ── Run-ups and drawdowns ── */}
       <AccordionItem value="runups-drawdowns">
-        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">Run-ups and drawdowns</AccordionTrigger>
+        <AccordionTrigger className="py-2 px-1 text-[13px] font-semibold text-foreground hover:no-underline hover:bg-muted/50">{t('strategytester.runupsAndDrawdowns')}</AccordionTrigger>
         <AccordionContent>
         <table className="w-full">
-          <thead><SectionHeader title="Run-ups" /></thead>
+          <thead><SectionHeader title={t('strategytester.runups')} /></thead>
           <TableHeader showLongShort={false} />
           <tbody>
-            <Row showLongShort={false} label="Avg equity run-up duration (close-to-close)"
-              all={`${fmtInt(runups.avgDuration)} days`}
+            <Row showLongShort={false} label={t('strategytester.avgRunupDurationCc')}
+              all={`${fmtInt(runups.avgDuration)} ${t('strategytester.days')}`}
             />
-            <Row showLongShort={false} label="Avg equity run-up (close-to-close)"
+            <Row showLongShort={false} label={t('strategytester.avgRunupCc')}
               all={<V main={fmtUsdt(runups.avg)} sub={fmtPct(runups.avgPct)} />}
             />
-            <Row showLongShort={false} label="Max equity run-up (close-to-close)"
+            <Row showLongShort={false} label={t('strategytester.maxRunupCc')}
               all={<V main={fmtUsdt(runups.max)} sub={fmtPct(runups.maxPct)} />}
             />
-            <Row showLongShort={false} label="Max equity run-up (intrabar)"
+            <Row showLongShort={false} label={t('strategytester.maxRunupIntrabar')}
               all={<V main={fmtUsdt(runups.max)} sub={fmtPct(runups.maxPct)} />}
             />
-            <Row showLongShort={false} label="Max equity run-up as % of initial capital (intrabar)"
+            <Row showLongShort={false} label={t('strategytester.maxRunupAsPctInitialIntrabar')}
               all={fmtPct(ic > 0 ? runups.max / ic * 100 : 0)}
             />
           </tbody>
         </table>
         <table className="w-full mt-2">
-          <thead><SectionHeader title="Drawdowns" /></thead>
+          <thead><SectionHeader title={t('strategytester.drawdowns')} /></thead>
           <TableHeader showLongShort={false} />
           <tbody>
-            <Row showLongShort={false} label="Avg equity drawdown duration (close-to-close)"
-              all={`${fmtInt(drawdowns.avgDuration)} days`}
+            <Row showLongShort={false} label={t('strategytester.avgDrawdownDurationCc')}
+              all={`${fmtInt(drawdowns.avgDuration)} ${t('strategytester.days')}`}
             />
-            <Row showLongShort={false} label="Avg equity drawdown (close-to-close)"
+            <Row showLongShort={false} label={t('strategytester.avgDrawdownCc')}
               all={<V main={fmtUsdt(drawdowns.avg)} sub={fmtPct(drawdowns.avgPct)} />}
             />
-            <Row showLongShort={false} label="Max equity drawdown (close-to-close)"
+            <Row showLongShort={false} label={t('strategytester.maxDrawdownCc')}
               all={<V main={fmtUsdt(drawdowns.max)} sub={fmtPct(drawdowns.maxPct)} />}
             />
-            <Row showLongShort={false} label="Max equity drawdown (intrabar)"
+            <Row showLongShort={false} label={t('strategytester.maxDrawdownIntrabar')}
               all={<V main={fmtUsdt(maxDdUsdt)} sub={fmtPct(maxDdPctCalc)} />}
             />
-            <Row showLongShort={false} label="Max equity drawdown as % of initial capital (intrabar)"
+            <Row showLongShort={false} label={t('strategytester.maxDrawdownAsPctInitialIntrabar')}
               all={fmtPct(ic > 0 ? maxDdUsdt / ic * 100 : 0)}
             />
-            <Row showLongShort={false} label="Return of max equity drawdown"
+            <Row showLongShort={false} label={t('strategytester.returnOfMaxDrawdown')}
               all={`${maxDdUsdt > 0 ? (all.netPnl / maxDdUsdt).toFixed(2) : '0.00'} USDT`}
             />
           </tbody>
@@ -693,6 +696,7 @@ function computeRunupsDrawdowns(equity: number[], ic: number): { runups: RunupDr
 function ProfitStructureChart({ grossProfit, grossLoss, openPnl, commission, netPnl }: {
   grossProfit: number; grossLoss: number; openPnl: number; commission: number; netPnl: number
 }) {
+  const { t } = useLang()
   const max = Math.max(grossProfit, grossLoss, Math.abs(netPnl), 1)
   const bar = (val: number, color: string, label: string) => (
     <div className="flex items-center gap-2 mb-1">
@@ -710,11 +714,11 @@ function ProfitStructureChart({ grossProfit, grossLoss, openPnl, commission, net
   )
   return (
     <div>
-      {bar(grossProfit, 'bg-emerald-500', 'Total profit')}
-      {bar(grossLoss, 'bg-red-500', 'Total loss')}
-      {bar(Math.abs(openPnl), 'bg-amber-500', 'Open P&L')}
-      {bar(commission, 'bg-blue-500', 'Commission')}
-      {bar(netPnl, netPnl >= 0 ? 'bg-emerald-500' : 'bg-red-500', 'Total P&L')}
+      {bar(grossProfit, 'bg-emerald-500', t('strategytester.totalProfit'))}
+      {bar(grossLoss, 'bg-red-500', t('strategytester.totalLoss'))}
+      {bar(Math.abs(openPnl), 'bg-amber-500', t('strategytester.openPnl'))}
+      {bar(commission, 'bg-blue-500', t('strategytester.commission'))}
+      {bar(netPnl, netPnl >= 0 ? 'bg-emerald-500' : 'bg-red-500', t('strategytester.totalPnl'))}
     </div>
   )
 }
@@ -722,13 +726,14 @@ function ProfitStructureChart({ grossProfit, grossLoss, openPnl, commission, net
 function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct }: {
   bhReturn: number; stratReturn: number; bhPct: number; stratPct: number; ic: number
 }) {
+  const { t } = useLang()
   const maxVal = Math.max(Math.abs(bhReturn), Math.abs(stratReturn), 1)
   const scale = (v: number) => (v / maxVal) * 45
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <div className="w-20 text-[10px] text-muted-foreground text-right">Buy & Hold</div>
+        <div className="w-20 text-[10px] text-muted-foreground text-right">{t('strategytester.buyAndHold')}</div>
         <div className="flex-1 h-6 bg-secondary/10 rounded relative">
           <div className="absolute top-0 bottom-0 left-1/2 w-px bg-secondary/40" />
           <div
@@ -744,7 +749,7 @@ function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct }: {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="w-20 text-[10px] text-muted-foreground text-right">Strategy</div>
+        <div className="w-20 text-[10px] text-muted-foreground text-right">{t('strategytester.strategy')}</div>
         <div className="flex-1 h-6 bg-secondary/10 rounded relative">
           <div className="absolute top-0 bottom-0 left-1/2 w-px bg-secondary/40" />
           <div
@@ -760,15 +765,16 @@ function BenchmarkChart({ bhReturn, stratReturn, bhPct, stratPct }: {
         </div>
       </div>
       <div className="flex gap-4 text-[10px] text-muted-foreground px-1">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> P&L for buy & hold</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> P&L for strategy</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> {t('strategytester.pnlForBuyAndHold')}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> {t('strategytester.pnlForStrategy')}</span>
       </div>
     </div>
   )
 }
 
 function PnlDistribution({ trades }: { trades: TradeRecord[] }) {
-  if (trades.length === 0) return <div className="text-muted-foreground text-xs">No trades</div>
+  const { t } = useLang()
+  if (trades.length === 0) return <div className="text-muted-foreground text-xs">{t('strategytester.noTrades')}</div>
 
   // Bucket P&L percentages
   const pcts = trades.map(t => t.pnl_pct)
@@ -791,7 +797,7 @@ function PnlDistribution({ trades }: { trades: TradeRecord[] }) {
 
   return (
     <div>
-      <div className="text-[11px] font-medium text-muted-foreground mb-2">P&L Distribution</div>
+      <div className="text-[11px] font-medium text-muted-foreground mb-2">{t('strategytester.pnlDistribution')}</div>
       <div className="flex items-end gap-px h-20">
         {buckets.map((b, i) => (
           <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
@@ -807,16 +813,17 @@ function PnlDistribution({ trades }: { trades: TradeRecord[] }) {
         <span>{buckets[buckets.length - 1]?.label}</span>
       </div>
       <div className="flex gap-3 text-[10px] text-muted-foreground mt-1">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Loss</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Profit</span>
-        <span className="ml-auto">Average loss <strong className="text-tv-red">{avgLoss.toFixed(2)}%</strong></span>
-        <span>Average profit <strong className="text-tv-green">{avgProfit.toFixed(2)}%</strong></span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> {t('strategytester.loss')}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> {t('strategytester.profit')}</span>
+        <span className="ml-auto">{t('strategytester.averageLoss')} <strong className="text-tv-red">{avgLoss.toFixed(2)}%</strong></span>
+        <span>{t('strategytester.averageProfit')} <strong className="text-tv-green">{avgProfit.toFixed(2)}%</strong></span>
       </div>
     </div>
   )
 }
 
 function WinLossDonut({ total, wins, losses }: { total: number; wins: number; losses: number }) {
+  const { t } = useLang()
   const winPct = total > 0 ? wins / total : 0
   const lossPct = total > 0 ? losses / total : 0
   const r = 40
@@ -826,7 +833,7 @@ function WinLossDonut({ total, wins, losses }: { total: number; wins: number; lo
 
   return (
     <div>
-      <div className="text-[11px] font-medium text-muted-foreground mb-2">Win/loss ratio</div>
+      <div className="text-[11px] font-medium text-muted-foreground mb-2">{t('strategytester.winLossRatio')}</div>
       <div className="flex items-center gap-4">
         <div className="relative" style={{ width: 100, height: 100 }}>
           <svg viewBox="0 0 100 100" width="100" height="100">
@@ -837,26 +844,26 @@ function WinLossDonut({ total, wins, losses }: { total: number; wins: number; lo
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div className="text-lg font-bold text-foreground tabular-nums">{total}</div>
-            <div className="text-[9px] text-muted-foreground">Total trades</div>
+            <div className="text-[9px] text-muted-foreground">{t('strategytester.totalTrades')}</div>
           </div>
         </div>
         <div className="space-y-1 text-[11px]">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span className="text-muted-foreground">Wins</span>
-            <span className="ml-2 tabular-nums text-foreground">{wins} trades</span>
+            <span className="text-muted-foreground">{t('strategytester.wins')}</span>
+            <span className="ml-2 tabular-nums text-foreground">{wins} {t('strategytester.tradesUnit')}</span>
             <span className="ml-1 tabular-nums text-muted-foreground">{(winPct * 100).toFixed(2)}%</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-            <span className="text-muted-foreground">Losses</span>
-            <span className="ml-2 tabular-nums text-foreground">{losses} trades</span>
+            <span className="text-muted-foreground">{t('strategytester.losses')}</span>
+            <span className="ml-2 tabular-nums text-foreground">{losses} {t('strategytester.tradesUnit')}</span>
             <span className="ml-1 tabular-nums text-muted-foreground">{(lossPct * 100).toFixed(2)}%</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            <span className="text-muted-foreground">Break even</span>
-            <span className="ml-2 tabular-nums text-foreground">0 trades</span>
+            <span className="text-muted-foreground">{t('strategytester.breakEven')}</span>
+            <span className="ml-2 tabular-nums text-foreground">0 {t('strategytester.tradesUnit')}</span>
             <span className="ml-1 tabular-nums text-muted-foreground">0.00%</span>
           </div>
         </div>
@@ -875,6 +882,7 @@ interface TradeRow extends TradeRecord {
 }
 
 function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeRecord[]; initialCapital: number; timezone: string }) {
+  const { t } = useLang()
   const rows: TradeRow[] = useMemo(() => {
     let cum = 0
     return trades.map((t, i) => {
@@ -889,7 +897,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         accessorKey: '_index',
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-            Trade # <ArrowUpDown className="ml-1 h-3 w-3" />
+            {t('strategytester.tradeNo')} <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
         cell: ({ row }) => {
@@ -898,7 +906,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground tabular-nums">{row.original._index}</span>
               <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded-sm', isLong ? 'bg-emerald-500/15 text-tv-green' : 'bg-red-500/15 text-tv-red')}>
-                {isLong ? 'Long' : 'Short'}
+                {isLong ? t('strategytester.longBadge') : t('strategytester.shortBadge')}
               </span>
             </div>
           )
@@ -908,7 +916,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         accessorKey: 'entry_time',
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-            Entry time <ArrowUpDown className="ml-1 h-3 w-3" />
+            {t('strategytester.entryTime')} <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
         cell: ({ row }) => (
@@ -917,7 +925,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
       },
       {
         accessorKey: 'price',
-        header: () => <span className="flex justify-end text-[11px]">Entry price</span>,
+        header: () => <span className="flex justify-end text-[11px]">{t('strategytester.entryPrice')}</span>,
         cell: ({ row }) => (
           <div className="text-right tabular-nums whitespace-nowrap text-[11px]">{fmtPrice(row.original.price)} USDT</div>
         ),
@@ -926,7 +934,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         accessorKey: 'exit_time',
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-            Exit time <ArrowUpDown className="ml-1 h-3 w-3" />
+            {t('strategytester.exitTime')} <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
         cell: ({ row }) => (
@@ -935,14 +943,14 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
       },
       {
         accessorKey: 'exit_price',
-        header: () => <span className="flex justify-end text-[11px]">Exit price</span>,
+        header: () => <span className="flex justify-end text-[11px]">{t('strategytester.exitPrice')}</span>,
         cell: ({ row }) => (
           <div className="text-right tabular-nums whitespace-nowrap text-[11px]">{fmtPrice(row.original.exit_price)} USDT</div>
         ),
       },
       {
         accessorKey: 'amount',
-        header: () => <div className="text-right text-[11px]">Position size</div>,
+        header: () => <div className="text-right text-[11px]">{t('strategytester.positionSize')}</div>,
         cell: ({ row }) => (
           <div className="text-right tabular-nums text-[11px]">
             <div>{row.original.amount.toFixed(2)}</div>
@@ -954,7 +962,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         accessorKey: 'pnl',
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium ml-auto flex" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-            Net P&L <ArrowUpDown className="ml-1 h-3 w-3" />
+            {t('strategytester.netPnl')} <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
         cell: ({ row }) => (
@@ -966,7 +974,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
       },
       {
         id: 'mfe',
-        header: () => <span className="flex justify-end text-[11px]">Favorable excursion</span>,
+        header: () => <span className="flex justify-end text-[11px]">{t('strategytester.favorableExcursion')}</span>,
         cell: ({ row }) => (
           <div className="text-right text-[11px]">
             <div className="tabular-nums text-tv-green">{row.original.mfe != null ? fmtSignUsdt(row.original.mfe) : '\u2014'}</div>
@@ -976,7 +984,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
       },
       {
         id: 'mae',
-        header: () => <span className="flex justify-end text-[11px]">Adverse excursion</span>,
+        header: () => <span className="flex justify-end text-[11px]">{t('strategytester.adverseExcursion')}</span>,
         cell: ({ row }) => (
           <div className="text-right text-[11px]">
             <div className="tabular-nums text-tv-red">{row.original.mae != null ? fmtSignUsdt(row.original.mae) : '\u2014'}</div>
@@ -988,7 +996,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         accessorKey: '_cumPnl',
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium ml-auto flex" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-            Cumulative P&L <ArrowUpDown className="ml-1 h-3 w-3" />
+            {t('strategytester.cumulativePnl')} <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
         cell: ({ row }) => (
@@ -1002,7 +1010,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         accessorKey: 'bars_held',
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="h-auto px-1 py-0 text-[11px] font-medium ml-auto flex" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
-            Bars <ArrowUpDown className="ml-1 h-3 w-3" />
+            {t('strategytester.bars')} <ArrowUpDown className="ml-1 h-3 w-3" />
           </Button>
         ),
         cell: ({ row }) => (
@@ -1010,7 +1018,7 @@ function TradesListTab({ trades, initialCapital, timezone }: { trades: TradeReco
         ),
       },
     ],
-    [timezone],
+    [timezone, t],
   )
 
   return <DataTable columns={columns} data={rows} pageSize={15} />
@@ -1024,25 +1032,26 @@ interface Props {
 
 export default function StrategyTester({ result }: Props) {
   const { timezone } = useTimezone()
+  const { t } = useLang()
 
   return (
     <Tabs defaultValue="report" className="flex flex-col h-full">
       <div className="flex items-center border-b border-border shrink-0">
         <span className="text-[11px] font-semibold text-muted-foreground px-3 py-2 border-r border-border mr-1">
-          Strategy Tester
+          {t('strategytester.title')}
         </span>
         <TabsList className="bg-transparent h-auto p-0">
           <TabsTrigger
             value="report"
             className="px-4 py-2 text-xs font-medium rounded-none border-b-2 border-transparent h-auto data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-primary data-[state=active]:shadow-none text-muted-foreground hover:text-foreground"
           >
-            Strategy Report
+            {t('strategytester.reportTab')}
           </TabsTrigger>
           <TabsTrigger
             value="trades"
             className="px-4 py-2 text-xs font-medium rounded-none border-b-2 border-transparent h-auto data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-primary data-[state=active]:shadow-none text-muted-foreground hover:text-foreground"
           >
-            List of Trades
+            {t('strategytester.tradesTab')}
           </TabsTrigger>
         </TabsList>
         {/* Summary info */}

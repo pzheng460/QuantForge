@@ -7,6 +7,7 @@ import type {
   OptimizeJobStatus,
   LiveStartRequest,
   LiveEngineOut,
+  LiveAccountOut,
   GlobalRiskState,
 } from '../types'
 
@@ -109,6 +110,7 @@ export const api = {
   deleteLive: (engineId: string): Promise<{ engine_id: string; deleted: boolean }> =>
     del(`/live/engines/${engineId}`),
   liveEngines: (): Promise<LiveEngineOut[]> => get('/live/engines'),
+  liveAccount: (): Promise<LiveAccountOut> => get('/live/account'),
   globalRisk: (): Promise<GlobalRiskState> => get('/risk/global'),
   setGlobalRisk: (halted: boolean, reason = ''): Promise<GlobalRiskState> =>
     fetch(`${BASE}/risk/global`, {
@@ -130,6 +132,21 @@ export const api = {
     }
     report_path: string
   }> => post('/options/schwab/analyze', request),
+
+  researchReports: (): Promise<{
+    reports: Array<{
+      kind: 'crypto' | 'options' | 'technical'
+      name: string
+      updated_at: string
+      markdown: string
+    }>
+    refreshing: boolean
+    last_refresh: string | null
+    last_error: string | null
+  }> => get('/research/reports'),
+
+  refreshResearch: (): Promise<{ started: boolean; detail?: string }> =>
+    post('/research/refresh', {}),
 
 }
 

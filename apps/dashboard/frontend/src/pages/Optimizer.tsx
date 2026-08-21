@@ -3,6 +3,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useLang } from '../i18n'
 import { subscribeOptimize } from '../api/client'
 import { useOptimizerStore } from '../stores/optimizerStore'
 import { useCatalog } from '../hooks/useCatalog'
@@ -88,6 +89,7 @@ function GridProgressPanel({
   progress?: OptimizeProgress
   status?: string
 }) {
+  const { t } = useLang()
   const total = progress?.total ?? 0
   const completed = progress?.completed ?? 0
   const pctVal = total > 0 ? Math.min(100, (completed / total) * 100) : 0
@@ -97,12 +99,12 @@ function GridProgressPanel({
   const etaSecs = avgSecs && remainingCombos > 0 ? avgSecs * remainingCombos : null
 
   const phase = !progress
-    ? (status === 'pending' ? 'Queued…' : 'Fetching market data…')
+    ? (status === 'pending' ? t('optimizer.queued') : t('optimizer.fetchingMarket'))
     : completed === 0
-      ? `Preparing grid (${total} combinations)`
+      ? t('optimizer.preparingGrid').replace('{total}', String(total))
       : completed >= total
-        ? 'Finalizing…'
-        : `Evaluating combination ${completed} / ${total}`
+        ? t('optimizer.finalizing')
+        : t('optimizer.evaluating').replace('{completed}', String(completed)).replace('{total}', String(total))
 
   return (
     <div className="flex flex-1 items-center justify-center min-h-0">
@@ -110,7 +112,7 @@ function GridProgressPanel({
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between">
             <span className="text-[11px] font-mono uppercase tracking-[0.12em] text-muted-foreground">
-              Grid Search
+              {t('optimizer.gridSearch')}
             </span>
             <span className="text-[12px] font-mono tabular-nums text-foreground">
               {total > 0 ? `${pctVal.toFixed(1)}%` : '—'}
@@ -135,11 +137,11 @@ function GridProgressPanel({
           </div>
           {(etaSecs !== null || elapsedSecs !== null) && (
             <div className="flex items-baseline justify-between text-[10px] text-muted-foreground/80 font-mono tabular-nums pt-0.5">
-              {elapsedSecs !== null ? <span>elapsed {formatDuration(elapsedSecs)}</span> : <span />}
+              {elapsedSecs !== null ? <span>{t('optimizer.elapsed').replace('{dur}', formatDuration(elapsedSecs))}</span> : <span />}
               {etaSecs !== null && (
                 <span>
-                  ≈ {formatDuration(etaSecs)} remaining
-                  {avgSecs ? ` · ${avgSecs.toFixed(2)}s / combo` : ''}
+                  {t('optimizer.etaRemaining').replace('{dur}', formatDuration(etaSecs))}
+                  {avgSecs ? t('optimizer.perCombo').replace('{secs}', avgSecs.toFixed(2)) : ''}
                 </span>
               )}
             </div>
@@ -151,33 +153,34 @@ function GridProgressPanel({
 }
 
 function GridResults({ r }: { r: GridSearchResult }) {
+  const { t } = useLang()
   return (
     <div className="space-y-5">
       {/* Summary stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-sm bg-muted">
         <div>
-          <div className="text-xs text-muted-foreground">Best Sharpe</div>
+          <div className="text-xs text-muted-foreground">{t('optimizer.bestSharpe')}</div>
           <div className="text-xl font-semibold text-primary">{num(r.best_sharpe)}</div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground">Best Return</div>
+          <div className="text-xs text-muted-foreground">{t('optimizer.bestReturn')}</div>
           <div className={cn('text-xl font-semibold', r.best_return_pct >= 0 ? 'text-tv-green' : 'text-tv-red')}>
             {pct(r.best_return_pct)}
           </div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground">Max Drawdown</div>
+          <div className="text-xs text-muted-foreground">{t('optimizer.maxDrawdown')}</div>
           <div className="text-xl font-semibold text-tv-red">{pct(r.best_drawdown_pct, false)}</div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground">Train Period</div>
+          <div className="text-xs text-muted-foreground">{t('optimizer.trainPeriod')}</div>
           <div className="text-sm font-medium text-foreground">{r.train_start} &rarr; {r.train_end}</div>
         </div>
       </div>
 
       {/* Best params */}
       <div>
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Best Parameters</div>
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{t('optimizer.bestParameters')}</div>
         <div className="flex flex-wrap gap-2">
           {Object.entries(r.best_params).map(([k, v]) => (
             <Badge key={k} variant="secondary" className="text-xs">
@@ -191,14 +194,14 @@ function GridResults({ r }: { r: GridSearchResult }) {
       {/* Top N table */}
       <div>
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          Top {r.rows.length} Combinations
+          {t('optimizer.topCombinations').replace('{n}', String(r.rows.length))}
         </div>
         <div className="overflow-x-auto">
           <table className="text-xs w-full">
             <thead>
               <tr className="border-b border-border">
-                {['Rank', 'Sharpe', 'Return', 'Drawdown', 'Trades', 'Win%', 'Parameters'].map((h) => (
-                  <th key={h} className="py-2 px-2 text-left text-muted-foreground font-medium">{h}</th>
+                {['thRank', 'thSharpe', 'thReturn', 'thDrawdown', 'thTrades', 'thWin', 'thParameters'].map((k) => (
+                  <th key={k} className="py-2 px-2 text-left text-muted-foreground font-medium">{t('optimizer.' + k)}</th>
                 ))}
               </tr>
             </thead>
@@ -244,6 +247,7 @@ function GridResults({ r }: { r: GridSearchResult }) {
 
 export default function OptimizerPage() {
   const { strategies, exchanges } = useCatalog()
+  const { t } = useLang()
 
   // Zustand store (persists across tab switches)
   const {
@@ -308,7 +312,7 @@ export default function OptimizerPage() {
         if (msg.status === 'completed') {
           setLoading(false)
         } else if (msg.status === 'failed') {
-          setError(msg.error ?? 'Unknown error')
+          setError(msg.error ?? t('optimizer.unknownError'))
           setLoading(false)
         }
       },
@@ -365,27 +369,27 @@ export default function OptimizerPage() {
   const isRunning = status === 'pending' || status === 'running'
 
   return (
-    <ResizableSidebarShell storageKey="optimizer">
+    <ResizableSidebarShell>
       <Sidebar collapsible="none">
         <SidebarHeader className="border-b border-border px-3 py-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            Optimizer
+            {t('optimizer.optimizerTitle')}
           </span>
         </SidebarHeader>
 
         <SidebarContent>
           {/* Configuration */}
           <SidebarGroup>
-            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
+            <SidebarGroupLabel>{t('optimizer.configuration')}</SidebarGroupLabel>
             <SidebarGroupContent className="space-y-2">
-              <FormField label="Strategy" error={formErrors.strategy?.message}>
+              <FormField label={t('optimizer.strategy')} error={formErrors.strategy?.message}>
                 <Controller
                   name="strategy"
                   control={controlOpt}
                   render={({ field }) => (
                 <Select value={field.value || '__none__'} onValueChange={(v) => { const val = v === '__none__' ? '' : v; field.onChange(val); setStrategy(val) }}>
                   <SelectTrigger className="text-xs h-8">
-                    <SelectValue placeholder="Select strategy" />
+                    <SelectValue placeholder={t('optimizer.selectStrategy')} />
                   </SelectTrigger>
                   <SelectContent>
                     {strategies.map((s) => <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>)}
@@ -395,14 +399,14 @@ export default function OptimizerPage() {
                 />
               </FormField>
 
-              <FormField label="Exchange" error={formErrors.exchange?.message}>
+              <FormField label={t('optimizer.exchange')} error={formErrors.exchange?.message}>
                 <Controller
                   name="exchange"
                   control={controlOpt}
                   render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => { field.onChange(v); setExchange(v) }}>
                   <SelectTrigger className="text-xs h-8">
-                    <SelectValue placeholder="Select exchange" />
+                    <SelectValue placeholder={t('optimizer.selectExchange')} />
                   </SelectTrigger>
                   <SelectContent>
                     {exchanges.filter((ex) => ex.supports_backtest !== false).map((ex) => <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>)}
@@ -412,7 +416,7 @@ export default function OptimizerPage() {
                 />
               </FormField>
 
-              <FormField label={`Symbol (default: ${selectedExchange?.default_symbol ?? '...'})`} error={formErrors.symbol?.message}>
+              <FormField label={t('optimizer.symbolDefault').replace('{sym}', selectedExchange?.default_symbol ?? '...')} error={formErrors.symbol?.message}>
                 <Input
                   type="text"
                   className="text-xs h-8"
@@ -423,7 +427,7 @@ export default function OptimizerPage() {
                 />
               </FormField>
 
-              <FormField label="Leverage" error={formErrors.leverage?.message}>
+              <FormField label={t('optimizer.leverage')} error={formErrors.leverage?.message}>
                 <Input
                   type="number"
                   className="text-xs h-8"
@@ -441,32 +445,32 @@ export default function OptimizerPage() {
 
           {/* Grid-specific: period / date range / parallel jobs */}
           <SidebarGroup>
-              <SidebarGroupLabel>Period</SidebarGroupLabel>
+              <SidebarGroupLabel>{t('optimizer.period')}</SidebarGroupLabel>
               <SidebarGroupContent className="space-y-2">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Lookback is used <span className="font-medium text-foreground">unless both dates below are filled</span>{' '}
-                  (then dates override).
+                  {t('optimizer.lookbackPrefix')} <span className="font-medium text-foreground">{t('optimizer.lookbackBold')}</span>{' '}
+                  {t('optimizer.lookbackSuffix')}
                 </p>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-xs">Lookback (from today)</Label>
+                  <Label className="text-xs">{t('optimizer.lookbackLabel')}</Label>
                   <Select value={period} onValueChange={setPeriod}>
                     <SelectTrigger className="text-xs h-8">
-                      <SelectValue placeholder="Select lookback" />
+                      <SelectValue placeholder={t('optimizer.selectLookback')} />
                     </SelectTrigger>
                     <SelectContent>
                       {PERIODS.map((p) => (
-                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                        <SelectItem key={p.value} value={p.value}>{t('optimizer.' + p.value)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
                   <div className="flex-1 h-px bg-border" />
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">or pick exact dates (overrides)</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('optimizer.orPickDates')}</span>
                   <div className="flex-1 h-px bg-border" />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-xs">Start Date</Label>
+                  <Label className="text-xs">{t('optimizer.startDate')}</Label>
                   <Input
                     type="date"
                     className="text-xs h-8"
@@ -475,7 +479,7 @@ export default function OptimizerPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-xs">End Date</Label>
+                  <Label className="text-xs">{t('optimizer.endDate')}</Label>
                   <Input
                     type="date"
                     className="text-xs h-8"
@@ -485,7 +489,7 @@ export default function OptimizerPage() {
                 </div>
                 {startDate && endDate && (
                   <p className="text-[10px] text-muted-foreground">
-                    Using <span className="font-mono text-foreground">{startDate} → {endDate}</span> (overrides period)
+                    {t('optimizer.usingPrefix')} <span className="font-mono text-foreground">{startDate} → {endDate}</span> {t('optimizer.usingSuffix')}
                   </p>
                 )}
               </SidebarGroupContent>
@@ -501,7 +505,7 @@ export default function OptimizerPage() {
               onClick={handleCancel}
             >
               <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-              Cancel Grid Search
+              {t('optimizer.cancelGrid')}
             </Button>
           ) : (
             <Button
@@ -510,13 +514,13 @@ export default function OptimizerPage() {
               onClick={handleSubmitOpt(onValidGridRun)}
               disabled={!strategy}
             >
-              Run Grid Search
+              {t('optimizer.runGrid')}
             </Button>
           )}
           <div className="flex items-center gap-2">
             {status && <StatusBadge status={status} />}
             {isRunning && (
-              <span className="text-[10px] text-muted-foreground">This may take several minutes&hellip;</span>
+              <span className="text-[10px] text-muted-foreground">{t('optimizer.takeSeveralMinutes')}</span>
             )}
           </div>
         </SidebarFooter>
@@ -528,7 +532,7 @@ export default function OptimizerPage() {
           {error && (
             <Card className="border-destructive/50 mb-4 shrink-0">
               <CardContent className="pt-4">
-                <p className="text-sm font-medium text-red-500 mb-1">Grid search failed</p>
+                <p className="text-sm font-medium text-red-500 mb-1">{t('optimizer.gridFailed')}</p>
                 <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-auto max-h-48">{error}</pre>
               </CardContent>
             </Card>
@@ -550,9 +554,9 @@ export default function OptimizerPage() {
           {!isRunning && !error && jobResult?.status !== 'completed' && (
             <div className="flex flex-1 items-center justify-center min-h-0">
               <div className="text-center max-w-md">
-                <div className="text-muted-foreground text-lg mb-2">No Results Yet</div>
+                <div className="text-muted-foreground text-lg mb-2">{t('optimizer.noResults')}</div>
                 <div className="text-muted-foreground/60 text-xs leading-relaxed">
-                  Configure your optimization settings in the sidebar, then click Run to start.
+                  {t('optimizer.emptyHint')}
                 </div>
               </div>
             </div>

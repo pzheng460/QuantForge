@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useLang } from '../../i18n'
 import {
   createChart,
   ColorType,
@@ -24,6 +25,7 @@ function toUnixSec(isoString: string): number {
 }
 
 export default function TradingChart({ equityCurve, trades, height = 400 }: Props) {
+  const { t } = useLang()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const strategySeriesRef = useRef<ISeriesApi<'Area'> | null>(null)
@@ -180,14 +182,14 @@ export default function TradingChart({ equityCurve, trades, height = 400 }: Prop
       <div className="absolute top-3 left-4 flex items-center gap-4 pointer-events-none text-[11px] font-medium text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-4 h-[2px] rounded-full bg-brand" />
-          Strategy
+          {t("app.chartStrategy")}
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-4 border-t border-dashed border-muted-foreground" />
-          Buy &amp; Hold
+          {t("app.chartBuyHold")}
         </span>
-        <span className="flex items-center gap-1 text-positive">▲ Buy</span>
-        <span className="flex items-center gap-1 text-negative">▼ Sell</span>
+        <span className="flex items-center gap-1 text-positive">▲ {t("app.chartBuy")}</span>
+        <span className="flex items-center gap-1 text-negative">▼ {t("app.chartSell")}</span>
       </div>
     </div>
   )

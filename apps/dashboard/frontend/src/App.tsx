@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, Suspense, lazy } from 'react'
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { Clock, Loader2, Search } from 'lucide-react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 const DashboardPage = lazy(() => import('./pages/Dashboard'))
 const BacktestPage = lazy(() => import('./pages/Backtest'))
 const OptimizerPage = lazy(() => import('./pages/Optimizer'))
-const OptionsAnalysisPage = lazy(() => import('./pages/OptionsAnalysis'))
+const ResearchPage = lazy(() => import('./pages/Research'))
 import { TimezoneProvider, useTimezone } from './hooks/useTimezone'
+import { useLang } from './i18n'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
@@ -56,6 +57,7 @@ function NavItem({ to, label }: { to: string; label: string }) {
 
 function TimezoneSelector() {
   const { timezone, setTimezone, localTz } = useTimezone()
+  const { t } = useLang()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -103,7 +105,7 @@ function TimezoneSelector() {
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search timezone..."
+                placeholder={t("app.searchTz")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-8 text-[13px] pl-7"
@@ -123,7 +125,7 @@ function TimezoneSelector() {
                 )}
               >
                 <span className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Local</span>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{t("app.local")}</span>
                   <span>{tzLabel(localTz)}</span>
                 </span>
                 <span className="text-muted-foreground tabular-nums font-mono text-[11px]">{tzOffset(localTz)}</span>
@@ -148,7 +150,7 @@ function TimezoneSelector() {
               )
             })}
             {filtered.length === 0 && (
-              <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">No matching timezone</div>
+              <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">{t("app.noTz")}</div>
             )}
           </div>
         </div>
@@ -165,7 +167,24 @@ function Logo() {
   )
 }
 
+function LangToggle() {
+  const { locale, setLocale } = useLang()
+  return (
+    <div className="inline-flex items-center h-7 rounded-md border border-border bg-card overflow-hidden text-[10px] font-mono">
+      <button type="button" onClick={() => setLocale('zh')}
+        className={cn('h-full px-2', locale === 'zh' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+        中文
+      </button>
+      <button type="button" onClick={() => setLocale('en')}
+        className={cn('h-full px-2 border-l border-border', locale === 'en' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+        EN
+      </button>
+    </div>
+  )
+}
+
 function TopBar() {
+  const { t } = useLang()
   return (
     <header className="sticky top-0 z-40 shrink-0 bg-background/85 backdrop-blur-md supports-[backdrop-filter]:bg-background/70 border-b border-border">
       <div className="px-5 lg:px-6 h-12 flex items-center gap-5">
@@ -173,17 +192,18 @@ function TopBar() {
 
         <div className="hidden sm:flex items-center text-[11px] font-mono text-muted-foreground/80">
           <span className="px-1 text-muted-foreground/50">/</span>
-          <span className="tracking-tight">workspace</span>
+          <span className="tracking-tight">{t('app.workspace')}</span>
         </div>
 
         <nav className="flex items-center gap-0.5 ml-2">
-          <NavItem to="/" label="Live" />
-          <NavItem to="/backtest" label="Backtest" />
-          <NavItem to="/optimizer" label="Optimizer" />
-          <NavItem to="/options" label="Options" />
+          <NavItem to="/" label={t('app.navLive')} />
+          <NavItem to="/backtest" label={t('app.navBacktest')} />
+          <NavItem to="/optimizer" label={t('app.navOptimizer')} />
+          <NavItem to="/research" label={t('app.navResearch')} />
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <LangToggle />
           <TimezoneSelector />
           <ConnectionPill />
         </div>
@@ -195,6 +215,7 @@ function TopBar() {
 /** Live backend health indicator (polls /api/health). */
 function ConnectionPill() {
   const [state, setState] = useState<'checking' | 'online' | 'offline'>('checking')
+  const { t } = useLang()
 
   useEffect(() => {
     let active = true
@@ -214,13 +235,18 @@ function ConnectionPill() {
     }
   }, [])
 
-  const label = state === 'online' ? 'connected' : state === 'offline' ? 'offline' : 'connecting…'
+  const label = state === 'online' ? t('app.connected') : state === 'offline' ? t('app.offline') : t('app.connecting')
   return (
     <span className="hidden md:inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] font-mono text-muted-foreground border border-border bg-card">
       <span className={cn('status-dot', state === 'offline' && 'status-dot--offline')} />
       <span className="tracking-tight">{label}</span>
     </span>
   )
+}
+
+function LoadingText() {
+  const { t } = useLang()
+  return <span className="text-[12px] font-medium">{t('app.loading')}</span>
 }
 
 function AppContent() {
@@ -233,7 +259,7 @@ function AppContent() {
             fallback={
               <div className="flex items-center justify-center h-full gap-2.5 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-[12px] font-medium">Loading…</span>
+                <LoadingText />
               </div>
             }
           >
@@ -241,7 +267,8 @@ function AppContent() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/backtest" element={<BacktestPage />} />
               <Route path="/optimizer" element={<OptimizerPage />} />
-              <Route path="/options" element={<OptionsAnalysisPage />} />
+              <Route path="/research" element={<ResearchPage />} />
+              <Route path="/options" element={<Navigate to="/research" replace />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

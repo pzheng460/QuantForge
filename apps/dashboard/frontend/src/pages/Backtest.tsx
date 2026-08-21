@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { Activity, Loader2, Play, Square } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useLang } from '../i18n'
 import { useBacktestStore } from '../stores/backtestStore'
 import { useCatalog } from '../hooks/useCatalog'
 import { useBacktestStatus, useRunBacktest, useCancelBacktest } from '../hooks/use-queries'
@@ -76,6 +77,7 @@ function useResizablePanel(defaultHeight: number) {
 // ─── Main Backtest page ─────────────────────────────────────────────────────
 
 export default function BacktestPage() {
+  const { t } = useLang()
   const { strategies, exchanges } = useCatalog()
 
   // Zustand store — UI state only (persists across tab switches)
@@ -218,25 +220,25 @@ export default function BacktestPage() {
   const selectedExchange = exchanges.find((ex) => ex.id === exchange)
 
   return (
-    <ResizableSidebarShell storageKey="backtest" defaultWidth={320}>
+    <ResizableSidebarShell>
       <Sidebar collapsible="none">
         <SidebarHeader className="border-b border-sidebar-border px-3 py-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            Backtest
+            {t('backtest.header')}
           </span>
         </SidebarHeader>
 
         <SidebarContent>
           {/* Strategy selector */}
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Strategy</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">{t('backtest.strategy')}</SidebarGroupLabel>
             <SidebarGroupContent>
               <div className="space-y-1 px-2">
                 <div className="flex flex-col gap-1">
-                  <Label>Strategy</Label>
+                  <Label>{t('backtest.strategy')}</Label>
                   <Select value={selectedStrategy} onValueChange={handleStrategyChange}>
                     <SelectTrigger className="text-xs h-8">
-                      <SelectValue placeholder="-- Select --" />
+                      <SelectValue placeholder={t('backtest.selectPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {strategies.map((s: StrategySchema) => (
@@ -252,7 +254,7 @@ export default function BacktestPage() {
           {strategyParams.length > 0 && (
             <SidebarGroup>
               <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">
-                {`Parameters (${strategyParams.length})`}
+                {`${t('backtest.parameters')} (${strategyParams.length})`}
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <div className="space-y-0 px-2">
@@ -282,17 +284,17 @@ export default function BacktestPage() {
 
           {/* Backtest settings — validated by react-hook-form + zod */}
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Settings</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">{t('backtest.settings')}</SidebarGroupLabel>
             <SidebarGroupContent>
               <div className="space-y-1 px-2">
-                <FormField label="Exchange" error={formErrors.exchange?.message}>
+                <FormField label={t('backtest.exchange')} error={formErrors.exchange?.message}>
                   <Controller
                     name="exchange"
                     control={control}
                     render={({ field }) => (
                       <Select value={field.value} onValueChange={(v) => { field.onChange(v); setExchange(v) }}>
                         <SelectTrigger className="text-xs h-8">
-                          <SelectValue placeholder="Select exchange" />
+                          <SelectValue placeholder={t('backtest.selectExchange')} />
                         </SelectTrigger>
                         <SelectContent>
                           {exchanges.filter((ex: Exchange) => ex.supports_backtest !== false).map((ex: Exchange) => (
@@ -305,7 +307,7 @@ export default function BacktestPage() {
                 </FormField>
 
                 <FormField
-                  label={`Symbol (${selectedExchange?.default_symbol ?? '\u2026'})`}
+                  label={`${t('backtest.symbol')} (${selectedExchange?.default_symbol ?? '\u2026'})`}
                   error={formErrors.symbol?.message}
                 >
                   <Input
@@ -318,14 +320,14 @@ export default function BacktestPage() {
                   />
                 </FormField>
 
-                <FormField label="Timeframe" error={formErrors.timeframe?.message}>
+                <FormField label={t('backtest.timeframe')} error={formErrors.timeframe?.message}>
                   <Controller
                     name="timeframe"
                     control={control}
                     render={({ field }) => (
                       <Select value={field.value} onValueChange={(v) => { field.onChange(v); setTimeframe(v) }}>
                         <SelectTrigger className="text-xs h-8">
-                          <SelectValue placeholder="Select timeframe" />
+                          <SelectValue placeholder={t('backtest.selectTimeframe')} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="1m">1m</SelectItem>
@@ -341,7 +343,7 @@ export default function BacktestPage() {
                 </FormField>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <FormField label="Start Date" error={formErrors.startDate?.message}>
+                  <FormField label={t('backtest.startDate')} error={formErrors.startDate?.message}>
                     <Input
                       type="date"
                       className="text-xs h-8"
@@ -350,7 +352,7 @@ export default function BacktestPage() {
                       })}
                     />
                   </FormField>
-                  <FormField label="End Date" error={formErrors.endDate?.message}>
+                  <FormField label={t('backtest.endDate')} error={formErrors.endDate?.message}>
                     <Input
                       type="date"
                       className="text-xs h-8"
@@ -361,7 +363,7 @@ export default function BacktestPage() {
                   </FormField>
                 </div>
 
-                <FormField label="Warmup Bars" error={formErrors.warmupBars?.message}>
+                <FormField label={t('backtest.warmupBars')} error={formErrors.warmupBars?.message}>
                   <Input
                     type="number"
                     className="text-xs h-8"
@@ -375,7 +377,7 @@ export default function BacktestPage() {
                 </FormField>
 
                 <FormField
-                  label="Position Size (USDT, optional)"
+                  label={t('backtest.positionSize')}
                   error={formErrors.positionSizeUsdt?.message}
                 >
                   <Input
@@ -383,7 +385,7 @@ export default function BacktestPage() {
                     className="text-xs h-8"
                     min={0}
                     step="any"
-                    placeholder="use strategy default"
+                    placeholder={t('backtest.useStrategyDefault')}
                     {...register('positionSizeUsdt', {
                       setValueAs: (v) =>
                         v === '' || v === undefined || v === null
@@ -416,7 +418,7 @@ export default function BacktestPage() {
               {status === 'running' ? (
                 <span className="inline-flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Running...
+                  {t('backtest.running')}
                 </span>
               ) : (
                 status
@@ -431,7 +433,7 @@ export default function BacktestPage() {
               onClick={handleCancel}
             >
               <Square className="mr-1.5 h-3 w-3" />
-              Cancel
+              {t('backtest.cancel')}
             </Button>
           ) : (
             <Button
@@ -445,7 +447,7 @@ export default function BacktestPage() {
               ) : (
                 <Play className="mr-1.5 h-3 w-3" />
               )}
-              {loading ? 'Submitting...' : 'Run Backtest'}
+              {loading ? t('backtest.submitting') : t('backtest.runBtn')}
             </Button>
           )}
         </SidebarFooter>
@@ -465,11 +467,11 @@ export default function BacktestPage() {
               {loading ? (
                 <div className="flex flex-col items-center gap-3 text-muted-foreground">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <span className="text-sm capitalize">{status || 'Loading...'}</span>
+                  <span className="text-sm capitalize">{status || t('backtest.loading')}</span>
                 </div>
               ) : error ? (
                 <div className="max-w-lg px-6">
-                  <p className="text-sm font-medium text-tv-red mb-2">Backtest failed</p>
+                  <p className="text-sm font-medium text-tv-red mb-2">{t('backtest.failed')}</p>
                   <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-auto max-h-48 bg-card border border-border rounded-sm p-3">
                     {error}
                   </pre>
@@ -477,7 +479,7 @@ export default function BacktestPage() {
               ) : (
                 <div className="flex flex-col items-center gap-3 text-muted-foreground">
                   <Activity className="h-12 w-12 stroke-1" />
-                  <span className="text-sm">Select a Python strategy, adjust parameters, then run the backtest</span>
+                  <span className="text-sm">{t('backtest.emptyState')}</span>
                 </div>
               )}
             </div>
